@@ -153,6 +153,16 @@ could.
   that it agrees with `dext.cc` bit for bit. `precise::sqrt` is used for the same
   reason. If `tests/test_dext_gpu.cc` starts failing on the `background` field by
   a bit or two, that flag is the first thing to check.
+* **`-DENABLE_FAST_MATH=ON` is how to ask for the other one**, for measuring what
+  it costs and what it buys, and it reaches the device kernels only: `dext.cc` is
+  the reference and compiling it the same way would move the thing being
+  measured. With it on, `test_dext_gpu` tolerates a background differing in its
+  last bits, reports the spread, and still fails if the set of pixels found
+  changed; `bench_dext_gpu` reports the difference and prints its timings
+  regardless. `--version` says so, because a table from such a build is not
+  comparable with DIALS without knowing. The comparison itself is
+  `tests/compare_signal.hh`, shared by both so the test's verdict and the
+  benchmark's caveat are about the same measurement.
 * **The shader is compiled at build time and embedded**, not compiled from source
   at run time. `newLibraryWithSource` needs the Metal compiler present on the
   machine that runs the binary -- a beamline machine -- and a shader that first

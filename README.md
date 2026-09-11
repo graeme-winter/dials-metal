@@ -50,6 +50,7 @@ cmake -S . -B build -DSPOTFINDER_METAL=ON -DMETAL_CPP_DIR=/path/to/metal-cpp
 cmake -S . -B build -DSPOTFINDER_CUDA=ON
 cmake -S . -B build -DSPOTFINDER_AVX2=OFF     # portable SSE2 bitshuffle
 cmake -S . -B build -DSPOTFINDER_SANITIZE=address,undefined
+cmake -S . -B build -DSPOTFINDER_METAL=ON -DENABLE_FAST_MATH=ON
 ```
 
 Configuring both backends at once is a hard error rather than a race at the
@@ -390,6 +391,40 @@ later. There, `host_alloc` returns page-locked memory so the copies to and from
 the device are asynchronous rather than running at half rate -- and the copy to
 the device is not small: 36 MB at 16M pixels is about 2.7 ms over PCIe 3.0 x16,
 a fifth of a frame.
+
+### Fast math, and what it costs
+
+```sh
+cmake -S . -B build -DSPOTFINDER_METAL=ON -DENABLE_FAST_MATH=ON
+cmake --build build -j
+ctest --test-dir build -R dext_gpu --output-on-failure   # what it changed
+build/bench_dext_gpu                                     # what it bought
+```
+
+The shader is normally compiled `-fno-fast-math`, against the Metal compiler's
+default, because the claim the device backends make is that they agree with
+`dext.cc` bit for bit and fast math is licence to reassociate exactly the
+arithmetic that claim is about. `-DENABLE_FAST_MATH=ON` asks for the other one:
+`-ffast-math` for the shader, `-use_fast_math` for nvcc.
+
+It reaches the device only. `dext.cc` is the reference the device is measured
+against, so compiling that the same way would move the thing being measured and
+leave nothing to measure it with. Asking for it in a build with no backend is a
+configure warning rather than a silent no-op.
+
+Both instruments change their minds about what to do with a disagreement:
+
+* `ctest -R dext_gpu` tolerates a background differing in its last bits, says
+  how many pixels differ and by how much in absolute and relative terms, and
+  still fails if the *set* of pixels found has changed. That is the part fast
+  math is not allowed to do quietly -- a spot that appears or disappears is a
+  different answer, not a rounder one.
+* `bench_dext_gpu` reports the same comparison and then prints its timings
+  anyway, where without the flag it refuses to time something unverified. The
+  timings are the reason for the build.
+
+And `--version` says `fast math`, because a reflection table from such a build
+is not one to compare against DIALS without knowing that.
 
 ### Two ways to sum a window
 

@@ -21,6 +21,23 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+# Fast math on the device, for measuring what it costs and what it buys. Off,
+# because the whole claim the device backends make is that they agree with
+# dext.cc bit for bit, and fast math is licence to reassociate the very
+# arithmetic that claim is about -- the Metal compiler has it on unless told
+# otherwise, which is why -fno-fast-math is passed explicitly below.
+#
+# It applies to the device only. dext.cc is the reference the device is compared
+# against, so compiling that with fast math would move the thing being measured
+# and leave nothing to measure it with.
+#
+# With it on, ctest -R dext_gpu tolerates a background differing in its last
+# bits and says by how much, but still fails if the set of pixels found has
+# changed; bench_dext_gpu reports the difference and prints its timings anyway,
+# since the timings are the reason for the build. Named without the project's
+# usual prefix because that is what was asked for.
+option(ENABLE_FAST_MATH "Compile the device kernels with fast math" OFF)
+
 option(SPOTFINDER_TESTS "Build the tests" ON)
 option(SPOTFINDER_CUDA "Build the CUDA threshold kernels" OFF)
 option(SPOTFINDER_METAL "Build the Metal threshold kernels" OFF)
@@ -107,7 +124,14 @@ if(SPOTFINDER_METAL)
     #
     # -fno-fast-math because the point of that file is that it agrees with
     # dext.cc: fast math is on by default and would reassociate the dispersion
-    # test out from under the comparison.
+    # test out from under the comparison. -DENABLE_FAST_MATH asks for the other
+    # one, deliberately.
+    if(ENABLE_FAST_MATH)
+        set(spotfinder_metal_math -ffast-math)
+    else()
+        set(spotfinder_metal_math -fno-fast-math)
+    endif()
+
     set(spotfinder_metal_air "${CMAKE_CURRENT_BINARY_DIR}/dext_metal.air")
     set(spotfinder_metallib "${CMAKE_CURRENT_BINARY_DIR}/dext_metal.metallib")
     set(spotfinder_metallib_cc "${CMAKE_CURRENT_BINARY_DIR}/dext_metal_library.cc")
@@ -115,7 +139,7 @@ if(SPOTFINDER_METAL)
     add_custom_command(
         OUTPUT ${spotfinder_metal_air}
         COMMAND ${SPOTFINDER_XCRUN} -sdk macosx metal
-                -std=metal3.0 -fno-fast-math -Wall -Werror
+                -std=metal3.0 ${spotfinder_metal_math} -Wall -Werror
                 -c "${CMAKE_CURRENT_SOURCE_DIR}/src/dext_metal.metal"
                 -o ${spotfinder_metal_air}
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/dext_metal.metal"
@@ -243,6 +267,33 @@ else()
     endif()
 endif()
 
+# What every target carrying device kernels is given. Collected here so that the
+# executable, the device test and the benchmark cannot end up compiled three
+# different ways -- which would make the test's verdict about a different binary
+# from the one being timed.
+set(spotfinder_gpu_definitions "")
+set(spotfinder_cuda_options "")
+if(ENABLE_FAST_MATH)
+    if(SPOTFINDER_CUDA OR SPOTFINDER_METAL)
+        list(APPEND spotfinder_gpu_definitions SPOTFINDER_FAST_MATH)
+        list(APPEND spotfinder_cuda_options
+             "$<$<COMPILE_LANGUAGE:CUDA>:-use_fast_math>")
+        message(STATUS
+                "fast math: ON for the device kernels. They no longer agree "
+                "with dext.cc bit for bit, so run ctest -R dext_gpu to see "
+                "what changed before believing a .refl from this build.")
+    else()
+        # Rather than silently doing nothing: fast math here means the device
+        # kernels, and dext.cc is left alone on purpose because it is the
+        # reference they are measured against.
+        message(WARNING
+                "ENABLE_FAST_MATH is on but neither device backend is being "
+                "built. It applies to the device kernels only -- the CPU "
+                "threshold is the reference and is never compiled with it -- so "
+                "this build is unaffected.")
+    endif()
+endif()
+
 find_package(Threads REQUIRED)
 
 # HDF5, the C library only, and only H5D chunk reads plus the virtual-dataset
@@ -346,9 +397,11 @@ target_link_libraries(dials-metal-find-spots
 if(SPOTFINDER_CUDA)
     target_sources(dials-metal-find-spots PRIVATE src/dext_cuda.cu)
     target_compile_definitions(dials-metal-find-spots PRIVATE
-                               SPOTFINDER_CUDA SPOTFINDER_GPU)
+                               SPOTFINDER_CUDA SPOTFINDER_GPU
+                               ${spotfinder_gpu_definitions})
     target_link_libraries(dials-metal-find-spots
         PRIVATE spotfinder_signal_order spotfinder_dext_gpu)
+    target_compile_options(dials-metal-find-spots PRIVATE ${spotfinder_cuda_options})
     # No separable compilation: there is one .cu file and nothing calls across
     # translation units on the device, so the extra nvcc device-link step buys
     # nothing -- and it would be handed the host linker's flags, which it does
@@ -375,7 +428,8 @@ if(SPOTFINDER_METAL)
 
     target_link_libraries(dials-metal-find-spots PRIVATE spotfinder_dext_metal)
     target_compile_definitions(dials-metal-find-spots PRIVATE
-                               SPOTFINDER_METAL SPOTFINDER_GPU)
+                               SPOTFINDER_METAL SPOTFINDER_GPU
+                               ${spotfinder_gpu_definitions})
 endif()
 
 install(TARGETS dials-metal-find-spots RUNTIME DESTINATION bin)
@@ -447,6 +501,9 @@ if(SPOTFINDER_TESTS)
                        ${spotfinder_gpu_test_sources})
         target_include_directories(test_dext_gpu PRIVATE tests)
         target_link_libraries(test_dext_gpu PRIVATE ${spotfinder_gpu_test_libs})
+        target_compile_definitions(test_dext_gpu PRIVATE
+                                   ${spotfinder_gpu_definitions})
+        target_compile_options(test_dext_gpu PRIVATE ${spotfinder_cuda_options})
         add_test(NAME dext_gpu COMMAND test_dext_gpu)
         set_tests_properties(dext_gpu PROPERTIES SKIP_RETURN_CODE 77)
 
@@ -458,5 +515,8 @@ if(SPOTFINDER_TESTS)
         target_include_directories(bench_dext_gpu PRIVATE tests)
         target_link_libraries(bench_dext_gpu
             PRIVATE ${spotfinder_gpu_test_libs} Threads::Threads)
+        target_compile_definitions(bench_dext_gpu PRIVATE
+                                   ${spotfinder_gpu_definitions})
+        target_compile_options(bench_dext_gpu PRIVATE ${spotfinder_cuda_options})
     endif()
 endif()

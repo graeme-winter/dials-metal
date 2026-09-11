@@ -41,6 +41,7 @@
 #include <thread>
 #include <vector>
 
+#include "compare_signal.hh"
 #include "dext.hh"
 #include "dext_gpu.hh"
 #include "synthetic_frame.hh"
@@ -48,6 +49,12 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+#ifdef SPOTFINDER_FAST_MATH
+constexpr bool kFastMath = true;
+#else
+constexpr bool kFastMath = false;
+#endif
 
 double milliseconds(Clock::time_point from, Clock::time_point to) {
   return std::chrono::duration<double, std::milli>(to - from).count();
@@ -410,6 +417,9 @@ int main(int argc, char **argv) {
   }
 
   if (disagreed) {
+    // Between window variants, not against the CPU: these run the same
+    // arithmetic in a different order, so fast math does not excuse a
+    // difference here and it makes the timings meaningless either way.
     std::printf("\nthe configurations disagree about what they found. The "
                 "timings are meaningless; run ctest -R dext_gpu.\n");
     return 1;
@@ -479,16 +489,31 @@ int main(int argc, char **argv) {
   const Timing cpu = summarise(cpu_samples);
   report("dext()", cpu, pixels);
 
-  // Checked before it is claimed.
+  // Checked before it is claimed. Under fast math the device is not running the
+  // CPU's arithmetic, so a difference is the flag working rather than a fault:
+  // it is measured, printed and carried past, because the timings are the
+  // reason the build exists and refusing to print them would be answering a
+  // question nobody asked.
   if (!identical(cpu_signal, reference)) {
-    std::printf("\nthe cpu found %zu signal pixels and the device %zu. The "
-                "timings above are of something unverified; run "
-                "ctest -R dext_gpu.\n",
-                cpu_signal.size(), reference.size());
-    return 1;
+    const compare_signal::Difference d =
+        compare_signal::difference(cpu_signal, reference);
+    std::printf("\nthe cpu and the device do not agree:\n");
+    compare_signal::report("cpu against device", d, height, width);
+    if (!kFastMath) {
+      std::printf("\nthe timings above are of something unverified; run "
+                  "ctest -R dext_gpu.\n");
+      return 1;
+    }
+    std::printf("\nthis build has -DENABLE_FAST_MATH, so read the above as "
+                "the cost of that flag\n  in accuracy, and the timings as its "
+                "benefit in speed.%s\n",
+                d.same_pixels()
+                    ? " The same pixels were found."
+                    : " Note that it changed which pixels were found.");
+  } else {
+    std::printf("\n%zu signal pixels, and every implementation agrees.%s\n",
+                reference.size(), kFastMath ? " Even with fast math on." : "");
   }
-  std::printf("\n%zu signal pixels, and every implementation agrees.\n",
-              reference.size());
   // Which matters for reading the profile below. Two of its lines -- copying
   // the packed list back and ordering it -- are proportional to this count,
   // and the planted frame is far denser than diffraction: a real sweep of this

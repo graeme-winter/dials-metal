@@ -80,12 +80,20 @@ struct Options {
   std::size_t chunk = 0; // frames collected before grouping; 0 picks one
 };
 
+// Which backend, and whether its arithmetic is the CPU's. A reflection table
+// from a fast-math build is not one to compare against DIALS without knowing
+// that, so it is in the one line that identifies the binary.
 void report_version(const char *program) {
-  std::printf("%s %s (%s)\n", program, SPOTFINDER_VERSION,
+  std::printf("%s %s (%s%s)\n", program, SPOTFINDER_VERSION,
 #ifdef SPOTFINDER_GPU
-              gpu::backend()
+              gpu::backend(),
 #else
-              "no GPU"
+              "no GPU",
+#endif
+#ifdef SPOTFINDER_FAST_MATH
+              ", fast math"
+#else
+              ""
 #endif
   );
 }

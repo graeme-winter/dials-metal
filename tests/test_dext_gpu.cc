@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "compare_signal.hh"
 #include "dext.hh"
 #include "dext_gpu.hh"
 #include "synthetic_frame.hh"
@@ -37,49 +38,36 @@ namespace {
 using synthetic::Frame;
 using synthetic::make_frame;
 
+#ifdef SPOTFINDER_FAST_MATH
+constexpr bool kFastMath = true;
+#else
+constexpr bool kFastMath = false;
+#endif
+
 // Reported by field, because which field differs says what is wrong: index
 // means the emit or the sort, value means the masking, background and
 // population mean the second-pass window.
+//
+// Exact equality is the claim, with one exception. A build configured
+// -DENABLE_FAST_MATH has asked the shader compiler to reassociate the very
+// arithmetic this compares, so a background differing in its last bits is the
+// expected outcome of the flag rather than a fault. The pixels found must still
+// be the same pixels: that is the part fast math is not allowed to change, and
+// if it does, the numbers say by how many.
 bool compare(const Frame &frame, const std::vector<SignalPixel> &cpu,
              const std::vector<SignalPixel> &gpu) {
-  if (cpu.size() != gpu.size()) {
-    std::printf("  FAIL %s: cpu found %zu signal pixels, gpu found %zu\n",
-                frame.name.c_str(), cpu.size(), gpu.size());
-    // Still worth saying where they first part company.
-    const std::size_t n = cpu.size() < gpu.size() ? cpu.size() : gpu.size();
-    for (std::size_t k = 0; k < n; k++) {
-      if (cpu[k].index != gpu[k].index) {
-        std::printf("       first differing index at entry %zu: cpu %u, gpu %u "
-                    "(row %u, column %u)\n",
-                    k, cpu[k].index, gpu[k].index,
-                    cpu[k].index / static_cast<unsigned>(frame.width),
-                    cpu[k].index % static_cast<unsigned>(frame.width));
-        break;
-      }
-    }
-    return false;
-  }
+  const compare_signal::Difference d = compare_signal::difference(cpu, gpu);
+  if (d.identical())
+    return true;
 
-  for (std::size_t k = 0; k < cpu.size(); k++) {
-    const SignalPixel &a = cpu[k];
-    const SignalPixel &b = gpu[k];
-    if (a.index == b.index && a.value == b.value &&
-        a.population == b.population && a.background == b.background)
-      continue;
-    std::printf("  FAIL %s: entry %zu differs\n", frame.name.c_str(), k);
-    std::printf("       cpu index %u value %u background %.9g population %u\n",
-                a.index, a.value, static_cast<double>(a.background),
-                a.population);
-    std::printf("       gpu index %u value %u background %.9g population %u\n",
-                b.index, b.value, static_cast<double>(b.background),
-                b.population);
-    std::printf("       row %u, column %u of %zu x %zu\n",
-                a.index / static_cast<unsigned>(frame.width),
-                a.index % static_cast<unsigned>(frame.width), frame.height,
-                frame.width);
-    return false;
+  const bool tolerable = kFastMath && d.same_pixels();
+  std::printf("  %s %s\n", tolerable ? "DIFFERS" : "FAIL", frame.name.c_str());
+  compare_signal::report(frame.name.c_str(), d, frame.height, frame.width);
+  if (tolerable) {
+    std::printf("    tolerated: this build has fast math on, and the same "
+                "pixels were found\n");
   }
-  return true;
+  return tolerable;
 }
 
 bool run(const Frame &frame) {
@@ -149,6 +137,12 @@ int main() {
   gpu::report_windows(false);
 
   std::printf("comparing dext() against the %s backend\n", gpu::backend());
+  if (kFastMath) {
+    std::printf("this build has -DENABLE_FAST_MATH, so the device arithmetic "
+                "is not the CPU's:\n  a background differing in its last bits "
+                "is tolerated and reported, a\n  difference in which pixels "
+                "were found is not.\n");
+  }
 
   std::vector<Frame> frames;
   // Exactly one threadgroup, so nothing is clipped.
