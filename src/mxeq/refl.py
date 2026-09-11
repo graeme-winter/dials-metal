@@ -1,12 +1,17 @@
 """Read and write DIALS reflection tables (``.refl``) without cctbx.
 
-A ``.refl`` file is a msgpack document.  At the top level it is a two-element
-array whose first element is the tag ``dials::af::reflection_table`` and whose
-second is a map with the row count, the experiment identifiers, and the
-columns.  Each column is itself a two-element array of a C++ type name and a
-payload; for every numeric type the payload is a single ``bin`` holding the
-values packed little-endian, with the components of a compound type adjacent
-rather than in separate arrays.
+A ``.refl`` file is a msgpack document.  At the top level it is a three-element
+array: the tag ``dials::af::reflection_table``, a format version, and a map
+holding the row count, the experiment identifiers, and the columns.  Each
+column is a two-element array of a C++ type name and a payload, and the payload
+is itself a pair of an element count and a ``bin`` holding the values packed
+little-endian, with the components of a compound type adjacent rather than in
+separate arrays.
+
+The element count inside the payload is the number of *rows*, not the number of
+scalars, so a ``vec3<double>`` column of 13766 rows reports 13766 and carries
+330384 bytes.  It is checked against the blob length rather than trusted,
+because the two disagreeing is the signature of a truncated file.
 
 Nothing here knows about cctbx.  That is the point: the checker has to run in a
 container with no DIALS build in it, against files written by a DIALS build
@@ -14,11 +19,17 @@ somewhere else.
 
 STATUS
 ------
-The structure above is taken from DIALS' own msgpack adapter and round-trips
-against :func:`write` in ``tests/``.  It has *not* been validated against a
-``.refl`` written by a real DIALS.  ``mxeq inspect`` exists so that the first
-contact with a real file says exactly what the difference is: it walks the
-document without assuming any of the key names below.
+Validated against ``strong.refl`` and ``metal.refl`` written by DIALS 3.x and by
+``dials-metal-find-spots`` (13766 rows, ten columns including a shoebox).  The
+first version of this reader assumed a two-element top level and a bare ``bin``
+payload, and was wrong on both counts; see ``CLAUDE.md``.  Element widths --
+``int`` 4 bytes, ``std::size_t`` 8, ``double`` 8, ``vec3<double>`` 24, ``int6``
+24 -- were confirmed against that file.
+
+Both the two- and three-element top level are accepted, and a payload is
+accepted either wrapped in its count or bare, because neither cost anything and
+a reader that only understands the one file it was tested on is not much of a
+reader.
 """
 
 from __future__ import annotations
@@ -30,6 +41,9 @@ import msgpack
 import numpy as np
 
 TAG = "dials::af::reflection_table"
+
+#: The format version DIALS writes, and the one :func:`dumps` writes back.
+FORMAT_VERSION = 2
 
 #: The tag accepted for the map key holding the experiment identifiers.  DIALS
 #: has spelled this more than one way; both are read, the first is written.
@@ -78,6 +92,9 @@ class ReflectionTable:
     identifiers: dict[int, str] = field(default_factory=dict)
     types: dict[str, str] = field(default_factory=dict)
     opaque: dict[str, str] = field(default_factory=dict)
+    #: The format version read from the file, or None if the document had no
+    #: version element. Reported by `mxeq inspect`, not acted on.
+    version: int | None = None
 
     def __len__(self) -> int:
         return self.nrows
@@ -113,6 +130,28 @@ class ReflectionTable:
             identifiers=dict(self.identifiers),
             types=dict(self.types),
         )
+
+
+def _unwrap(name: str, payload: object, nrows: int) -> object:
+    """Strip the (count, blob) pair DIALS wraps each column payload in.
+
+    The count is the number of rows and not the number of scalars, so it is
+    compared against the row count rather than against the blob length divided
+    by anything. A count that disagrees means a truncated or mis-assembled
+    file, which is worth an error rather than a silently short column.
+    """
+    if isinstance(payload, (list, tuple)) and len(payload) == 2:
+        count, inner = payload
+        if isinstance(count, int) and isinstance(
+            inner, (bytes, bytearray, list, tuple)
+        ):
+            if count != nrows:
+                raise ReflFormatError(
+                    f"column {name!r}: payload declares {count} elements, "
+                    f"the table declares {nrows} rows"
+                )
+            return inner
+    return payload
 
 
 def _decode_column(name: str, type_name: str, payload: object) -> np.ndarray:
@@ -167,16 +206,20 @@ def _unraw(obj: object) -> object:
 
 
 def _from_document(doc: object) -> ReflectionTable:
-    if not isinstance(doc, (list, tuple)) or len(doc) != 2:
+    if not isinstance(doc, (list, tuple)) or len(doc) not in (2, 3):
         raise ReflFormatError(
-            "not a reflection table: the document is not a two-element array. "
-            "Run `mxeq inspect` on it."
+            "not a reflection table: the document is not an array of two or "
+            "three elements. Run `mxeq inspect` on it."
         )
     tag = _text(doc[0])
     if tag != TAG:
         raise ReflFormatError(f"unexpected tag {tag!r}, expected {TAG!r}")
 
-    body = _unraw(doc[1])
+    # Three elements is [tag, version, body]; two is [tag, body]. The version
+    # is kept rather than checked: a reader that refuses an unknown version
+    # cannot report what it found, and reporting is the whole job here.
+    version = int(doc[1]) if len(doc) == 3 and isinstance(doc[1], int) else None
+    body = _unraw(doc[-1])
     if not isinstance(body, dict):
         raise ReflFormatError("the reflection table body is not a map")
 
@@ -196,7 +239,7 @@ def _from_document(doc: object) -> ReflectionTable:
     if not isinstance(data, dict):
         raise ReflFormatError("no 'data' map in the table body")
 
-    table = ReflectionTable(nrows=nrows, identifiers=identifiers)
+    table = ReflectionTable(nrows=nrows, identifiers=identifiers, version=version)
     for raw_name, column in data.items():
         name = str(_text(raw_name))
         if not isinstance(column, (list, tuple)) or len(column) != 2:
@@ -212,7 +255,9 @@ def _from_document(doc: object) -> ReflectionTable:
             )
             table.opaque[name] = type_name
             continue
-        table.columns[name] = _decode_column(name, type_name, column[1])
+        table.columns[name] = _decode_column(
+            name, type_name, _unwrap(name, column[1], nrows)
+        )
         table.types[name] = type_name
 
     table.validate()
@@ -236,13 +281,18 @@ def dumps(table: ReflectionTable) -> bytes:
         type_name = table.types.get(name)
         if type_name is None:
             raise ReflFormatError(f"column {name!r} has no recorded C++ type")
-        data[name] = [type_name, _encode_column(values, type_name)]
+        data[name] = [
+            type_name,
+            [table.nrows, _encode_column(values, type_name)],
+        ]
     body = {
-        "nrows": table.nrows,
         IDENTIFIER_KEYS[0]: {int(k): v for k, v in table.identifiers.items()},
+        "nrows": table.nrows,
         "data": data,
     }
-    return msgpack.packb([TAG, body], use_bin_type=True)
+    return msgpack.packb(
+        [TAG, table.version or FORMAT_VERSION, body], use_bin_type=True
+    )
 
 
 def write(path: str, table: ReflectionTable) -> None:
@@ -253,10 +303,23 @@ def write(path: str, table: ReflectionTable) -> None:
 def structure(raw: bytes, max_items: int = 40) -> list[str]:
     """Describe an unknown msgpack document, assuming nothing about its keys.
 
-    This is what to reach for when :func:`loads` refuses a real file.  It never
-    raises on structure, so its output is the diagnostic.
+    This is what to reach for when :func:`loads` refuses a real file, so it
+    must not raise -- and the first version did, on the first real file it was
+    given, because it decoded every ``bin`` as UTF-8 to see whether it was
+    printable text.  A column of packed doubles is not valid UTF-8.  An escape
+    hatch that fails on binary data is no escape hatch at all.
     """
     lines: list[str] = []
+
+    def printable(obj: bytes) -> str | None:
+        """The value as text, or None if it is not short printable text."""
+        if len(obj) >= 60:
+            return None
+        try:
+            text = obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        return text if text.isprintable() else None
 
     def walk(obj: object, indent: int, label: str) -> None:
         pad = "  " * indent
@@ -266,7 +329,10 @@ def structure(raw: bytes, max_items: int = 40) -> list[str]:
                 if i >= max_items:
                     lines.append(f"{pad}  ... {len(obj) - max_items} more")
                     break
-                walk(v, indent + 1, f"{_text(k)!r}: ")
+                key = k
+                if isinstance(k, (bytes, bytearray)):
+                    key = printable(bytes(k)) or f"<{len(k)} bytes>"
+                walk(v, indent + 1, f"{key!r}: ")
         elif isinstance(obj, (list, tuple)):
             lines.append(f"{pad}{label}array, {len(obj)} items")
             for i, v in enumerate(obj):
@@ -275,11 +341,11 @@ def structure(raw: bytes, max_items: int = 40) -> list[str]:
                     break
                 walk(v, indent + 1, f"[{i}] ")
         elif isinstance(obj, (bytes, bytearray)):
-            text = _text(obj)
-            if isinstance(text, str) and text.isprintable() and len(text) < 60:
-                lines.append(f"{pad}{label}{text!r}")
-            else:
+            text = printable(bytes(obj))
+            if text is None:
                 lines.append(f"{pad}{label}binary, {len(obj)} bytes")
+            else:
+                lines.append(f"{pad}{label}{text!r}")
         else:
             lines.append(f"{pad}{label}{obj!r}")
 
@@ -287,5 +353,8 @@ def structure(raw: bytes, max_items: int = 40) -> list[str]:
         doc = msgpack.unpackb(raw, raw=True, strict_map_key=False)
     except Exception as exc:  # noqa: BLE001 - the exception *is* the report
         return [f"not decodable as msgpack: {exc}"]
-    walk(doc, 0, "")
+    try:
+        walk(doc, 0, "")
+    except Exception as exc:  # noqa: BLE001 - never let the escape hatch fail
+        lines.append(f"... description stopped: {type(exc).__name__}: {exc}")
     return lines
