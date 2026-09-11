@@ -39,8 +39,14 @@ Experiment insulin(double cell = 78.0) {
   p.pixel_size[0] = p.pixel_size[1] = 0.075;
   p.image_size[0] = 4148;
   p.image_size[1] = 4362;
-  // Beam centre near the middle of the panel.
-  p.origin = {-0.075 * 2074.0, 0.075 * 2181.0, 200.0};
+  // Beam centre near the middle of the panel, and the panel at NEGATIVE z.
+  // dxtbx stores the beam direction pointing back towards the source, so with
+  // direction +z the beam propagates towards -z and the detector must be
+  // there. The first version of this fixture put the panel at +z, which was
+  // consistent only with the wrong sign of s0 and so predicted nothing once
+  // the sign was corrected. A geometry fixture that cannot diffract is a
+  // silent test, not a failing one -- hence the count assertions below.
+  p.origin = {-0.075 * 2074.0, 0.075 * 2181.0, -200.0};
   e.detector.panels.push_back(p);
 
   e.goniometer.axis = {1.0, 0.0, 0.0};
@@ -187,7 +193,7 @@ TEST(panel_lab_coordinate_and_intersection_are_inverses) {
   const Panel &p = e.detector[0];
   for (double x : {0.0, 1.5, 2074.0, 4147.0}) {
     for (double y : {0.0, 900.25, 2181.0, 4361.0}) {
-      const Vec3 lab = p.lab_coord(x, y);
+      const Vec3 lab = p.lab_coord_px(x, y);
       const auto back = p.intersect(lab.normalized() / e.beam.wavelength);
       check::is_true(back.has_value(), "ray from a panel point must hit it");
       check::close(back->first, x, 1e-9, "fast");
@@ -202,7 +208,7 @@ TEST(panel_accepts_a_ray_on_its_exact_corner) {
   // an edge, and on a tiled detector loses rays that strike a seam.
   const Experiment e = insulin();
   const Panel &p = e.detector[0];
-  const auto corner = p.intersect(p.lab_coord(0.0, 0.0).normalized());
+  const auto corner = p.intersect(p.lab_coord_px(0.0, 0.0).normalized());
   check::is_true(corner.has_value(), "the exact corner must be on the panel");
   check::close(corner->first, 0.0, 1e-9, "fast at the corner");
   check::close(corner->second, 0.0, 1e-9, "slow at the corner");
@@ -211,15 +217,17 @@ TEST(panel_accepts_a_ray_on_its_exact_corner) {
 TEST(panel_rejects_rays_that_miss_or_go_backwards) {
   const Experiment e = insulin();
   const Panel &p = e.detector[0];
-  // Straight back towards the source.
-  check::is_true(!p.intersect(Vec3{0.0, 0.0, -1.0}).has_value(),
+  // Straight back towards the source, away from the panel.
+  check::is_true(!p.intersect(Vec3{0.0, 0.0, 1.0}).has_value(),
                  "backward ray must not hit");
   // Just past the far edge, which must still be rejected: the tolerance is a
   // nanopixel, not a licence to widen the panel.
-  check::is_true(!p.intersect(p.lab_coord(4148.5, 100.0).normalized()).has_value(),
+  check::is_true(!p.intersect(p.lab_coord_mm(4148.5 * 0.075, 100.0 * 0.075)
+                                  .normalized())
+                      .has_value(),
                  "a ray past the last pixel must not hit");
   // A ray that would hit the plane far outside the panel bounds.
-  const Vec3 far = p.lab_coord(-500.0, -500.0);
+  const Vec3 far = p.lab_coord_mm(-500.0 * 0.075, -500.0 * 0.075);
   check::is_true(!p.intersect(far.normalized()).has_value(),
                  "ray outside the panel must not hit");
   // Parallel to the panel.
