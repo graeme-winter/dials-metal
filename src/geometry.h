@@ -1,24 +1,27 @@
 // The experimental geometry, and the two maps that matter: a spot on the
 // detector to a point in the crystal's reciprocal space, and back again.
 //
-// CONVENTIONS -- READ THIS
+// CONVENTIONS -- VALIDATED
 // -----------------------
-// Everything below encodes a belief about how DIALS defines its geometry, and
-// those beliefs have not yet been checked against an .expt written by DIALS.
-// They are all in this one file so that when a real file is available there is
-// exactly one place to correct, and `docs/conventions.md` lists them with the
-// test that would falsify each.
-//
-// The closed-loop test -- predict reflections from a crystal, then index the
-// predictions and recover the crystal -- passes under *any* self-consistent
-// convention, so it cannot detect a sign error here. Only a real file can.
-// Do not mistake a green test suite for a validated convention.
+// These were beliefs until they met a real .expt and indexed.refl, at which
+// point one of them turned out to be backwards and a whole correction turned
+// out to be missing. `docs/conventions.md` records which, and what is still
+// unvalidated. The closed-loop test could not have caught either, because an
+// error present in both the forward and reverse map cancels exactly.
 //
 // As implemented:
 //
-//   s0        = direction * (1 / wavelength), direction being the unit vector
-//               along beam propagation, source towards sample.
-//   s1        = unit vector from sample to the pixel, over the wavelength.
+//   s0        = -direction * (1 / wavelength). NEGATIVE. dxtbx stores the beam
+//               direction pointing from the sample back towards the source, so
+//               s0, which points along propagation, is its negation. Getting
+//               this wrong puts the Ewald sphere on the wrong side of the
+//               origin and nothing indexes at all: with the sign flipped the
+//               residual against A h is 2.1 per reciprocal Angstrom against a
+//               reciprocal cell edge of 0.0128, so it fails loudly.
+//   px <-> mm = parallax corrected, not a multiplication by the pixel size.
+//               See Panel below; it is worth 1.6 pixels at the panel edge.
+//   s1        = unit vector from sample to the corrected position, over the
+//               wavelength.
 //   q         = s1 - s0, the scattering vector in the laboratory frame.
 //   R(phi)    = setting * rotation(axis, phi) * fixed, the full goniometer
 //               rotation taking crystal frame to laboratory frame.
@@ -49,7 +52,8 @@ struct Beam {
   Vec3 direction{0.0, 0.0, 1.0};
   double wavelength = 1.0;
 
-  Vec3 s0() const { return direction.normalized() / wavelength; }
+  // Note the sign: see the convention block at the top of this file.
+  Vec3 s0() const { return -direction.normalized() / wavelength; }
 };
 
 struct Panel {
@@ -62,14 +66,42 @@ struct Panel {
   double trusted_min = 0.0;
   double trusted_max = 65535.0;
 
-  // Laboratory position of a point given in pixels. Fractional pixels are
-  // meaningful: a centroid is not on a pixel boundary.
-  Vec3 lab_coord(double px_fast, double px_slow) const {
-    return origin + fast * (px_fast * pixel_size[0]) +
-           slow * (px_slow * pixel_size[1]);
-  }
+  // Parallax correction. An X-ray entering a thick silicon sensor at an angle
+  // travels some way through it before being absorbed, so the pixel that fires
+  // is displaced outwards from where the ray met the front face. On a 0.45 mm
+  // sensor that reaches 1.6 pixels at the edge of the panel, which is twenty
+  // times the centroid precision and impossible to absorb into the geometry.
+  //
+  // Ignoring it does not make the model wrong by a constant; it makes it wrong
+  // by a smooth function of the scattering angle, which refinement then partly
+  // absorbs into the detector distance, leaving a radial residual behind.
+  bool parallax = false;
+  double mu = 0.0;         // attenuation coefficient, per mm
+  double thickness = 0.0;  // sensor thickness, mm
 
   Vec3 normal() const { return fast.cross(slow).normalized(); }
+
+  // The lateral displacement caused by absorption at depth, evaluated at the
+  // position given. Both directions of the conversion evaluate it at their own
+  // input, which is not self-inverse to better than about a thousandth of a
+  // millimetre -- and is exactly what DIALS does, checked against real
+  // xyzobs.mm and xyzcal.px to the last bit.
+  std::pair<double, double> parallax_offset(double mm_fast,
+                                            double mm_slow) const;
+
+  // Pixels to millimetres on the panel face, and back.
+  std::pair<double, double> px_to_mm(double px_fast, double px_slow) const;
+  std::pair<double, double> mm_to_px(double mm_fast, double mm_slow) const;
+
+  // Laboratory position of a point given in millimetres on the panel face.
+  Vec3 lab_coord_mm(double mm_fast, double mm_slow) const {
+    return origin + fast * mm_fast + slow * mm_slow;
+  }
+  // Laboratory position of a point given in pixels, parallax included.
+  Vec3 lab_coord_px(double px_fast, double px_slow) const {
+    const auto mm = px_to_mm(px_fast, px_slow);
+    return lab_coord_mm(mm.first, mm.second);
+  }
 
   // Where a diffracted ray meets this panel, in pixels. Returns nothing if the
   // ray is parallel to the panel, hits it from behind, or lands off the edge.
@@ -96,6 +128,19 @@ struct Goniometer {
   Vec3 axis{1.0, 0.0, 0.0};
   Mat3 fixed = Mat3::identity();
   Mat3 setting = Mat3::identity();
+
+  // A multi-axis goniometer, as dxtbx serialises one: a list of axes, the
+  // angle each is set to, and which of them the scan turns. Everything below
+  // the scan axis is carried by the sample and becomes the fixed rotation;
+  // everything above it moves the scan axis itself and becomes the setting
+  // rotation.
+  //
+  // With every angle at zero -- the common case, and the case in the insulin
+  // data -- both come out as the identity, which means a single-axis dataset
+  // cannot test this decomposition at all.
+  static Goniometer from_axes(const std::vector<Vec3> &axes,
+                              const std::vector<double> &angles_deg,
+                              std::size_t scan_axis);
 
   Mat3 rotation_at(double phi) const {
     return setting * rotation(axis, phi) * fixed;
