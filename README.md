@@ -96,6 +96,12 @@ reporting a near-total disagreement in intensity.
 
 ## Status
 
-Reader format assumptions are round-tripped against this package's own writer
-and have **not** yet been checked against a `.refl` written by a real DIALS.
-`mxeq inspect` exists for exactly that first contact. See `CLAUDE.md`.
+The `.refl` format is validated against real `dials.find_spots` and
+`dials-metal-find-spots` output, and `tests/data` holds a 48-row cut of it so
+that is checked on every run. `.expt` is exercised only against synthetic
+files so far.
+
+The first version of the reader was wrong about the format in two ways and its
+entire test suite passed, because the only format check was a round-trip
+against its own writer. `CLAUDE.md` records that; it is the reason
+`tests/test_format.py` asserts on raw bytes.

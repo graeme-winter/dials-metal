@@ -30,28 +30,53 @@ demanding it would report every difference in summation order as a failure.
 changes, the change must be explicit and documented here, because scripts will
 have been written against the current meaning.
 
-## Format assumptions -- STATUS
+## Format -- validated
 
-The `.refl` layout in `src/mxeq/refl.py` is taken from DIALS' msgpack adapter:
-a two-element array tagged `dials::af::reflection_table`, then a map with
-`nrows`, the identifiers, and `data` mapping column name to a
-`[type_name, payload]` pair, payloads being raw little-endian blobs with
-compound components adjacent.
+The `.refl` layout is now pinned against real files (`dials.find_spots` and
+`dials-metal-find-spots` output, 13766 rows, ten columns including a shoebox):
 
-**This round-trips against this package's own writer and has not been validated
-against a `.refl` written by a real DIALS.** `mxeq inspect` walks an arbitrary
-msgpack document without assuming any key name, and exists precisely for that
-first contact. When a real file is available:
+```
+[ "dials::af::reflection_table", 2, { identifiers, nrows, data } ]
+data[column] = [ type_name, [ nrows, blob ] ]
+```
 
-1. `mxeq inspect real.refl`
-2. If it reads, the assumption held. Record that here and delete this block.
-3. If it does not, the structure dump says what the difference is. It will be
-   a key name or a payload encoding, and the fix is small.
+Text is msgpack `str`, payloads are `bin`, blobs are little-endian with the
+components of a compound type adjacent. Element widths: `int` 4, `std::size_t`
+8, `double` 8, `vec3<double>` 24, `int6` 24. The count inside a payload is the
+number of **rows**, not scalars, and is checked rather than trusted.
+
+`tests/data/` holds a 48-row cut of real output, sliced by
+`tests/make_real_fixture.py` rather than written by `refl.dumps` -- see below
+for why that distinction is the whole point. Its first 31 bytes are identical
+to the real file's.
 
 The identifiers key is read under both `identifiers` and
-`experiment_identifiers` because DIALS has spelled it more than one way.
+`experiment_identifiers` because DIALS has spelled it more than one way. Both
+the two- and three-element top level, and wrapped or bare payloads, are
+accepted: it costs nothing, and a reader that understands only the one file it
+was tested against is not much of a reader.
 
 ## Things that were got wrong once
+
+**The format was wrong in two ways and the whole suite passed anyway.** The
+first reader assumed a two-element top level (it is three, with a version) and
+a bare payload blob (it is a `[count, blob]` pair). Seventy tests passed,
+because the only thing checking the format was a round-trip against this
+package's own writer -- and a writer built from the same wrong assumption is
+perfectly consistent with it.
+
+A round-trip proves self-consistency. **Only a file written by something else
+proves a format.** That is why `tests/data` exists, why the fixture is cut by
+slicing a real document's blobs rather than by calling `refl.dumps`, and why
+`tests/test_format.py` asserts on raw header bytes and element widths instead
+of on decode-then-encode.
+
+**The escape hatch failed on the first real file it saw.** `refl.structure()`
+was documented as never raising, and raised `UnicodeDecodeError` -- it decoded
+every `bin` to test whether it was printable text, and a column of packed
+doubles is not valid UTF-8. A diagnostic that only works on data that was
+already readable is not a diagnostic. It now has a `printable()` helper that
+returns `None` instead of raising, and a blanket `except` around the walk.
 
 **The A matrix is the plain inverse of the real-space matrix, not the inverse
 transpose.** The real-space matrix has a, b, c as its *rows*, so `M A = I` by
