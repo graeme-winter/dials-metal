@@ -45,12 +45,19 @@ It is also the stage most worth putting on a GPU. Each reflection needs one
 touches anything outside it — one thread per candidate `hkl`, fixed work, and
 the only shared state is the output.
 
-## The thing to be careful about
+## Conventions
 
-Every geometry convention in `src/geometry.h` is a **belief** about DIALS and
-has not been checked against a real `.expt`. The closed-loop test cannot catch
-a convention error, because an error present in both the forward and reverse
-map cancels exactly.
+Validated against real `dials.index` output on a 300-image insulin sweep.
+`tests/test_real_geometry.cc` re-checks it on every build from forty embedded
+reflections.
 
-`docs/conventions.md` lists all seven, what each would break, and the test that
-would falsify it. Read it before trusting any output against DIALS.
+Two conventions were wrong before that file arrived, and the closed-loop test
+could not have caught either — it applies each convention once forward and once
+backward, so an error cancels itself:
+
+- `s0 = -direction / wavelength`, not `+`.
+- The parallax correction, worth **1.58 pixels** on a 0.45 mm sensor, was
+  missing entirely.
+
+`docs/conventions.md` has the full account, including what is still untested:
+the goniometer decomposition, `first_image != 1`, and multi-panel detectors.

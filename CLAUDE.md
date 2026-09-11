@@ -14,6 +14,17 @@ msgpack writer: this builds on a laptop and on a beamline machine with nothing
 installed. Vec3, Mat3, the Cholesky solver and the test harness are all here
 for that reason, and each is under a hundred lines.
 
+**Thresholds come from measurement, not from comfort.** The real-data tests
+assert against numbers that were printed first: parallax 0.96 px over the
+sample, residual median 1.9e-4 and max 7.1e-4, agreement with DIALS' `rlp` at
+4.3e-5. Median and maximum are asserted separately, because the residual
+distribution has a tail and bounding only the maximum bounds only the tail.
+
+**A fixture that cannot diffract is a silent test, not a failing one.** The
+synthetic panel was at `+z`, consistent only with the wrong sign of s0.
+Correcting the sign made it predict nothing, and the prediction tests passed
+over an empty list. They now assert counts.
+
 **Double, not float, throughout the geometry.** Positions are wanted to a
 millipixel over a 4000-pixel detector, one part in 4e6, and float has seven
 digits. Apple GPUs have no doubles at all, so any Metal port of prediction has
@@ -25,23 +36,34 @@ centroids are the floor, not the ceiling.
 refinement, because prediction generates ground-truth reflection lists to test
 the other two against.
 
-## The convention trap
+## The convention trap, and what it caught
 
-Every geometry convention is unvalidated. `docs/conventions.md` is the list.
+The closed-loop test **cannot** detect a wrong convention: predicting and
+mapping back applies the error twice, once in each direction, and it cancels.
+A green suite proves self-consistency only.
 
-The important part: **the closed-loop test cannot detect a wrong convention.**
-Predicting and then mapping back applies the error twice, once in each
-direction, and it cancels. A green suite here proves self-consistency only.
+It hid two real errors until a real `.expt` arrived. `docs/conventions.md` has
+the detail; the short version:
 
-This is the same failure that hit the `.refl` reader in `mxeq`: seventy tests
-passed against a format that was wrong in two ways, because the only check was
-a round trip against its own writer. Only a file written by something else
-proves a convention.
+- **`s0 = -direction / wavelength`.** The sign was backwards. dxtbx points the
+  beam direction back towards the source.
+- **The parallax correction was missing entirely.** Worth 1.58 pixels on a
+  0.45 mm sensor. Not a constant offset — a smooth function of scattering
+  angle, which refinement partly absorbs and leaves as a radial residual.
 
-Required to close it: one real `indexed.expt` + `indexed.refl` pair. The
-highest-value single check is mapping real `xyzobs.px.value` into reciprocal
-space and comparing against `A * miller_index` — millipixel agreement validates
-five of the seven conventions at once.
+Plus two structural surprises: the goniometer is multi-axis
+(`axes`/`angles`/`scan_axis`, not `rotation_axis`/`fixed_rotation`) and
+`scan.properties.oscillation` is a per-image array, not `[start, width]`.
+
+`tests/test_real_geometry.cc` embeds forty real reflections and the geometry
+that produced them, regenerable by `tests/make_real_data.py`. Both parallax
+directions reproduce DIALS to the last bit; `entering` agrees on 100% of 13072
+reflections; the full chain lands on `A h` with median residual 1.9e-4.
+
+**Still open, and a green suite says nothing about any of them:** the
+goniometer decomposition (every angle is zero in this dataset, so both
+rotations collapse to the identity), `first_image != 1`, multi-panel
+detectors, and the `hierarchy` block, which is ignored.
 
 ## Things got right for a reason
 
