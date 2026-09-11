@@ -16,7 +16,12 @@ from .. import match
 from ..refl import ReflectionTable
 from ..report import Report
 from ..stats import correlation, describe, relative_difference
-from .common import note_row_counts, position_column, report_axis_offsets
+from .common import (
+    note_row_counts,
+    position_column,
+    report_axis_offsets,
+    report_column_agreement,
+)
 
 
 def check(
@@ -80,6 +85,7 @@ def check(
             u.summary(f"{label} {column} unmatched", describe(table[column][mask]))
 
     shared = report.section("shared columns over matched pairs")
+    report_column_agreement(shared, a, b, m.index_a, m.index_b)
     for column in ("intensity.sum.value", "intensity.sum.variance", "n_signal"):
         if column not in a or column not in b:
             continue

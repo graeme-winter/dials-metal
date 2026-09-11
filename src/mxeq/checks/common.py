@@ -72,6 +72,48 @@ def report_axis_offsets(
         section.summary(f"{prefix} {label}", describe(delta[:, k]))
 
 
+def report_column_agreement(
+    section: Section,
+    a: ReflectionTable,
+    b: ReflectionTable,
+    index_a: np.ndarray,
+    index_b: np.ndarray,
+    columns: list[str] | None = None,
+) -> None:
+    """Per-column agreement over matched pairs, including bitwise equality.
+
+    Identity is achievable at the early boundaries -- a transcribed threshold
+    kernel really can produce the same integers -- so when it has been
+    achieved the check should say so outright rather than print a relative
+    difference of zero and leave it to be inferred.
+
+    Row order is reported too, because it is the thing that makes two
+    equivalent files fail a byte compare.  Two tables holding the same spots in
+    a different order differ under ``cmp`` and agree under every metric here,
+    and without the reordering count that looks like a contradiction.
+    """
+    shared = sorted(set(a.columns) & set(b.columns)) if columns is None else columns
+    reordered = int(np.sum(np.asarray(index_a) != np.asarray(index_b)))
+    section.scalar("n_rows_in_a_different_position", reordered)
+    if reordered:
+        section.note(
+            "  The two tables hold matched rows in different positions, so they"
+        )
+        section.note("  will differ under a byte compare whatever the values say.")
+
+    rows = []
+    for name in shared:
+        va, vb = a[name][index_a], b[name][index_b]
+        bitwise = va.tobytes() == vb.tobytes()
+        if va.dtype.kind == "f":
+            worst = float(np.nanmax(np.abs(va - vb))) if va.size else 0.0
+            rows.append([name, "yes" if bitwise else "no", f"{worst:.3e}"])
+        else:
+            same = bool(np.array_equal(va, vb))
+            rows.append([name, "yes" if bitwise else "no", "-" if same else "differs"])
+    section.table(["column", "bitwise", "max |A-B|"], rows, name="column_agreement")
+
+
 def shell_table(
     section: Section,
     d: np.ndarray,
