@@ -242,6 +242,43 @@ Removing per-module constants also drops the radial slope from 3.0e-4 to
 1.9e-4, so tiling is about a third of the radial gradient and something else is
 the rest.
 
+## Is the radial residual the same in DIALS and here? Partly
+
+Compared directly, on the same 12896 reflections, both models' residuals binned
+by radius:
+
+     radius      DIALS     here        radius      DIALS     here
+     50- 150    -0.270   -0.250       800-1000    -0.007   +0.011
+    150- 250    -0.227   -0.214      1000-1200    +0.051   -0.003
+    250- 350    -0.184   -0.156      1200-1500    +0.098   -0.082
+    350- 450    -0.140   -0.096
+    450- 600    -0.070   -0.031
+    600- 800    -0.045   +0.006
+
+**Shared and robust:** an inward radial displacement at low angle, reaching
+-0.27 px nearest the beam and decaying monotonically to zero by about 800 px.
+The two models agree to 0.02 px in the innermost bins. It is independent of
+signal to noise -- -0.125, -0.108, -0.109, -0.117 px across a factor of 4.7 in
+I/sigma -- so it is geometric, not a centroiding or background bias.
+
+**Not shared:** everything beyond about 800 px. Excluding the innermost bin the
+two profiles correlate at 0.12, and at 0.03 after the affine part is removed;
+over the outer eight bins alone the correlation is -0.16, and at 1200-1500 px
+the two models disagree in sign. Peak to peak, DIALS 0.235 px against 0.156
+here.
+
+**So the single "radial slope" figure describes neither model well.** It mixes
+one real shared feature at low angle with refinement-specific structure at high
+angle, and its value -- +3.0e-4 for DIALS, +1.09e-4 here -- depends mostly on
+where each refinement put the detector. Earlier entries in this file quote that
+slope as though it were one phenomenon. It is not.
+
+What is genuinely unexplained is therefore narrower than previously stated: an
+intensity-independent inward radial displacement of a quarter of a pixel within
+about twenty degrees of the beam, decaying to nothing beyond it. Module tiling
+is a separate matter and lives at all radii.
+
+
 ### It is a fixed hardware fingerprint
 
 The steps repeat. Across four independently refined sweeps of a separate
