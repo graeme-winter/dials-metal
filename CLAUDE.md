@@ -73,10 +73,37 @@ scan-axis angle into the fixed rotation is caught by three -- including sweep
 that rule. Without those, a green suite would not distinguish a correct
 composition from a lucky one.
 
+**Goniometer axes run from the sample outwards to the laboratory.** `axes[0]`
+carries the sample; each subsequent axis carries the one before it; the last is
+bolted to the floor. So an axis further out applies later and multiplies on the
+**left**. The first implementation accumulated the other way, composing the
+stack inside out -- and all 48 tests passed, because with one axis below the
+scan axis the two orders are the same matrix. Pinned now against the physical
+arrangement on a synthetic three-axis goniometer, including a check that the
+two orders really do differ so the test is not vacuous.
+
 **Still open, and a green suite says nothing about any of them:** the
-composition order for two or more axes below the scan axis (this goniometer has
-two axes, so only one is ever below it), `first_image != 1`, multi-panel
-detectors, and the `hierarchy` block, which is ignored.
+composition order *against data*, `first_image != 1`, multi-panel detectors,
+and the `hierarchy` block, which is ignored.
+
+## Planned: how indexing should handle multiple sweeps
+
+Index across **all** sweeps at once, then immediately split and refine against
+each sweep individually, keeping the bulk matrix common.
+
+The reason is visible in the l-cysteine residuals. A joint index must assume
+one UB and perfect goniometry, and the goniometer does not return to precisely
+the same place between sweeps, so no single matrix fits all four -- residuals
+come out a hundredfold worse than insulin. That is not a failure of indexing;
+it is the constraint doing what it must. Joint indexing is still the right
+first step, because it is what guarantees a consistent basis across sweeps and
+avoids four independently-chosen and mutually reindexed lattices. The
+constraint is then broken at the first opportunity rather than carried forward.
+
+Consequence for the code: the indexer works on the pooled reciprocal lattice
+points from every sweep, but each sweep keeps its own goniometer, scan and
+detector throughout, and the output is a list of experiments sharing a crystal
+rather than one experiment.
 
 ## Things got right for a reason
 

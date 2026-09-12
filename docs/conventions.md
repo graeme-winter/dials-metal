@@ -123,13 +123,31 @@ identity, so it is blind to every other way of getting the decomposition wrong
 and sensitive only to this one.
 
 **Residuals on this data are a hundredfold larger** than for insulin -- 3e-3 to
-9e-3 against a cell edge of 0.082 -- and that is the indexing residual of a
-large-cell P1 chemical dataset, not an error here. DIALS' own `rlp` sits the
-same distance from `A h`, to three figures.
+9e-3 against a cell edge of 0.082 -- and that is not an error here: DIALS' own
+`rlp` sits the same distance from `A h`, to three figures.
 
-**Still untested:** the multiplication *order* when more than one axis lies
-below the scan axis. This goniometer has two axes, so only one is ever below
-it, and the order is unobservable. A three-circle instrument would settle it.
+Nor is it "what chemical data looks like". It is the cost of a constraint that
+is provably false for this experiment: **one UB matrix and perfect goniometry
+shared across four sweeps**. The goniometer does not return to precisely the
+same place between sweeps, so no single matrix can fit all four. Breaking that
+constraint is the first thing refinement does, and it improves these residuals
+greatly.
+
+**The order of composition.** The axes run from the **sample outwards to the
+laboratory**: in the l-cysteine goniometer the sample is attached to GON_PHI
+(`axes[0]`), which sits on GON_OMEGA (`axes[1]`), which is bolted to the floor.
+A vector fixed to the sample is therefore carried first by `axes[0]`, then by
+`axes[1]`, so an axis further out applies **later** and multiplies on the
+**left**.
+
+This is unobservable in both datasets to hand -- this goniometer has two axes,
+so at most one ever lies below the scan axis, and with one axis the two orders
+are the same matrix. Every test in `test_multi_axis.cc` that uses real data
+passes under either convention. The order is therefore pinned against the
+physical arrangement instead, on a synthetic three-axis goniometer with
+non-commuting axes, including the check that the two orders really are
+different matrices so the test is not vacuous. A three-circle instrument would
+settle it against data.
 
 ## Wrong shape: the scan
 
@@ -174,9 +192,10 @@ left is the indexing residual, not an error here.
 
 ## Still open
 
-1. **The order of composition for two or more axes below the scan axis.** The
-   l-cysteine goniometer has two axes, so at most one is ever below the scan
-   axis and the order cannot be observed. Needs a three-circle instrument.
+1. **The order of composition, against data.** It is now implemented from the
+   physical arrangement of the axes and tested against that, but no dataset to
+   hand can distinguish it from the inside-out order. Needs a three-circle
+   instrument.
 2. **`first_image != 1`.** The z anchor wrinkle is still untested; insulin
    starts at image 1, where the two conventions agree by construction.
 3. **Multi-panel detectors.** Both datasets have one panel per detector, and
