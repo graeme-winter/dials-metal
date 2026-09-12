@@ -18,17 +18,24 @@
 #include "../src/geometry.h"
 #include "check.h"
 #include "real_cysteine.h"
+#include "real_threeaxis.h"
 
 using namespace mxi;
 
 namespace {
 
+Vec3 v(const std::array<double, 3> &a) { return {a[0], a[1], a[2]}; }
 Vec3 v(const double (&a)[3]) { return {a[0], a[1], a[2]}; }
 
-Experiment build(const cysteine::Sweep &s) {
+// Both datasets are emitted by the same generator, so one template builds an
+// Experiment from either. The axis count is whatever the file had -- fixing it
+// at two would have silently truncated the three-axis goniometer.
+template <typename Sweep>
+Experiment build(const Sweep &s, const double (&a)[3], const double (&b)[3],
+                 const double (&c)[3]) {
   Experiment e;
-  e.beam.direction = v(cysteine::kBeamDirection);
-  e.beam.wavelength = cysteine::kWavelength;
+  e.beam.direction = v(s.beam_direction);
+  e.beam.wavelength = s.wavelength;
 
   Panel p;
   p.fast = v(s.fast);
@@ -43,28 +50,46 @@ Experiment build(const cysteine::Sweep &s) {
   p.thickness = s.thickness;
   e.detector.panels.push_back(p);
 
-  e.goniometer = Goniometer::from_axes({v(s.axes[0]), v(s.axes[1])},
-                                       {s.angles[0], s.angles[1]},
+  std::vector<Vec3> axes;
+  for (const std::array<double, 3> &axis : s.axes) axes.push_back(v(axis));
+  e.goniometer = Goniometer::from_axes(axes, s.angles,
                                        static_cast<std::size_t>(s.scan_axis));
 
   e.scan.first_image = s.image_range[0];
   e.scan.last_image = s.image_range[1];
   e.scan.osc_start = s.osc_start;
   e.scan.osc_width = s.osc_width;
-
-  e.crystal = Crystal::from_real_space(v(cysteine::kRealSpaceA),
-                                       v(cysteine::kRealSpaceB),
-                                       v(cysteine::kRealSpaceC));
+  e.crystal = Crystal::from_real_space(v(a), v(b), v(c));
   return e;
+}
+
+Experiment build(const cysteine::Sweep &s) {
+  return build(s, cysteine::kRealSpaceA, cysteine::kRealSpaceB,
+               cysteine::kRealSpaceC);
+}
+Experiment build(const threeaxis::Sweep &s) {
+  return build(s, threeaxis::kRealSpaceA, threeaxis::kRealSpaceB,
+               threeaxis::kRealSpaceC);
+}
+
+double difference(const Mat3 &a, const Mat3 &b) {
+  double worst = 0.0;
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      worst = std::fmax(worst, std::abs(a(i, j) - b(i, j)));
+    }
+  }
+  return worst;
 }
 
 // Median disagreement with DIALS' own rlp column for one sweep, optionally
 // with the goniometer replaced by a deliberately wrong one.
-double disagreement(const cysteine::Sweep &s, const Goniometer *replacement) {
+template <typename Sweep>
+double disagreement(const Sweep &s, const Goniometer *replacement) {
   Experiment e = build(s);
   if (replacement) e.goniometer = *replacement;
   std::vector<double> residual;
-  for (const cysteine::Row &r : s.rows) {
+  for (const auto &r : s.rows) {
     const Vec3 got =
         reciprocal_lattice_point(e, 0, r.px_fast, r.px_slow, r.px_z);
     residual.push_back((got - v(r.rlp)).norm());
@@ -230,16 +255,6 @@ const Vec3 kInner{1.0, 0.0, 0.0};
 const Vec3 kMiddle{0.0, 1.0, 0.0};
 const Vec3 kOuter = Vec3{0.3, 0.4, 0.866}.normalized();
 
-double difference(const Mat3 &a, const Mat3 &b) {
-  double worst = 0.0;
-  for (std::size_t i = 0; i < 3; ++i) {
-    for (std::size_t j = 0; j < 3; ++j) {
-      worst = std::fmax(worst, std::abs(a(i, j) - b(i, j)));
-    }
-  }
-  return worst;
-}
-
 }  // namespace
 
 TEST(axes_further_from_the_sample_apply_later) {
@@ -281,4 +296,88 @@ TEST(setting_rotation_composes_in_the_same_direction) {
                "setting must be outer-times-middle");
   check::close(rotation_angle(g.fixed), 0.0, 1e-12,
                "nothing lies below the innermost axis");
+}
+
+// --------------------------------------------------------------------------
+// Three axes -- and why that is still not enough
+// --------------------------------------------------------------------------
+//
+// Insulin again, four 360 degree omega sweeps with chi stepped 0, 10, 20, 30.
+// Three axes: phi on the sample, chi carrying it, omega carrying that and
+// scanned. Two axes therefore lie below the scan axis, which is the
+// arrangement the composition order was said to need.
+//
+// It is still not enough, and the reason is worth stating plainly: phi is zero
+// in all four sweeps, so its rotation is the identity and the two orders
+// produce the same matrix to the last digit. Checked directly, not assumed --
+// see the test at the end.
+//
+// What is actually required is two axes below the scan axis at SIMULTANEOUSLY
+// non-zero angles. "Three circles" is not the condition; a non-zero inner
+// angle is.
+
+TEST(threeaxis_has_three_axes_two_of_them_below_the_scan_axis) {
+  const std::vector<threeaxis::Sweep> &all = threeaxis::sweeps();
+  check::equal(static_cast<long long>(all.size()), 4, "four sweeps");
+  for (const threeaxis::Sweep &s : all) {
+    check::equal(static_cast<long long>(s.axes.size()), 3, "three axes");
+    check::equal(s.scan_axis, 2, "the outermost axis is scanned");
+  }
+}
+
+TEST(threeaxis_all_sweeps_map_onto_the_dials_reciprocal_lattice) {
+  for (const threeaxis::Sweep &s : threeaxis::sweeps()) {
+    // Measured at 1.1e-5 to 2.8e-5 on a reciprocal cell edge of 0.0148.
+    check::is_true(disagreement(s, nullptr) < 1e-4,
+                   "rlp must agree with DIALS on every sweep");
+  }
+}
+
+TEST(threeaxis_middle_axis_setting_varies_and_reaches_the_fixed_rotation) {
+  // chi is stepped 0, 10, 20, 30 across the sweeps on one crystal, so the
+  // fixed rotation is different for each and all four still map correctly.
+  // That is stronger than l-cysteine, which had two distinct settings.
+  std::vector<double> angle;
+  for (const threeaxis::Sweep &s : threeaxis::sweeps()) {
+    angle.push_back(Scan::degrees(rotation_angle(build(s).goniometer.fixed)));
+  }
+  check::equal(static_cast<long long>(angle.size()), 4, "four settings");
+  check::close(angle[0], 0.0, 1e-9, "chi = 0");
+  check::close(angle[1], 10.0, 1e-9, "chi = 10");
+  check::close(angle[2], 20.0, 1e-9, "chi = 20");
+  check::close(angle[3], 30.0, 1e-9, "chi = 30");
+}
+
+TEST(threeaxis_dropping_the_fixed_rotation_is_caught_by_three_sweeps) {
+  int broken = 0;
+  for (const threeaxis::Sweep &s : threeaxis::sweeps()) {
+    Goniometer g = build(s).goniometer;
+    g.fixed = Mat3::identity();
+    if (disagreement(s, &g) > 0.001) ++broken;
+  }
+  // All but the chi = 0 sweep, whose fixed rotation is the identity anyway.
+  check::equal(broken, 3, "three sweeps must detect the missing rotation");
+}
+
+TEST(threeaxis_cannot_distinguish_the_composition_order) {
+  // The honest result. Two axes below the scan axis is necessary but not
+  // sufficient: with phi at zero the orders coincide exactly, so this dataset
+  // says nothing about which is right, and neither does any other to hand.
+  //
+  // Asserted rather than noted, so that if a dataset with a non-zero phi is
+  // ever substituted here this test fails and says so.
+  for (const threeaxis::Sweep &s : threeaxis::sweeps()) {
+    const Goniometer outward = build(s).goniometer;
+
+    Mat3 inside_out = Mat3::identity();
+    for (std::size_t i = 0; i < static_cast<std::size_t>(s.scan_axis); ++i) {
+      inside_out = inside_out * rotation(v(s.axes[i]), Scan::radians(s.angles[i]));
+    }
+    check::close(difference(outward.fixed, inside_out), 0.0, 1e-15,
+                 "the two orders coincide here, so this data cannot decide");
+  }
+  // The inner angle is the reason.
+  for (const threeaxis::Sweep &s : threeaxis::sweeps()) {
+    check::close(s.angles[0], 0.0, 1e-12, "phi is zero throughout");
+  }
 }
