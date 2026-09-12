@@ -12,6 +12,12 @@ the matched pairs, count how many satisfy ``h_a . M == h_b`` for each candidate
 ``M``.  The right operator is the one that agrees for nearly all of them, and
 if none does then the two solutions genuinely disagree.
 
+The operator is looked for in two ways: enumerated over the lattice point
+groups, and solved for directly by least squares over the matched pairs. The
+second is needed because the first only finds symmetry-equivalent reindexings,
+while two different reduced cells of one lattice are related by a general
+unimodular matrix that belongs to no point group.
+
 On conventions: whether the operator acts on Miller indices as a row-vector
 product, a column-vector product, or with a transpose somewhere is a question
 this deliberately does not have to answer.  The candidate pool is the union of
@@ -164,6 +170,29 @@ def find_operator(
             identity_score = score
         if score > best_score:
             best, best_score = m, score
+
+    # The enumerated pool only contains lattice *point group* operators, which
+    # covers reindexings between symmetry-equivalent settings and nothing else.
+    # Two perfectly good reduced cells of the same lattice can be related by a
+    # general unimodular matrix that is in no point group -- on a rhombohedral
+    # insulin cell the operator between one indexing and another came out as
+    # [[1,-1,0],[0,-1,1],[0,-1,0]], which the pool does not contain, and the
+    # search reported two per cent agreement and no operator found.
+    #
+    # So solve for it instead of enumerating: h_b = h_a M is linear in M, and
+    # least squares over a few thousand pairs recovers it to a part in 1e15.
+    # Rounded, it must be integer and unimodular to be a change of basis at
+    # all, and it still has to beat the pool on agreement before it is used.
+    if n >= 3:
+        solved, *_ = np.linalg.lstsq(a.astype(float), b.astype(float), rcond=None)
+        rounded = np.rint(solved)
+        integral = np.abs(solved - rounded).max() < 0.05
+        unimodular = abs(abs(float(np.linalg.det(rounded))) - 1.0) < 1e-6
+        if integral and unimodular:
+            candidate = rounded.astype(np.int64)
+            score = float(np.mean(np.all((a @ candidate) == b, axis=1)))
+            if score > best_score:
+                best, best_score = candidate, score
 
     metric_ok = None
     if real_space_a is not None:

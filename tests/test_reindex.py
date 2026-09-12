@@ -72,3 +72,34 @@ def test_space_group_lookup_from_hall():
     assert reindex.space_group_name(fixtures.HALL) is not None
     assert reindex.point_group_operators(fixtures.HALL)
     assert reindex.space_group_name("not a hall symbol") is None
+
+
+def test_a_general_unimodular_operator_is_recovered():
+    """Not every reindexing is a point group operator.
+
+    Two equally valid reduced cells of one lattice are related by a general
+    unimodular matrix. The enumerated pool contains only lattice point group
+    operators, so on real insulin -- where one indexing chose a different
+    reduced basis from DIALS' -- the search reported two per cent agreement and
+    found nothing. Solving for the operator instead recovers it exactly.
+    """
+    operator = np.array([[1, -1, 0], [0, -1, 1], [0, -1, 0]], dtype=np.int64)
+    assert round(float(np.linalg.det(operator))) == 1
+    # And it is genuinely outside the enumerated pool.
+    assert not any(np.array_equal(m, operator) for m in reindex.candidate_operators())
+
+    rng = np.random.default_rng(4)
+    hkl_a = fixtures._unique_hkl(500, rng)
+    found = reindex.find_operator(hkl_a, hkl_a.astype(np.int64) @ operator)
+    assert np.array_equal(found.operator, operator)
+    assert found.fraction == pytest.approx(1.0)
+
+
+def test_the_solved_operator_must_still_be_unimodular():
+    """A least-squares fit always returns something; most of it is not a basis."""
+    rng = np.random.default_rng(5)
+    a = fixtures._unique_hkl(300, rng)
+    b = fixtures._unique_hkl(300, np.random.default_rng(77))
+    found = reindex.find_operator(a, b)
+    # Unrelated indices: whatever the solve produces must not be believed.
+    assert found.fraction < 0.1
