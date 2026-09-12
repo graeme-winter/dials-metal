@@ -278,9 +278,21 @@ the wrong conclusion, because DIALS' own `hkl_tolerance` is also 0.3. The
 difference is that DIALS *iterates*: it assigns, refines, re-assigns against
 the improved model, and discards what stops fitting. This indexer assigns once.
 
-**The fix is a macrocycle in indexing**, not a tighter tolerance. Until it
-exists, `mxi_index --tolerance 0.15` is the workaround and the reason for it
-should be stated whenever it is used.
+**The fix is a macrocycle**, not a tighter tolerance, and it is now in:
+assign, refine on the stronger half, re-assign under the improved model,
+repeat. Strength is measured against the dataset's own median so the criterion
+travels between detectors and spot finders.
+
+    stage                                distance    volume vs DIALS
+    assign once, refine on everything    170.345        +0.55 %
+    indexing macrocycles                 170.101        +0.09 %
+    ... and mxi_refine --strong-only     170.092        +0.08 %
+    DIALS                                170.073          --
+
+It converges in one cycle on this data and `rmsd_index` falls from 0.0757 to
+0.0318. The same option exists on `mxi_refine`, because refining on everything
+afterwards puts the bias straight back -- 170.101 becomes 170.243. It is off by
+default there: throwing away half the data should have to be asked for.
 
 ## Is the radial residual the same in DIALS and here? Partly
 
