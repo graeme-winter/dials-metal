@@ -16,9 +16,18 @@ add_library(mxi
   src/linalg.cc
   src/geometry.cc
   src/predict.cc
+  src/json.cc
+  src/expt.cc
+  src/refl.cc
+  src/fft.cc
+  src/index.cc
 )
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(mxi_index apps/mxi_index.cc)
+target_link_libraries(mxi_index PRIVATE mxi)
+target_compile_options(mxi_index PRIVATE -Wall -Wextra)
 
 enable_testing()
 add_executable(mxi_tests
@@ -26,6 +35,7 @@ add_executable(mxi_tests
   tests/test_geometry.cc
   tests/test_real_geometry.cc
   tests/test_multi_axis.cc
+  tests/test_index.cc
 )
 target_link_libraries(mxi_tests PRIVATE mxi)
 target_compile_options(mxi_tests PRIVATE -Wall -Wextra)
