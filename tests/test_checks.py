@@ -152,8 +152,13 @@ def test_indexed_flags_a_metric_incompatible_operator(tmp_path):
     a = _indexable_pair()
     b = fixtures.reindex(a, swap_ac)
     report = indexed.check(a, b, experiments_a=experiments)
-    assert values(report, "reindexing")["metric_compatible"] is False
-    assert any("metric" in w for w in report.warnings)
+    # Reported, but no longer a warning on its own: an operator that explains
+    # every pair is a change of basis whether or not it is a lattice symmetry,
+    # and two different reduced cells of one lattice are related by exactly
+    # such an operator. The warning is reserved for one that explains neither.
+    assert values(report, "reindexing")["is_a_lattice_symmetry"] is False
+    assert values(report, "reindexing")["agreement_best"] > 0.9
+    assert not report.warnings
 
 
 # --------------------------------------------------------------------------

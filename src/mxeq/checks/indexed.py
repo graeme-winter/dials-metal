@@ -77,12 +77,16 @@ def check(
     r.scalar("agreement_best", found.fraction)
     r.scalar("agreement_identity", found.fraction_identity)
     if found.metric_compatible is not None:
-        r.scalar("metric_compatible", found.metric_compatible)
-        if not found.metric_compatible:
+        r.scalar("is_a_lattice_symmetry", found.metric_compatible)
+        if not found.metric_compatible and found.fraction < 0.9:
             report.warn(
-                "the best operator is not a symmetry of the cell metric. A high "
-                "agreement here is not a reindexing -- look at it before using it."
+                "the best operator neither preserves the cell metric nor "
+                "explains most pairs; it is unlikely to be a change of basis"
             )
+        elif not found.metric_compatible:
+            r.note("  Not a symmetry of the cell metric, which is normal: two")
+            r.note("  different reduced cells of one lattice are related by a")
+            r.note("  general unimodular matrix, not by a point group operator.")
     if not found.is_identity:
         r.note("  B is indexed in a different basis from A. Everything downstream")
         r.note("  must be compared through this operator, not directly.")
@@ -119,10 +123,30 @@ def check(
     e.scalar("n_indexed_only_b", int(only_b.sum()))
 
     for table, index, label in ((a, m.index_a, "A"), (b, m.index_b, "B")):
-        if "xyzcal.px" in table and "xyzobs.px.value" in table:
-            residual = table["xyzcal.px"][index] - table["xyzobs.px.value"][index]
-            rms = float(np.sqrt(np.mean(np.sum(residual**2, axis=1))))
-            e.scalar(f"rmsd_px_{label}", rms)
+        if "xyzcal.px" not in table or "xyzobs.px.value" not in table:
+            continue
+        # Only where there IS a prediction. An unindexed reflection carries
+        # xyzcal.px of exactly zero, which is the corner of the detector, so
+        # including those rows reported an rmsd of 755 px on a dataset whose
+        # real value is a third of one.
+        predicted = np.any(table["xyzcal.px"][index] != 0, axis=1) & np.any(
+            table["miller_index"][index] != 0, axis=1
+        )
+        if predicted.sum() < 10:
+            continue
+        residual = (
+            table["xyzcal.px"][index][predicted]
+            - table["xyzobs.px.value"][index][predicted]
+        )
+        # A distribution, not an rms. On real DIALS output 39 of 13072 indexed
+        # reflections are predicted more than 5 px from where they were seen,
+        # one of them 3908 px away, and an rms over that reports 34 px for a
+        # dataset whose median is 0.28. The rest of this package reports
+        # distributions for exactly this reason; this line was the exception.
+        e.summary(
+            f"|xyzcal - xyzobs| px {label}",
+            describe(np.linalg.norm(residual[:, :2], axis=1)),
+        )
 
     if "xyzcal.px" in a and "xyzcal.px" in b:
         report_axis_offsets(
