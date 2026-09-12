@@ -14,9 +14,15 @@ Residual centroid_residual(const Experiment &e, std::size_t panel, int h, int k,
   if (!e.crystal) return out;
   if (panel >= e.detector.size()) return out;
 
-  const Vec3 r0 = e.crystal->A * Vec3{static_cast<double>(h),
-                                      static_cast<double>(k),
-                                      static_cast<double>(l)};
+  // The setting matrix at the observation's own scan position. DIALS predicts
+  // scan-varying reflections iteratively, solving for the frame and then
+  // re-evaluating A there; using the observed z instead is an approximation
+  // whose error is dA/dz times the residual in z, which is a third of an image
+  // out of hundreds. It is second order and it is not free -- it means this
+  // residual is not exactly DIALS' residual for a scan-varying model.
+  const Vec3 r0 = e.setting_at(z) * Vec3{static_cast<double>(h),
+                                         static_cast<double>(k),
+                                         static_cast<double>(l)};
   const Intersections cross = ewald_intersections(e, r0);
   if (!cross.any) return out;
 
@@ -109,19 +115,37 @@ struct Layout {
   bool shared_crystal = true;
   std::size_t n_experiments = 0;
   std::size_t crystal_blocks = 0;
+  std::size_t points = 1;  // control points per crystal
 
+  std::size_t block() const { return 9 * points; }
   std::size_t size() const {
-    return crystal_blocks * 9 + (detector ? 6 * n_experiments : 0) +
+    return crystal_blocks * block() + (detector ? 6 * n_experiments : 0) +
            (beam ? 2 * n_experiments : 0);
   }
   std::size_t crystal_at(std::size_t experiment) const {
-    return (shared_crystal ? 0 : experiment) * 9;
+    return (shared_crystal ? 0 : experiment) * block();
   }
   std::size_t detector_at(std::size_t experiment) const {
-    return crystal_blocks * 9 + 6 * experiment;
+    return crystal_blocks * block() + 6 * experiment;
   }
   std::size_t beam_at(std::size_t experiment) const {
-    return crystal_blocks * 9 + (detector ? 6 * n_experiments : 0) + 2 * experiment;
+    return crystal_blocks * block() + (detector ? 6 * n_experiments : 0) +
+           2 * experiment;
+  }
+
+  // Which experiment a parameter belongs to, or -1 for one shared by all.
+  // With a scan-varying model there can be two hundred parameters, and a
+  // numerical Jacobian that re-evaluated every reflection for each of them
+  // would be quadratic in the number of sweeps for no reason: a crystal
+  // parameter of sweep two cannot move a reflection of sweep three.
+  long owner(std::size_t p) const {
+    if (p < crystal_blocks * block()) {
+      return shared_crystal ? -1 : static_cast<long>(p / block());
+    }
+    std::size_t q = p - crystal_blocks * block();
+    if (detector && q < 6 * n_experiments) return static_cast<long>(q / 6);
+    if (detector) q -= 6 * n_experiments;
+    return static_cast<long>(q / 2);
   }
 };
 
@@ -135,7 +159,15 @@ void apply(const ExperimentList &base, const Layout &layout,
     Experiment &e = (*out)[i];
     if (layout.crystal && e.crystal) {
       const std::size_t at = layout.crystal_at(i);
-      for (std::size_t k = 0; k < 9; ++k) e.crystal->A.m[k] += shift[at + k];
+      if (layout.points < 2) {
+        for (std::size_t k = 0; k < 9; ++k) e.crystal->A.m[k] += shift[at + k];
+      } else {
+        for (std::size_t c = 0; c < layout.points; ++c) {
+          for (std::size_t k = 0; k < 9; ++k) {
+            e.crystal->A_points[c].m[k] += shift[at + c * 9 + k];
+          }
+        }
+      }
     }
     if (layout.detector) {
       const std::size_t at = layout.detector_at(i);
@@ -174,14 +206,18 @@ void apply(const ExperimentList &base, const Layout &layout,
   }
 }
 
+// `only` restricts evaluation to one experiment, leaving the rest of `out`
+// alone. Used for the numerical Jacobian, where a parameter of one sweep
+// cannot move another sweep's reflections.
 double residuals_of(const ExperimentList &experiments,
                     const std::vector<TargetRow> &observations,
-                    std::vector<double> *out) {
-  out->assign(observations.size() * 3, 0.0);
+                    std::vector<double> *out, long only = -1) {
+  if (only < 0) out->assign(observations.size() * 3, 0.0);
   double total = 0.0;
   for (std::size_t i = 0; i < observations.size(); ++i) {
     const TargetRow &o = observations[i];
     if (!o.active) continue;
+    if (only >= 0 && o.experiment != static_cast<std::size_t>(only)) continue;
     const Residual r = centroid_residual(experiments[o.experiment], o.panel, o.h,
                                          o.k, o.l, o.px_fast, o.px_slow, o.z);
     if (!r.valid) continue;
@@ -200,12 +236,13 @@ std::vector<double> step_sizes(const ExperimentList &experiments,
   for (std::size_t i = 0; i < experiments.size(); ++i) {
     if (layout.crystal && experiments[i].crystal) {
       const std::size_t at = layout.crystal_at(i);
+      const std::size_t n = layout.block();
       // Scaled to the matrix itself: the elements of A are around 1/60 for a
       // protein and 1/5 for a small molecule, and one absolute step cannot
       // suit both.
       double scale = 0.0;
       for (double v : experiments[i].crystal->A.m) scale = std::fmax(scale, std::abs(v));
-      for (std::size_t k = 0; k < 9; ++k) step[at + k] = 1e-6 * std::fmax(scale, 1e-6);
+      for (std::size_t k = 0; k < n; ++k) step[at + k] = 1e-6 * std::fmax(scale, 1e-6);
     }
     if (layout.detector) {
       const std::size_t at = layout.detector_at(i);
@@ -249,6 +286,18 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
   layout.n_experiments = experiments.size();
   layout.crystal_blocks =
       options.crystal ? (options.shared_crystal ? 1 : experiments.size()) : 0;
+  layout.points = std::max<std::size_t>(1, options.scan_points);
+
+  // Seed the control points from the static matrix, so a scan-varying run
+  // starts exactly where a static one would and can only improve on it.
+  if (layout.points > 1) {
+    for (Experiment &e : experiments) {
+      if (!e.crystal) continue;
+      if (e.crystal->A_points.size() != layout.points) {
+        e.crystal->A_points.assign(layout.points, e.crystal->A);
+      }
+    }
+  }
 
   const std::size_t n = layout.size();
   if (n == 0) return result;
@@ -275,12 +324,14 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       std::vector<std::vector<double>> jacobian(n);
       std::vector<double> shift(n, 0.0);
       ExperimentList trial;
+      std::vector<double> moved(residual.size());
       for (std::size_t p = 0; p < n; ++p) {
         std::fill(shift.begin(), shift.end(), 0.0);
         shift[p] = step[p];
         apply(experiments, layout, shift, &trial);
-        std::vector<double> moved;
-        residuals_of(trial, observations, &moved);
+        const long only = layout.owner(p);
+        moved = residual;
+        residuals_of(trial, observations, &moved, only);
         jacobian[p].resize(moved.size());
         for (std::size_t i = 0; i < moved.size(); ++i) {
           // d(residual)/d(parameter); residual is observed minus calculated,
@@ -392,6 +443,14 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
                     std::sqrt(sz / static_cast<double>(count)));
       }
     }
+  }
+
+  // Keep the static matrix consistent with the scan-varying one, taking the
+  // middle of the scan. Otherwise `A` is whatever it was before the control
+  // points moved, and every cell reported from it is stale -- which is how a
+  // refinement comes to print a cell it does not believe.
+  for (Experiment &e : experiments) {
+    if (e.crystal && e.crystal->scan_varying()) e.crystal->A = e.crystal->A_at(0.5);
   }
 
   double sx = 0, sy = 0, sz = 0;

@@ -22,6 +22,7 @@ void usage() {
       "                    with the detector on a single sweep)\n"
       "  --separate        one crystal per experiment instead of one shared\n"
       "  --conditional-depth  mean depth given absorption, not eqn (6)\n"
+      "  --scan-varying N  control points in A across each scan (1 = static)\n"
       "  --macrocycles N   (3)\n"
       "  --outlier-sigma S (4; 0 disables rejection)\n"
       "  --output-expt P   (refined.expt)\n"
@@ -39,6 +40,7 @@ int main(int argc, char **argv) {
   RefineOptions options;
   options.verbose = true;
   bool conditional_depth = false;
+  int scan_points = 1;
 
   for (int i = 3; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -54,6 +56,7 @@ int main(int argc, char **argv) {
     else if (arg == "--beam") options.beam = true;
     else if (arg == "--separate") options.shared_crystal = false;
     else if (arg == "--conditional-depth") conditional_depth = true;
+    else if (arg == "--scan-varying") scan_points = std::atoi(next());
     else if (arg == "--macrocycles") options.macrocycles = std::atoi(next());
     else if (arg == "--outlier-sigma") options.outlier_sigma = std::atof(next());
     else if (arg == "--output-expt") out_expt = next();
@@ -77,7 +80,16 @@ int main(int argc, char **argv) {
     std::printf("%zu experiments, %zu reflections\n", experiments.size(),
                 reflections.nrows);
 
-    const RefineResult result = refine(experiments, reflections, options);
+    // Static first, always. Scan-varying control points started from an
+    // unrefined model absorb errors that belong to the detector, and the
+    // result fits well and means nothing.
+    RefineResult result = refine(experiments, reflections, options);
+    if (scan_points > 1 && result.n_used > 0) {
+      std::printf("static: rmsd %.4f %.4f %.4f -> now %d control points\n",
+                  result.rmsd_x, result.rmsd_y, result.rmsd_z, scan_points);
+      options.scan_points = static_cast<std::size_t>(scan_points);
+      result = refine(experiments, reflections, options);
+    }
     if (result.n_used == 0) {
       std::fprintf(stderr, "mxi_refine: nothing to refine against\n");
       return 1;

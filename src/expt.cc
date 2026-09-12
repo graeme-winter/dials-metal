@@ -126,6 +126,16 @@ Crystal read_crystal(const json::Value &v) {
   if (v.contains("space_group_hall_symbol")) {
     c.space_group_hall = v["space_group_hall_symbol"].as_string();
   }
+  if (v["A_at_scan_points"].is_array()) {
+    for (const json::Value &a : v["A_at_scan_points"].as_array()) {
+      const std::vector<double> flat = a.numbers();
+      if (flat.size() != 9) throw ExptError("A_at_scan_points entry is not nine numbers");
+      Mat3 m;
+      for (std::size_t k = 0; k < 9; ++k) m.m[k] = flat[k];
+      c.A_points.push_back(m);
+    }
+    if (!c.A_points.empty()) c.A = c.A_points[c.A_points.size() / 2];
+  }
   return c;
 }
 
@@ -294,6 +304,24 @@ json::Value experiments_to_json(const ExperimentList &list) {
       crystal["real_space_b"] = to_json(e.crystal->real_b());
       crystal["real_space_c"] = to_json(e.crystal->real_c());
       crystal["space_group_hall_symbol"] = json::Value(e.crystal->space_group_hall);
+      if (e.crystal->scan_varying()) {
+        // DIALS stores A per image, not per control point, so the control
+        // points are expanded here. That is lossy in the parameterisation --
+        // a reader cannot recover how many control points there were -- and
+        // lossless in the model, which is what anything downstream uses.
+        json::Array points;
+        for (std::int64_t i = 0; i < e.scan.num_images(); ++i) {
+          const double t = e.scan.num_images() > 0
+                               ? static_cast<double>(i) /
+                                     static_cast<double>(e.scan.num_images())
+                               : 0.0;
+          const Mat3 A = e.crystal->A_at(t);
+          json::Array flat;
+          for (std::size_t k = 0; k < 9; ++k) flat.push_back(json::Value(A.m[k]));
+          points.push_back(json::Value(std::move(flat)));
+        }
+        crystal["A_at_scan_points"] = json::Value(std::move(points));
+      }
       x["crystal"] = json::Value(
           static_cast<long>(intern(crystals, json::Value(std::move(crystal)))));
     } else {

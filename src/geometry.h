@@ -41,6 +41,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 #include <string>
 #include <vector>
 
@@ -242,6 +243,24 @@ struct Crystal {
   Mat3 A = Mat3::identity();
   std::string space_group_hall = " P 1";
 
+  // Scan-varying model: control points in A, evenly spaced over the scan and
+  // linearly interpolated between. Empty means the crystal is static and `A`
+  // is used directly.
+  //
+  // Linear interpolation rather than DIALS' Gaussian smoother. That is a real
+  // difference and it should not be described as the same model: a Gaussian
+  // smoother spreads each observation's influence over three control points
+  // and produces a smoother second derivative. Linear interpolation is chosen
+  // because it makes the parameterisation transparent -- the value at a
+  // control point is the model at that point, not a weighted contribution to
+  // it -- and because with a handful of control points over a scan the
+  // difference between the two is far below the residual.
+  std::vector<Mat3> A_points;
+
+  bool scan_varying() const { return A_points.size() > 1; }
+  // `t` runs from zero at the start of the scan to one at the end.
+  Mat3 A_at(double t) const;
+
   static Crystal from_real_space(const Vec3 &a, const Vec3 &b, const Vec3 &c);
   // Real-space basis vectors, the rows of A inverse.
   Vec3 real_a() const;
@@ -252,6 +271,9 @@ struct Crystal {
 };
 
 struct Experiment {
+  // The setting matrix in force at scan position `z`, in images.
+  Mat3 setting_at(double z) const;
+
   Beam beam;
   Detector detector;
   Goniometer goniometer;

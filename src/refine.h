@@ -57,6 +57,17 @@ struct RefineOptions {
   bool beam = false;
   //: One crystal for every experiment, or one each.
   bool shared_crystal = true;
+  //: Control points in A across each scan. One or zero means a static
+  //: crystal. A scan-varying model absorbs the orientation and cell drift a
+  //: real goniometer and a real crystal produce over a sweep, and on
+  //: l-cysteine it is worth a factor of nearly three in residual -- so a
+  //: comparison of detectors made with static crystals is measuring the
+  //: crystals.
+  //:
+  //: Scan-varying refinement must follow a static one, never replace it: the
+  //: control points start from the static answer, and starting them from an
+  //: unrefined model lets them absorb errors that belong to the detector.
+  std::size_t scan_points = 1;
   int max_iterations = 30;
   //: Reject reflections whose residual exceeds this many times the robust
   //: spread, between macrocycles. Zero disables rejection entirely.

@@ -183,6 +183,29 @@ UnitCell Crystal::cell() const {
   return u;
 }
 
+Mat3 Crystal::A_at(double t) const {
+  if (A_points.size() < 2) return A;
+  const double span = static_cast<double>(A_points.size() - 1);
+  // Clamped rather than extrapolated. A reflection predicted a little outside
+  // the scan should be modelled by the nearest end of it, not by a linear
+  // continuation of whatever the crystal was doing when the scan stopped.
+  const double u = std::fmax(0.0, std::fmin(1.0, t)) * span;
+  const auto i = static_cast<std::size_t>(std::fmin(std::floor(u), span - 1.0));
+  const double f = u - static_cast<double>(i);
+  const Mat3 &a = A_points[i];
+  const Mat3 &b = A_points[i + 1];
+  Mat3 out;
+  for (std::size_t k = 0; k < 9; ++k) out.m[k] = a.m[k] * (1.0 - f) + b.m[k] * f;
+  return out;
+}
+
+Mat3 Experiment::setting_at(double z) const {
+  if (!crystal) return Mat3::identity();
+  if (!crystal->scan_varying()) return crystal->A;
+  const double n = static_cast<double>(scan.num_images());
+  return crystal->A_at(n > 0.0 ? z / n : 0.0);
+}
+
 double Crystal::d_spacing(int h, int k, int l) const {
   const Vec3 q = A * Vec3{static_cast<double>(h), static_cast<double>(k),
                           static_cast<double>(l)};

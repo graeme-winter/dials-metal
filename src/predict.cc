@@ -88,6 +88,56 @@ std::array<int, 3> index_bounds(const Crystal &crystal, double d_min,
 
 namespace {
 
+// For a scan-varying crystal the setting matrix depends on where the
+// reflection lands, and where it lands depends on the setting matrix. Solve it
+// by iteration.
+//
+// The iteration must be seeded PER ROOT, with that root's own angle. A
+// reflection crosses the Ewald sphere twice, at angles that can be most of the
+// scan apart, and the crystal is a different shape at each. Seeding both from
+// a single guess -- the start of the scan, say -- makes the iteration converge
+// on whichever root is nearer that guess, so the second root is evaluated with
+// the first one's setting matrix.
+//
+// That is not a subtle error. It made the forward and reverse maps disagree by
+// 0.62 px on a half-degree drift, and because refinement's target uses the
+// reverse map while the data came from the forward one, no amount of refining
+// could reach the truth. Nothing caught it: the round-trip test covers static
+// crystals, where both roots share one matrix and the bug is invisible.
+struct Converged {
+  bool any = false;
+  Vec3 r0;
+  double phi = 0.0;
+  bool entering = false;
+};
+
+Converged converge_root(const Experiment &e, const Vec3 &h, double phi_seed,
+                        bool entering_seed) {
+  Converged out;
+  out.phi = phi_seed;
+  out.entering = entering_seed;
+  out.r0 = e.crystal->A * h;
+  if (!e.crystal->scan_varying()) {
+    out.any = true;
+    return out;
+  }
+  for (int pass = 0; pass < 3; ++pass) {
+    const Vec3 trial = e.setting_at(e.scan.z_from_phi(out.phi)) * h;
+    const Intersections cross = ewald_intersections(e, trial);
+    if (!cross.any) return out;
+    // Stay on the root we started from, by proximity to the current angle.
+    const int which = std::abs(cross.phi[0] - out.phi) <=
+                              std::abs(cross.phi[1] - out.phi)
+                          ? 0
+                          : 1;
+    out.r0 = trial;
+    out.phi = cross.phi[which];
+    out.entering = cross.entering[which];
+  }
+  out.any = true;
+  return out;
+}
+
 // Turn one Ewald intersection into a Prediction, or reject it.
 bool build(const Experiment &e, const PredictOptions &options, int h, int k,
            int l, const Vec3 &r0, double phi, bool entering,
@@ -132,19 +182,19 @@ std::vector<Prediction> predict_indices(
     const PredictOptions &options) {
   std::vector<Prediction> out;
   if (!e.crystal) return out;
-  const Mat3 &A = e.crystal->A;
+
 
   for (const std::array<int, 3> &hkl : indices) {
     if (hkl[0] == 0 && hkl[1] == 0 && hkl[2] == 0) continue;
-    const Vec3 r0 = A * Vec3{static_cast<double>(hkl[0]),
-                             static_cast<double>(hkl[1]),
-                             static_cast<double>(hkl[2])};
-    const Intersections cross = ewald_intersections(e, r0);
+    const Vec3 h{static_cast<double>(hkl[0]), static_cast<double>(hkl[1]),
+                 static_cast<double>(hkl[2])};
+    const Intersections cross = ewald_intersections(e, e.crystal->A * h);
     if (!cross.any) continue;
     for (int i = 0; i < 2; ++i) {
+      const Converged c = converge_root(e, h, cross.phi[i], cross.entering[i]);
+      if (!c.any) continue;
       Prediction p;
-      if (build(e, options, hkl[0], hkl[1], hkl[2], r0, cross.phi[i],
-                cross.entering[i], &p)) {
+      if (build(e, options, hkl[0], hkl[1], hkl[2], c.r0, c.phi, c.entering, &p)) {
         out.push_back(p);
       }
     }
@@ -176,16 +226,18 @@ std::vector<Prediction> predict(const Experiment &e,
     for (int k = -bounds[1]; k <= bounds[1]; ++k) {
       for (int l = -bounds[2]; l <= bounds[2]; ++l) {
         if (h == 0 && k == 0 && l == 0) continue;
-        const Vec3 r0 = A * Vec3{static_cast<double>(h), static_cast<double>(k),
-                                 static_cast<double>(l)};
+        const Vec3 hkl{static_cast<double>(h), static_cast<double>(k),
+                       static_cast<double>(l)};
+        const Vec3 r0 = A * hkl;
         if (r0.norm() > q_max) continue;
 
         const Intersections cross = ewald_intersections(e, r0);
         if (!cross.any) continue;
         for (int i = 0; i < 2; ++i) {
+          const Converged c = converge_root(e, hkl, cross.phi[i], cross.entering[i]);
+          if (!c.any) continue;
           Prediction p;
-          if (build(e, options, h, k, l, r0, cross.phi[i], cross.entering[i],
-                    &p)) {
+          if (build(e, options, h, k, l, c.r0, c.phi, c.entering, &p)) {
             out.push_back(p);
           }
         }
