@@ -57,7 +57,12 @@ backward, so an error cancels itself:
 
 - `s0 = -direction / wavelength`, not `+`.
 - The parallax correction, worth **1.58 pixels** on a 0.45 mm sensor, was
-  missing entirely.
+  missing entirely. It is Appendix A of Winter *et al.* (2018), eqns (7) and
+  (8).
+
+Work from `xyzobs.px` and the current detector model, never from
+`xyzobs.mm.value`: that column is written once at import and never recomputed,
+so after refinement it describes a detector that no longer exists.
 
 `docs/conventions.md` has the full account, including what is still untested:
 the goniometer decomposition, `first_image != 1`, and multi-panel detectors.
