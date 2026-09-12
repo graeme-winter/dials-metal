@@ -78,10 +78,17 @@ Experiment refined_experiment() {
 }  // namespace
 
 TEST(real_parallax_reproduces_dials_pixel_to_millimetre_exactly) {
-  // xyzobs.mm is written once at import and never recomputed, so it must be
-  // reproduced from the IMPORTED panel. Against the refined panel the same
-  // code is out by 1.7e-3 mm, which looks like a flaw in the parallax model
-  // and is nothing of the kind.
+  // NOTE ON xyzobs.mm: this test consumes it as *evidence about the formula*,
+  // and it is the only file that pins the pixels-to-millimetres direction. It
+  // is not an endorsement of the column. xyzobs.mm is computed once at import
+  // and never recomputed, so it carries the inverse parallax correction under
+  // the IMPORTED geometry, and after refinement it describes a detector that
+  // no longer exists. Nothing in src/ reads it, and nothing should: work from
+  // xyzobs.px through the current detector model every time.
+  //
+  // The proof of the staleness is that this test needs the imported panel.
+  // Against the refined one the same code is out by 1.7e-3 mm, which looks
+  // like a flaw in the parallax model and is nothing of the kind.
   const Panel p = imported_panel();
   double worst = 0.0;
   for (const real::Row &r : real::rows()) {
@@ -187,8 +194,10 @@ TEST(real_s0_sign_is_not_arbitrary) {
 }
 
 TEST(real_scan_angle_matches_the_dials_millimetre_column) {
-  // xyzobs.mm's third component is the rotation angle in radians, which pins
-  // the scan convention: phi = radians(osc_start + z * osc_width).
+  // The third component of xyzobs.mm is safe where the first two are not: it
+  // is the rotation angle, which comes from the scan and has no dependence on
+  // the detector model at all, so refinement cannot make it stale. It pins
+  // phi = radians(osc_start + z * osc_width).
   const Experiment e = refined_experiment();
   double worst = 0.0;
   for (const real::Row &r : real::rows()) {
@@ -262,4 +271,55 @@ TEST(real_prediction_lands_on_the_observed_spots) {
   // Against DIALS' own xyzcal, so this is a comparison of two predictions of
   // the same model rather than a fit to observation.
   check::is_true(worst < 0.5, "predicted position must match DIALS' xyzcal");
+}
+
+
+TEST(real_oscillation_array_is_uniform) {
+  // dxtbx writes a per-image array of start angles rather than a start and a
+  // width. Treating the width as constant is fair -- but it should be checked
+  // rather than assumed, and the check is nearly free.
+  std::vector<double> oscillation;
+  const long n = real::kImageRange[1] - real::kImageRange[0] + 1;
+  for (long i = 0; i < n; ++i) {
+    oscillation.push_back(real::kOscStart + static_cast<double>(i) * real::kOscWidth);
+  }
+  const Scan s = Scan::from_oscillation(oscillation, real::kImageRange[0],
+                                        real::kImageRange[1]);
+  check::equal(s.num_images(), n, "image count");
+  check::close(s.osc_width, real::kOscWidth, 1e-15, "width from the endpoints");
+  // On the real array this is 3.6e-14: accumulation round-off, nothing more.
+  check::is_true(s.max_width_deviation < 1e-10, "the scan should be uniform");
+}
+
+TEST(oscillation_width_comes_from_the_endpoints_not_the_first_pair) {
+  // A single perturbed element must not move the width much. Taking the width
+  // from the first two elements would let one bad value at the start set the
+  // width for the entire scan.
+  std::vector<double> oscillation;
+  for (int i = 0; i < 300; ++i) oscillation.push_back(0.1 * i);
+  oscillation[1] += 0.05;
+  const Scan s = Scan::from_oscillation(oscillation, 1, 300);
+  check::close(s.osc_width, 0.1, 1e-12, "width barely moves");
+  // And the perturbation must still be reported rather than swallowed.
+  check::is_true(s.max_width_deviation > 0.1, "non-uniformity must be visible");
+}
+
+TEST(goniometer_ignores_the_angle_of_its_own_scan_axis) {
+  // The scan axis does not have one setting, it has a different one on every
+  // frame, and the scan supplies it. A value in `angles` for that axis must
+  // not be composed into either rotation.
+  const std::vector<Vec3> axes = {
+      {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+  const Goniometer a = Goniometer::from_axes(axes, {0.0, 0.0, 0.0}, 2);
+  const Goniometer b = Goniometer::from_axes(axes, {0.0, 0.0, 37.0}, 2);
+  check::close(rotation_angle(a.fixed * b.fixed.transpose()), 0.0, 1e-12,
+               "fixed unchanged by the scan axis angle");
+  check::close(rotation_angle(a.setting * b.setting.transpose()), 0.0, 1e-12,
+               "setting unchanged by the scan axis angle");
+
+  // An angle on a NON-scan axis must change the fixed rotation, or the
+  // decomposition is doing nothing at all.
+  const Goniometer c = Goniometer::from_axes(axes, {0.0, 30.0, 0.0}, 2);
+  check::close(rotation_angle(c.fixed), Scan::radians(30.0), 1e-12,
+               "a chi setting must reach the fixed rotation");
 }

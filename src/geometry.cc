@@ -37,6 +37,28 @@ std::pair<double, double> Panel::mm_to_px(double mm_fast,
           (mm_slow + offset.second) / pixel_size[1]};
 }
 
+Scan Scan::from_oscillation(const std::vector<double> &oscillation_deg,
+                           std::int64_t first, std::int64_t last) {
+  Scan s;
+  s.first_image = first;
+  s.last_image = last;
+  if (oscillation_deg.empty()) return s;
+  s.osc_start = oscillation_deg.front();
+  const std::size_t n = oscillation_deg.size();
+  if (n < 2) return s;
+
+  s.osc_width = (oscillation_deg.back() - oscillation_deg.front()) /
+                static_cast<double>(n - 1);
+  if (s.osc_width == 0.0) return s;
+  for (std::size_t i = 1; i < n; ++i) {
+    const double width = oscillation_deg[i] - oscillation_deg[i - 1];
+    s.max_width_deviation =
+        std::fmax(s.max_width_deviation,
+                  std::abs(width - s.osc_width) / std::abs(s.osc_width));
+  }
+  return s;
+}
+
 Goniometer Goniometer::from_axes(const std::vector<Vec3> &axes,
                                  const std::vector<double> &angles_deg,
                                  std::size_t scan_axis) {
