@@ -242,9 +242,39 @@ Removing per-module constants also drops the radial slope from 3.0e-4 to
 1.9e-4, so tiling is about a third of the radial gradient and something else is
 the rest.
 
-**The actionable part:** this detector is modelled as a single panel. A
-multi-panel model, one panel per module, would give refinement somewhere to put
-this. That is a change to how the NXmx file is imported, not to any algorithm.
+### It is a fixed hardware fingerprint
+
+The steps repeat. Across four independently refined sweeps of a separate
+four-sweep insulin experiment on the same detector, the slow-axis pattern comes
+out the same shape every time:
+
+    boundary   sweep 0   sweep 1   sweep 2   sweep 3
+      1062      +0.045    +0.070    +0.022    +0.090
+      1612      -0.187    -0.097    -0.128    -0.142
+      2162      -0.321    -0.362    -0.366    -0.326
+      2712      +0.354    +0.239    +0.330    +0.361
+      3262      -0.319    -0.132    -0.317    -0.348
+
+and comparing that experiment against the single-sweep one -- different data,
+different crystal orientation, separately refined detector models -- gives a
+**correlation of 0.950 over seven boundaries, with an rms difference of 0.063
+px**. The steps themselves are 0.229 px rms, which at 75 micron pixels is
+**17 microns**.
+
+Seventeen microns is a module placement tolerance, not a modelling error. This
+is a property of the hardware, measurable from diffraction data, stable between
+experiments, and currently absorbed into the residuals because the detector is
+described as one flat panel.
+
+**The actionable part:** a multi-panel model, one panel per module, would give
+refinement somewhere to put this. That is a change to how the NXmx file is
+imported, not to any algorithm. The per-module affine result suggests the
+modules want tilts and not just positions.
+
+**What would test it hardest:** a dataset from a *different* detector. If this
+is hardware, a PILATUS 2M -- 487 x 195 modules with 7 and 17 pixel gaps, a
+completely different tiling -- should show steps at its own boundaries with its
+own unrelated fingerprint, and none at the Eiger2 spacings.
 
 So: a radial, geometric, intensity-independent displacement of about a fifth of
 a pixel peak to peak, in a direction the detector model cannot represent.
