@@ -15,10 +15,13 @@ std::pair<double, double> Panel::parallax_offset(double mm_fast,
   // Mean depth of interaction along the ray, truncated by the sensor: a photon
   // that gets through the full thickness is not recorded at all, which is the
   // second term.
-  const double depth =
-      attenuation_length -
-      (thickness / cos_theta + attenuation_length) *
-          std::exp(-mu * thickness / cos_theta);
+  const double path = thickness / cos_theta;
+  const double transmitted = std::exp(-mu * path);
+  double depth = attenuation_length - (path + attenuation_length) * transmitted;
+  if (parallax_conditional) {
+    const double absorbed = 1.0 - transmitted;
+    if (absorbed > 0.0) depth /= absorbed;
+  }
   return {depth * u.dot(fast), depth * u.dot(slow)};
 }
 

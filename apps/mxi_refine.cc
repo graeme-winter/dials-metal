@@ -21,6 +21,7 @@ void usage() {
       "  --beam            refine the beam direction too (off: correlated\n"
       "                    with the detector on a single sweep)\n"
       "  --separate        one crystal per experiment instead of one shared\n"
+      "  --conditional-depth  mean depth given absorption, not eqn (6)\n"
       "  --macrocycles N   (3)\n"
       "  --outlier-sigma S (4; 0 disables rejection)\n"
       "  --output-expt P   (refined.expt)\n"
@@ -37,6 +38,7 @@ int main(int argc, char **argv) {
   std::string out_refl = "refined.refl";
   RefineOptions options;
   options.verbose = true;
+  bool conditional_depth = false;
 
   for (int i = 3; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -51,6 +53,7 @@ int main(int argc, char **argv) {
     else if (arg == "--no-detector") options.detector = false;
     else if (arg == "--beam") options.beam = true;
     else if (arg == "--separate") options.shared_crystal = false;
+    else if (arg == "--conditional-depth") conditional_depth = true;
     else if (arg == "--macrocycles") options.macrocycles = std::atoi(next());
     else if (arg == "--outlier-sigma") options.outlier_sigma = std::atof(next());
     else if (arg == "--output-expt") out_expt = next();
@@ -65,6 +68,12 @@ int main(int argc, char **argv) {
   try {
     ExperimentList experiments = read_experiments(argv[1]);
     Table reflections = read_reflections(argv[2]);
+    if (conditional_depth) {
+      for (Experiment &e : experiments) {
+        for (Panel &p : e.detector.panels) p.parallax_conditional = true;
+      }
+      std::printf("using the conditional absorption depth\n");
+    }
     std::printf("%zu experiments, %zu reflections\n", experiments.size(),
                 reflections.nrows);
 

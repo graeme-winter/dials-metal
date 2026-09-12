@@ -92,6 +92,23 @@ struct Panel {
   double mu = 0.0;         // attenuation coefficient, per mm
   double thickness = 0.0;  // sensor thickness, mm
 
+  // Use the depth conditional on the photon being absorbed at all, rather than
+  // the unconditional first moment of eqn (6).
+  //
+  // Eqn (6) integrates x mu exp(-mu x) from zero to t, which is the mean depth
+  // weighted by the absorption probability -- it counts the photons that pass
+  // straight through as contributing depth zero. They are not recorded, so they
+  // should not be in the average. Dividing by p = 1 - exp(-mu t) gives the mean
+  // depth of the photons that actually fired a pixel.
+  //
+  // It matters because p depends on angle through t/cos(theta): at normal
+  // incidence a 0.45 mm silicon sensor at mu = 3.663 absorbs 81 per cent, at
+  // forty degrees it absorbs 89, so the correction is angle-dependent and
+  // cannot be absorbed into the detector distance. Off by default: DIALS uses
+  // eqn (6) and matching it bit for bit is worth more than being right about
+  // this in a way nothing downstream expects.
+  bool parallax_conditional = false;
+
   Vec3 normal() const { return fast.cross(slow).normalized(); }
 
   // The lateral displacement caused by absorption at depth, evaluated at the
