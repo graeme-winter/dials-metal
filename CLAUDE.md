@@ -203,6 +203,49 @@ one image, 5.0e-4 at seven) and is plausibly second order.
 
 **Not the absorption depth.** See below; tested and refuted.
 
+**Not fluorescence escape either.** Si K-alpha is 1.74 keV. A 13 keV photon
+that loses it still deposits 11.26 keV, far above a threshold set at half the
+photon energy, so it is counted at its own pixel -- and the escaped 1.74 keV
+photon falls below threshold and is never counted at all. A photon-counting
+detector with a half-energy threshold is immune to this by construction.
+
+**Partly the module tiling.** This is an Eiger2 16M: 4 x 1028 + 3 x 12 = 4148
+fast, 8 x 512 + 7 x 38 = 4362 slow, confirmed against the data by zero spots in
+every predicted gap out of 13766. DIALS imports it as ONE flat panel, so
+nothing about the individual modules' positions or tilts can be represented,
+and whatever is wrong with the tiling has nowhere to go but the residuals.
+
+`mxi_residuals --modules 1028,12,512,38` shows it as a step at each boundary:
+
+    fast at 1028   step -0.127 px
+    fast at 2068   step -0.203
+    fast at 3108   step -0.121
+
+Three boundaries out of three, same sign, 0.12 to 0.20 px, each many times the
+standard error on medians of hundreds. The slow boundaries are four of five
+negative and noisier.
+
+How much it accounts for, with controls, on median |residual| of 0.2795 px:
+
+    per-module constant            0.2412  (13.7 per cent)
+    per-module affine              0.1856  (33.6)
+    control, diagonal bands        0.2508  (10.3)
+    control, random groups         0.2800  (-0.2)
+
+The control matters. A per-module constant barely beats carving the detector
+into the same number of arbitrary diagonal bands, so rigid module offsets are
+not the right description -- it is mostly absorbing smooth spatial structure.
+The per-module *affine* is much better, which points at each module having its
+own tilt rather than its own position.
+
+Removing per-module constants also drops the radial slope from 3.0e-4 to
+1.9e-4, so tiling is about a third of the radial gradient and something else is
+the rest.
+
+**The actionable part:** this detector is modelled as a single panel. A
+multi-panel model, one panel per module, would give refinement somewhere to put
+this. That is a change to how the NXmx file is imported, not to any algorithm.
+
 So: a radial, geometric, intensity-independent displacement of about a fifth of
 a pixel peak to peak, in a direction the detector model cannot represent.
 Candidates not yet tested: the parallax offset is evaluated at the front-face
