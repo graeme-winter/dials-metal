@@ -1,0 +1,60 @@
+// Reading and writing DIALS experiment lists.
+//
+// The shapes accepted here are the ones real files use, which is not always
+// the shape the documentation suggests:
+//
+//   * the goniometer is `axes` / `angles` / `scan_axis`, numbered from the
+//     sample outwards, not `rotation_axis` with fixed and setting rotations;
+//   * the scan's oscillation is a per-image array under `properties`, not a
+//     `[start, width]` pair;
+//   * the detector's `px_mm_strategy` decides whether the parallax correction
+//     applies, and it is worth 1.6 pixels when it does.
+//
+// The older forms are accepted too where they cost nothing, because a reader
+// that only understands the one file it was tested against is not much of a
+// reader. What is NOT accepted is silence: a scan whose oscillation cannot be
+// found is an error, not a zero, because two zeroes compare equal and a
+// comparison that passes for want of data is worse than one that fails.
+
+#pragma once
+
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "geometry.h"
+#include "json.h"
+
+namespace mxi {
+
+class ExptError : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
+
+struct ExperimentList {
+  std::vector<Experiment> experiments;
+
+  std::size_t size() const { return experiments.size(); }
+  bool empty() const { return experiments.empty(); }
+  Experiment &operator[](std::size_t i) { return experiments[i]; }
+  const Experiment &operator[](std::size_t i) const { return experiments[i]; }
+  std::vector<Experiment>::iterator begin() { return experiments.begin(); }
+  std::vector<Experiment>::iterator end() { return experiments.end(); }
+  std::vector<Experiment>::const_iterator begin() const {
+    return experiments.begin();
+  }
+  std::vector<Experiment>::const_iterator end() const {
+    return experiments.end();
+  }
+};
+
+ExperimentList read_experiments(const std::string &path);
+ExperimentList experiments_from_json(const json::Value &document);
+
+// Serialise. Models are shared where they are identical, as DIALS does, so
+// four sweeps on one crystal write one crystal and four goniometers.
+json::Value experiments_to_json(const ExperimentList &list);
+void write_experiments(const std::string &path, const ExperimentList &list);
+
+}  // namespace mxi
