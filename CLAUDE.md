@@ -161,19 +161,12 @@ fitting the radial residual against radius separately along each axis, with the
 panel refined -- the implied distance differs between fast and slow by 0.04 mm,
 not 0.6. The 0.6 was an artefact of the scan's own constraint.
 
-**Retracted: "a clean radial gradient."** Binned by radius the radial component
-does swing monotonically by 0.9 px. But the tangential component mirrors it
-almost exactly with the opposite sign, which is what a *directional* pattern
-looks like when it is pushed through a radial decomposition, not what a radial
-one looks like. Binned by position along fast or slow the pattern is not
-monotonic either. So there is structure, and it is not characterised.
-
-What would characterise it: a two-dimensional map of the residual field rather
-than one-dimensional binnings, and DIALS' full `indexed.refl` rather than the
-forty rows embedded here -- forty is too thin to bin, and using this
-refinement's own residuals confounds the effect with this refinement's own
-error. The azimuthal sampling is also very uneven, the rotation axis lying
-along fast, which biases any radial binning.
+**Partly retracted: "a clean radial gradient" on this refinement's own
+residuals.** There the tangential component mirrors the radial almost exactly,
+which is a directional pattern pushed through a radial decomposition. On DIALS'
+own output, with the affine part removed, the radial gradient is clean and the
+claim stands -- but it stands on DIALS' residuals, not on this code's, and the
+two should not have been conflated.
 
 **Refuted: the absorption depth.** Eqn (6) is the unconditional first moment
 and counts photons that pass through the sensor as contributing depth zero. The
@@ -183,10 +176,41 @@ Implemented behind `parallax_conditional` and tested: rmsd goes from
 0.3514/0.3388 to 0.3516/0.3409 and the cell moves by 0.015 per cent. It is not
 the cause.
 
-**Confirmed: it is in DIALS too.** DIALS' own residuals on its own output show
-a radial gradient of the same sign, +1.09e-4 px per px, monotonic across four
-quartiles from -0.10 to +0.19 px. Forty reflections, so suggestive rather than
-established.
+## The radial residual, measured properly
+
+Measured on DIALS' own refined insulin model, 12907 indexed reflections, so it
+is DIALS' model inadequacy with none of this code's mixed in. `mxi_residuals`
+prints all of it.
+
+**It is real and it is radial.** Median radial residual runs monotonically from
+-0.155 px at the beam centre to +0.067 px at the edge, with a fitted slope of
++3.0e-4 px per px, about 0.48 px across the radius range.
+
+**No change to the detector can remove it.** The affine part of the residual
+field -- two scales, a rotation about the beam, a shear, a translation, which
+is everything a flat panel can express -- comes to almost nothing: scales of
+0.01 per cent, 0.07 mrad of rotation, 0.035 mrad of shear, worth 0.054 px at
+the panel corner. Removing it leaves the radial gradient essentially untouched,
+-0.155 to +0.067. Refinement was free to move the distance and did; the
+gradient is not a distance error.
+
+**It is geometric, not a centroid artefact.** Fitting the slope within each
+intensity quartile separately gives 3.4, 2.9, 3.3 and 4.7e-4 across a factor of
+fifty in intensity. A centroid-estimation bias -- thresholding, background,
+shoebox truncation -- would scale strongly with signal to noise. It does not.
+The mild rise in the strongest quartile tracks bounding-box depth (3.2e-4 at
+one image, 5.0e-4 at seven) and is plausibly second order.
+
+**Not the absorption depth.** See below; tested and refuted.
+
+So: a radial, geometric, intensity-independent displacement of about a fifth of
+a pixel peak to peak, in a direction the detector model cannot represent.
+Candidates not yet tested: the parallax offset is evaluated at the front-face
+intersection rather than solved self-consistently (matching DIALS exactly is no
+defence -- both could be wrong the same way, though the one-shot to converged
+difference measured 0.0005 px, which is too small); a non-planar sensor; and
+the interaction depth distribution being something other than a single
+exponential, which for silicon near an absorption edge it is not.
 
 ## The degeneracy that replaces it
 
