@@ -82,6 +82,13 @@ scan axis the two orders are the same matrix. Pinned now against the physical
 arrangement on a synthetic three-axis goniometer, including a check that the
 two orders really do differ so the test is not vacuous.
 
+**"Three circles" is not the condition for testing the composition order.** A
+four-sweep phi/chi/omega dataset does put two axes below the scan axis, but phi
+is zero in every sweep, so its rotation is the identity and both orders give
+the same matrix to the last digit. What is needed is two axes below the scan
+axis at *simultaneously non-zero* angles. Asserted, so that substituting better
+data makes the test fail rather than silently start passing for a new reason.
+
 **Still open, and a green suite says nothing about any of them:** the
 composition order *against data*, `first_image != 1`, multi-panel detectors,
 and the `hierarchy` block, which is ignored.

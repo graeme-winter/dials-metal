@@ -140,14 +140,21 @@ A vector fixed to the sample is therefore carried first by `axes[0]`, then by
 `axes[1]`, so an axis further out applies **later** and multiplies on the
 **left**.
 
-This is unobservable in both datasets to hand -- this goniometer has two axes,
-so at most one ever lies below the scan axis, and with one axis the two orders
-are the same matrix. Every test in `test_multi_axis.cc` that uses real data
-passes under either convention. The order is therefore pinned against the
-physical arrangement instead, on a synthetic three-axis goniometer with
-non-commuting axes, including the check that the two orders really are
-different matrices so the test is not vacuous. A three-circle instrument would
-settle it against data.
+This is unobservable in **every** dataset to hand, including a three-circle one.
+The l-cysteine goniometer has two axes, so at most one ever lies below the scan
+axis. A four-sweep insulin set on a phi/chi/omega goniometer does have two axes
+below the scanned one -- but **phi is zero in all four sweeps**, so its rotation
+is the identity and the two orders give the same matrix to the last digit.
+
+The condition is therefore not "three circles". It is **two axes below the scan
+axis at simultaneously non-zero angles**. That is asserted in
+`threeaxis_cannot_distinguish_the_composition_order`, so that substituting a
+dataset with a non-zero phi makes the test fail and say so.
+
+Until then the order is pinned against the physical arrangement instead, on a
+synthetic three-axis goniometer with mutually non-commuting axes, including the
+check that the two orders really are different matrices so the test is not
+vacuous.
 
 ## Wrong shape: the scan
 
@@ -192,10 +199,11 @@ left is the indexing residual, not an error here.
 
 ## Still open
 
-1. **The order of composition, against data.** It is now implemented from the
-   physical arrangement of the axes and tested against that, but no dataset to
-   hand can distinguish it from the inside-out order. Needs a three-circle
-   instrument.
+1. **The order of composition, against data.** Implemented from the physical
+   arrangement of the axes and tested against that. No dataset to hand can
+   distinguish it from the inside-out order -- not even the three-circle one,
+   because its inner axis is at zero. Needs **two axes below the scan axis at
+   simultaneously non-zero angles**.
 2. **`first_image != 1`.** The z anchor wrinkle is still untested; insulin
    starts at image 1, where the two conventions agree by construction.
 3. **Multi-panel detectors.** Both datasets have one panel per detector, and
