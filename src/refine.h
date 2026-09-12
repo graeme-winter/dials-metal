@@ -76,6 +76,17 @@ struct RefineOptions {
   //: Stop when the weighted residual improves by less than this fraction.
   double convergence = 1e-6;
   bool verbose = false;
+  //: Ignore the centroid variances and weight every residual equally.
+  //:
+  //: On a photon-counting detector the centroid variances are nearly constant
+  //: -- dominated by the 1/12 pixel quantisation floor -- so this changes very
+  //: little, which is itself worth being able to demonstrate rather than
+  //: assume.
+  bool unit_weights = false;
+  //: Multiply the weight on the rotation-angle residual. The balance between
+  //: the positional and angular parts of the target is a choice, not a
+  //: measurement, and two programs can make it differently.
+  double z_weight = 1.0;
 };
 
 struct RefineResult {

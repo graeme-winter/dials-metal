@@ -70,7 +70,8 @@ struct TargetRow {
 };
 
 std::vector<TargetRow> gather(const ExperimentList &experiments,
-                                const Table &reflections) {
+                                const Table &reflections,
+                                const RefineOptions &options) {
   std::vector<TargetRow> out;
   if (!reflections.has("miller_index")) return out;
   const Column &miller = reflections.at("miller_index");
@@ -93,7 +94,7 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
     o.px_fast = xyz.real(i, 0);
     o.px_slow = xyz.real(i, 1);
     o.z = xyz.real(i, 2);
-    if (has_var) {
+    if (has_var && !options.unit_weights) {
       const Column &v = reflections.at("xyzobs.px.variance");
       for (std::size_t k = 0; k < 3; ++k) {
         const double variance = v.real(i, k);
@@ -102,6 +103,7 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
         o.weight[k] = variance > 0.0 ? 1.0 / variance : 1.0;
       }
     }
+    o.weight[2] *= options.z_weight;
     out.push_back(o);
   }
   return out;
@@ -275,7 +277,7 @@ double robust_spread(std::vector<double> values) {
 RefineResult refine(ExperimentList &experiments, const Table &reflections,
                     const RefineOptions &options) {
   RefineResult result;
-  std::vector<TargetRow> observations = gather(experiments, reflections);
+  std::vector<TargetRow> observations = gather(experiments, reflections, options);
   if (observations.size() < 20) return result;
 
   Layout layout;
