@@ -80,7 +80,31 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
   const bool has_panel = reflections.has("panel");
   const bool has_var = reflections.has("xyzobs.px.variance");
 
+  // Strength threshold, measured against this dataset's own median so it
+  // travels between detectors and spot finders.
+  double threshold = -1.0;
+  const char *strength = reflections.has("n_signal") ? "n_signal"
+                         : reflections.has("intensity.sum.value")
+                             ? "intensity.sum.value"
+                             : nullptr;
+  if (options.strong_only && strength) {
+    const Column &v = reflections.at(strength);
+    std::vector<double> values;
+    for (std::size_t i = 0; i < reflections.nrows; ++i) {
+      values.push_back(v.integral ? static_cast<double>(v.integer(i)) : v.real(i));
+    }
+    std::nth_element(values.begin(), values.begin() + values.size() / 2,
+                     values.end());
+    threshold = values[values.size() / 2];
+  }
+
   for (std::size_t i = 0; i < reflections.nrows; ++i) {
+    if (threshold >= 0.0) {
+      const Column &v = reflections.at(strength);
+      const double value =
+          v.integral ? static_cast<double>(v.integer(i)) : v.real(i);
+      if (value < threshold) continue;
+    }
     TargetRow o;
     o.h = static_cast<int>(miller.integer(i, 0));
     o.k = static_cast<int>(miller.integer(i, 1));

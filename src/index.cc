@@ -7,6 +7,7 @@
 #include <numeric>
 
 #include "fft.h"
+#include "refine.h"
 
 namespace mxi {
 
@@ -521,33 +522,95 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
     result.crystal.A = trial;
   }
 
-  // Assign indices, and record the residual for the ones that took.
-  Column &miller =
-      reflections.int_column("miller_index", "cctbx::miller::index<>", 3);
-  const Mat3 rows = result.crystal.A.inverse();
-  double sum_squared = 0.0;
-  std::size_t count = 0;
-  for (std::size_t i = 0; i < points.size(); ++i) {
-    const Vec3 h = rows * points[i];
-    double worst = 0.0;
-    double miss = 0.0;
-    long hkl[3];
-    for (std::size_t k = 0; k < 3; ++k) {
-      const double rounded = std::round(h[k]);
-      hkl[k] = static_cast<long>(rounded);
-      const double d = h[k] - rounded;
-      worst = std::fmax(worst, std::abs(d));
-      miss += d * d;
+  for (Experiment &e : experiments) e.crystal = result.crystal;
+
+  // Assign indices under the current model. Returns how many took.
+  const auto assign = [&](const std::vector<Vec3> &rlp) {
+    Column &miller =
+        reflections.int_column("miller_index", "cctbx::miller::index<>", 3);
+    const Mat3 rows = result.crystal.A.inverse();
+    double sum_squared = 0.0;
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < rlp.size(); ++i) {
+      const Vec3 h = rows * rlp[i];
+      double worst = 0.0;
+      double miss = 0.0;
+      long hkl[3];
+      for (std::size_t k = 0; k < 3; ++k) {
+        const double rounded = std::round(h[k]);
+        hkl[k] = static_cast<long>(rounded);
+        const double d = h[k] - rounded;
+        worst = std::fmax(worst, std::abs(d));
+        miss += d * d;
+      }
+      if (worst >= options.tolerance || (!hkl[0] && !hkl[1] && !hkl[2])) continue;
+      for (std::size_t k = 0; k < 3; ++k) miller.ints[i * 3 + k] = hkl[k];
+      sum_squared += miss;
+      ++count;
     }
-    if (worst >= options.tolerance || (!hkl[0] && !hkl[1] && !hkl[2])) continue;
-    for (std::size_t k = 0; k < 3; ++k) {
-      miller.ints[i * 3 + k] = hkl[k];
+    result.n_indexed = count;
+    result.rmsd_index =
+        count ? std::sqrt(sum_squared / static_cast<double>(count)) : 0.0;
+  };
+
+  assign(points);
+
+  // Macrocycles: refine on the strong reflections, then assign to all again
+  // under the improved model. The reciprocal lattice points move when the
+  // detector does, so they are recomputed every cycle rather than reused.
+  for (int cycle = 0; cycle < options.macrocycles; ++cycle) {
+    Table subset = reflections;
+    std::size_t n_strong = reflections.nrows;
+    if (options.refine_on_strong) {
+      // Strength measured against this dataset's own median rather than an
+      // absolute count, so it travels between detectors and spot finders.
+      const char *column = reflections.has("n_signal") ? "n_signal"
+                           : reflections.has("intensity.sum.value")
+                               ? "intensity.sum.value"
+                               : nullptr;
+      if (column) {
+        std::vector<double> values;
+        for (std::size_t i = 0; i < reflections.nrows; ++i) {
+          const Column &v = reflections.at(column);
+          values.push_back(v.integral ? static_cast<double>(v.integer(i))
+                                      : v.real(i));
+        }
+        std::vector<double> sorted = values;
+        std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2,
+                         sorted.end());
+        const double threshold = sorted[sorted.size() / 2];
+        Column &m = subset.int_column("miller_index", "cctbx::miller::index<>", 3);
+        const Column &original = reflections.at("miller_index");
+        n_strong = 0;
+        for (std::size_t i = 0; i < reflections.nrows; ++i) {
+          if (values[i] < threshold) continue;
+          for (std::size_t k = 0; k < 3; ++k) {
+            m.ints[i * 3 + k] = original.integer(i, k);
+          }
+          if (original.integer(i, 0) || original.integer(i, 1) ||
+              original.integer(i, 2)) {
+            ++n_strong;
+          }
+        }
+      }
     }
-    sum_squared += miss;
-    ++count;
+
+    RefineOptions refinement;
+    refinement.outlier_sigma = 3.0;
+    refinement.macrocycles = 2;
+    refinement.verbose = false;
+    const RefineResult r = refine(experiments, subset, refinement);
+    if (r.n_used == 0) break;
+    result.n_refined_on = n_strong;
+    result.cycles_run = cycle + 1;
+    if (experiments[0].crystal) result.crystal = *experiments[0].crystal;
+
+    assign(reciprocal_lattice_points(experiments, reflections));
+    if (options.verbose) {
+      std::printf("  cycle %d: refined on %zu strong, indexed %zu, rmsd %.4f\n",
+                  cycle + 1, n_strong, result.n_indexed, result.rmsd_index);
+    }
   }
-  result.n_indexed = count;
-  result.rmsd_index = count ? std::sqrt(sum_squared / static_cast<double>(count)) : 0.0;
 
   for (Experiment &e : experiments) e.crystal = result.crystal;
   return result;

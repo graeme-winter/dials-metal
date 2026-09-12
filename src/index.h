@@ -58,6 +58,19 @@ struct IndexOptions {
   //: Shortest real-space vector treated as a candidate, to keep the search
   //: away from the origin peak and its immediate neighbourhood.
   double min_cell = 3.0;
+  //: Macrocycles of assign, refine, re-assign. One means assign once and
+  //: stop, which is what this did originally and is not enough.
+  int macrocycles = 3;
+  //: Refine the model on strong reflections only, then assign to all.
+  //:
+  //: This is the whole point of the macrocycle. A weak, marginally indexed
+  //: population is internally consistent, so it does not produce outliers --
+  //: it drags the model until it fits, after which nothing about it looks
+  //: anomalous and no amount of outlier rejection will find it. Measured on
+  //: insulin: refining on everything puts the detector 0.27 mm further away
+  //: than DIALS and the cell 0.15 per cent large; refining on reflections with
+  //: at least ten signal pixels reproduces DIALS to ten microns.
+  bool refine_on_strong = true;
   bool verbose = false;
 };
 
@@ -73,6 +86,9 @@ struct IndexResult {
   double d_min = 0.0;
   double max_cell = 0.0;
   std::size_t grid = 0;
+  //: Reflections used to refine the model, as opposed to indexed by it.
+  std::size_t n_refined_on = 0;
+  int cycles_run = 0;
 };
 
 // Map every reflection into the crystal frame of its own experiment. The

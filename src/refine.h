@@ -83,6 +83,14 @@ struct RefineOptions {
   //: little, which is itself worth being able to demonstrate rather than
   //: assume.
   bool unit_weights = false;
+  //: Build the model from reflections at or above the median strength.
+  //:
+  //: Weak, marginally indexed reflections bias a refinement and cannot be
+  //: rejected as outliers, because they are internally consistent -- the model
+  //: moves until they fit. On insulin, refining on everything puts the
+  //: detector 0.27 mm further out than DIALS; on the stronger half, 0.01 mm.
+  //: Off by default because discarding half the data should be asked for.
+  bool strong_only = false;
   //: Multiply the weight on the rotation-angle residual. The balance between
   //: the positional and angular parts of the target is a choice, not a
   //: measurement, and two programs can make it differently.

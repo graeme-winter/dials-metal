@@ -24,6 +24,7 @@ void usage() {
       "  --conditional-depth  mean depth given absorption, not eqn (6)\n"
       "  --scan-varying N  control points in A across each scan (1 = static)\n"
       "  --unit-weights    ignore the centroid variances\n"
+      "  --strong-only     build the model from the stronger half only\n"
       "  --z-weight W      scale the weight on the rotation-angle residual\n"
       "  --macrocycles N   (3)\n"
       "  --outlier-sigma S (4; 0 disables rejection)\n"
@@ -60,6 +61,7 @@ int main(int argc, char **argv) {
     else if (arg == "--conditional-depth") conditional_depth = true;
     else if (arg == "--scan-varying") scan_points = std::atoi(next());
     else if (arg == "--unit-weights") options.unit_weights = true;
+    else if (arg == "--strong-only") options.strong_only = true;
     else if (arg == "--z-weight") options.z_weight = std::atof(next());
     else if (arg == "--macrocycles") options.macrocycles = std::atoi(next());
     else if (arg == "--outlier-sigma") options.outlier_sigma = std::atof(next());
