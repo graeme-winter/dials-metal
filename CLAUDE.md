@@ -271,10 +271,35 @@ refinement somewhere to put this. That is a change to how the NXmx file is
 imported, not to any algorithm. The per-module affine result suggests the
 modules want tilts and not just positions.
 
-**What would test it hardest:** a dataset from a *different* detector. If this
-is hardware, a PILATUS 2M -- 487 x 195 modules with 7 and 17 pixel gaps, a
-completely different tiling -- should show steps at its own boundaries with its
-own unrelated fingerprint, and none at the Eiger2 spacings.
+### The falsification test, passed
+
+l-cysteine on a PILATUS 2M at I19: 1475 x 1679, 172 micron pixels,
+3 x 487 + 2 x 7 fast and 8 x 195 + 7 x 17 slow, confirmed from the data by zero
+spots in every predicted gap out of 15477 where arbitrary bands of the same
+width hold 46 and 141.
+
+**It shows no module steps.** Median absolute step at its nine real boundaries
+is 0.030 px, against 0.038 at sixty arbitrary slow rows and 0.024 at forty
+arbitrary fast columns. The per-sweep values flip sign between sweeps. Nothing
+at the Eiger2 spacings either, as there should not be.
+
+The test has the power to have found it. With around four hundred reflections
+each side and a 0.56 px spread the standard error on a median step is about
+0.035 px, so an Eiger2-sized step of 0.12 to 0.35 px would have shown at four
+to ten sigma.
+
+One thing had to be fixed first. As supplied, this dataset is indexed with one
+UB across all four sweeps and perfect goniometry, which is false, and the
+residuals are dominated by it: median 1.05 px, with only 5218 of 11686
+reflections inside a 1.5 px clip. Refining with a crystal per sweep --
+`mxi_refine --separate` -- takes it to 0.56 px with 10791 reflections, and only
+then is the test sensitive enough to mean anything. **A null result from an
+underpowered test is not evidence of absence**, and this one would have been
+underpowered by a factor of two.
+
+So the fingerprint is detector-specific: present and reproducible on the Eiger2
+at 0.229 px rms (17 microns), absent on the PILATUS 2M below about 0.06 px
+(10 microns). An artefact of the analysis would appear on both.
 
 So: a radial, geometric, intensity-independent displacement of about a fifth of
 a pixel peak to peak, in a direction the detector model cannot represent.
