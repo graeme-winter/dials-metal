@@ -56,6 +56,24 @@ the two- and three-element top level, and wrapped or bare payloads, are
 accepted: it costs nothing, and a reader that understands only the one file it
 was tested against is not much of a reader.
 
+## Never join on a millimetre column
+
+`xyzobs.mm.value` is computed once at import, carries the inverse parallax
+correction under the geometry current at that moment, and is **never
+recomputed**. After refinement it describes a detector that no longer exists.
+
+Two pipelines that refined to slightly different detectors would then be
+compared in two different millimetre frames, and the difference would read as a
+centroid disagreement. On the insulin data the stale-versus-current gap is
+1.7e-3 mm. Pixels are the raw measurement and cannot go stale, so
+`POSITION_COLUMNS` holds only pixel columns and `position_column` raises with a
+pointed message if a table has nothing but millimetres.
+
+The third component is the exception: it is the rotation angle, which comes
+from the scan and has no dependence on the detector model, so it cannot go
+stale. That is why it is usable for pinning the scan convention and the first
+two are not.
+
 ## Things that were got wrong once
 
 **The format was wrong in two ways and the whole suite passed anyway.** The
@@ -93,6 +111,15 @@ convention-dependent for hexagonal and rhombohedral lattices only.
 
 **`fraction_matched` divides by the larger table, not the smaller.** Otherwise a
 table containing one reflection that happens to be in the other scores 1.0.
+
+**The `.expt` scan shape changed and the old reader failed silently.** Current
+DIALS writes `properties.oscillation` as a per-image array of start angles, not
+a top-level `[start, width]`. Reading only the old key against a current file
+returned `(0.0, 0.0)` — for *both* sides of a comparison, which then agreed
+perfectly and said nothing. A silent pass is worse than a failure. Both forms
+are now read, pinned against a real scan block in `tests/data/real_scan.json`,
+and the width comes from the endpoints rather than the first two elements
+because the array is built by repeated addition.
 
 ## Design decisions worth not relitigating
 

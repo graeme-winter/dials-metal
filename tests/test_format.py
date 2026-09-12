@@ -15,6 +15,7 @@ fail loudly if the reader is loosened.
 
 from __future__ import annotations
 
+import json
 import pathlib
 
 import msgpack
@@ -202,3 +203,82 @@ def test_structure_describes_the_real_file():
     lines = refl.structure(DIALS_FILE.read_bytes(), max_items=6)
     assert any("array, 3 items" in line for line in lines)
     assert any("dials::af::reflection_table" in line for line in lines)
+
+
+# --------------------------------------------------------------------------
+# .expt shapes that changed under us
+# --------------------------------------------------------------------------
+
+REAL_SCAN = DATA / "real_scan.json"
+
+
+def _expt_with(scan: dict) -> str:
+    import fixtures
+
+    doc = fixtures.experiments_dict()
+    doc["scan"] = [scan]
+    return json.dumps(doc)
+
+
+def test_scan_reads_the_per_image_oscillation_array():
+    """Current DIALS writes properties.oscillation, not [start, width].
+
+    Reading only the old key against a current file gives (0.0, 0.0) for both
+    sides of a comparison, which then agree perfectly and say nothing. A silent
+    pass is worse than a failure, so this is pinned against a real scan block.
+    """
+    from mxeq import expt
+
+    real = json.loads(REAL_SCAN.read_text())["scan"]
+    scan = expt.loads(_expt_with(real))[0].scan
+    assert scan.image_range == (1, 6)
+    assert scan.oscillation[0] == pytest.approx(0.0)
+    assert scan.oscillation[1] == pytest.approx(0.1, abs=1e-12)
+    # Accumulation round-off only.
+    assert scan.max_width_deviation < 1e-10
+
+
+def test_scan_still_reads_the_old_oscillation_pair():
+    from mxeq import expt
+
+    scan = expt.loads(_expt_with({"image_range": [1, 100], "oscillation": [5.0, 0.2]}))[
+        0
+    ].scan
+    assert scan.oscillation == (5.0, 0.2)
+
+
+def test_scan_width_comes_from_the_endpoints():
+    from mxeq import expt
+
+    values = [0.1 * i for i in range(300)]
+    values[1] += 0.05  # one bad element near the start
+    scan = expt.loads(
+        _expt_with({"image_range": [1, 300], "properties": {"oscillation": values}})
+    )[0].scan
+    assert scan.oscillation[1] == pytest.approx(0.1, abs=1e-12)
+    # ...and the perturbation is reported, not swallowed.
+    assert scan.max_width_deviation > 0.1
+
+
+def test_millimetre_columns_are_not_used_as_a_position_key():
+    """xyzobs.mm is import-time and goes stale; it must never be a join key.
+
+    It carries the inverse parallax correction under whatever geometry was
+    current at import and is never recomputed, so after refinement it describes
+    a detector that no longer exists. Two pipelines that refined to slightly
+    different detectors would be compared in two different millimetre frames,
+    and the difference would read as a centroid disagreement.
+    """
+    import numpy as np
+
+    from mxeq.checks.common import position_column
+
+    table = refl.ReflectionTable(nrows=2)
+    table.columns["xyzobs.mm.value"] = np.zeros((2, 3))
+    table.types["xyzobs.mm.value"] = "vec3<double>"
+    with pytest.raises(KeyError, match="stale"):
+        position_column(table)
+
+    table.columns["xyzobs.px.value"] = np.zeros((2, 3))
+    table.types["xyzobs.px.value"] = "vec3<double>"
+    assert position_column(table) == "xyzobs.px.value"

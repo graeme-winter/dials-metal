@@ -72,6 +72,11 @@ class Scan:
     image_range: tuple[int, int]
     oscillation: tuple[float, float]
     batch_offset: int = 0
+    #: Worst departure from a constant oscillation width, as a fraction of the
+    #: width. Round-off alone gives about 1e-14; anything larger is a scan that
+    #: does not have one width, and reporting it as though it did would be a
+    #: fiction.
+    max_width_deviation: float = 0.0
 
     @property
     def num_images(self) -> int:
@@ -169,10 +174,41 @@ def _detector(d: dict) -> Detector:
 
 
 def _scan(d: dict) -> Scan:
+    """Read a scan, accepting both the old and current oscillation forms.
+
+    Current DIALS writes ``properties.oscillation`` as a per-image array of
+    start angles; older files carry a top-level ``oscillation`` of
+    ``[start, width]``. Reading only the old key against a current file yields
+    ``(0.0, 0.0)`` for both sides of a comparison, which then agree perfectly
+    and say nothing -- a silent pass, which is worse than a failure.
+
+    The width is taken from the endpoints rather than the first two elements.
+    The array is built by repeated addition, so adjacent differences are a
+    subtraction of nearby doubles; spanning the scan divides that error by the
+    number of images.
+    """
+    image_range = tuple(d["image_range"])
+    oscillation = d.get("oscillation")
+    deviation = 0.0
+
+    if oscillation is None:
+        values = (d.get("properties") or {}).get("oscillation") or []
+        if len(values) >= 2:
+            width = (values[-1] - values[0]) / (len(values) - 1)
+            if width:
+                gaps = [values[i] - values[i - 1] for i in range(1, len(values))]
+                deviation = max(abs(g - width) for g in gaps) / abs(width)
+            oscillation = (values[0], width)
+        elif len(values) == 1:
+            oscillation = (values[0], 0.0)
+        else:
+            oscillation = (0.0, 0.0)
+
     return Scan(
-        image_range=tuple(d["image_range"]),
-        oscillation=tuple(d.get("oscillation", (0.0, 0.0))),
+        image_range=image_range,
+        oscillation=tuple(oscillation),
         batch_offset=int(d.get("batch_offset", 0)),
+        max_width_deviation=deviation,
     )
 
 

@@ -20,20 +20,38 @@ FLAGS = {
 }
 
 
-def position_column(table: ReflectionTable) -> str:
-    """The best available observed position column.
+#: Position columns, in the order they are preferred.
+#:
+#: Observed before calculated is deliberate: two pipelines that disagree about
+#: the model still agree about where the photons landed, so the observed
+#: position is the one thing usable as a join key before the models have been
+#: compared.
+#:
+#: The millimetre columns are deliberately NOT here. ``xyzobs.mm.value`` is
+#: computed once at import, carries the inverse parallax correction under the
+#: geometry current at that moment, and is never recomputed -- so after
+#: refinement it describes a detector that no longer exists. Two pipelines that
+#: refined to slightly different detectors would be compared in two different
+#: millimetre frames, and the difference would look like a centroid
+#: disagreement. Pixels are the raw measurement and do not go stale.
+POSITION_COLUMNS = ("xyzobs.px.value", "xyzcal.px")
 
-    Preferring the observed over the calculated is deliberate: two pipelines
-    that disagree about the model still agree about where the photons landed,
-    so the observed position is the one thing that can be used as a join key
-    before the models have been compared.
-    """
-    for name in ("xyzobs.px.value", "xyzobs.mm.value", "xyzcal.px", "xyzcal.mm"):
+
+def position_column(table: ReflectionTable) -> str:
+    """The best available position column, in pixels."""
+    for name in POSITION_COLUMNS:
         if name in table:
             return name
+    stale = [c for c in ("xyzobs.mm.value", "xyzcal.mm") if c in table]
+    hint = (
+        f" (it has {', '.join(stale)}, which are import-time values in a "
+        "possibly stale geometry and are not compared here)"
+        if stale
+        else ""
+    )
     raise KeyError(
-        "no position column: looked for xyzobs.px.value, xyzobs.mm.value, "
-        f"xyzcal.px, xyzcal.mm; have {', '.join(sorted(table.columns))}"
+        f"no pixel position column: looked for {', '.join(POSITION_COLUMNS)}; "
+        f"have {', '.join(sorted(table.columns))}{hint}"
     )
 
 
