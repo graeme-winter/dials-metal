@@ -242,6 +242,46 @@ Removing per-module constants also drops the radial slope from 3.0e-4 to
 1.9e-4, so tiling is about a third of the radial gradient and something else is
 the rest.
 
+## Where the cell and distance difference from DIALS actually came from
+
+Not the refinement weights, which was the obvious suspect. On this detector the
+centroid variances are nearly constant -- median 0.086, 0.087, 0.085, with a
+floor at 1/12, the variance of a uniform distribution over one pixel -- so
+statistical weighting is very nearly unit weighting. Measured: unit weights
+give a distance of 170.080 against 170.088 for statistical. Eight microns.
+
+**Given DIALS' reflection set, this refinement reproduces DIALS.**
+
+    refinement input          distance     cell
+    DIALS' indexed.refl       170.0714     67.424 67.468 67.475
+    DIALS' own answer         170.0730     67.425 67.474 67.468
+    our indexed.refl          170.3452     67.526 67.560 67.605
+
+Two microns in distance and six thousandths of an Angstrom in cell. The entire
+discrepancy is in the indexing, not the refinement.
+
+**What the indexer admits that DIALS does not:** 380 reflections, all of them
+weak. Median intensity 24 against 241 for the rest, median n_signal 4 pixels
+against 27. The 13064 both index agree on every single Miller index.
+
+**Outlier rejection cannot remove them.** At 2, 2.5, 3 and 4 sigma the refined
+distance is 170.348, 170.347, 170.345, 170.344 -- it does not move. That is the
+part worth remembering: *a misindexed population that is internally consistent
+does not produce outliers, it moves the model.* Refinement adjusts until those
+reflections fit, and then nothing about them looks anomalous. Rejection only
+catches reflections that disagree with their neighbours, and these agree with
+each other.
+
+Tightening the assignment tolerance does work -- 0.30 and 0.20 both give
+170.35, 0.15 gives 170.076, 0.10 gives 170.038 -- but lowering the default is
+the wrong conclusion, because DIALS' own `hkl_tolerance` is also 0.3. The
+difference is that DIALS *iterates*: it assigns, refines, re-assigns against
+the improved model, and discards what stops fitting. This indexer assigns once.
+
+**The fix is a macrocycle in indexing**, not a tighter tolerance. Until it
+exists, `mxi_index --tolerance 0.15` is the workaround and the reason for it
+should be stated whenever it is used.
+
 ## Is the radial residual the same in DIALS and here? Partly
 
 Compared directly, on the same 12896 reflections, both models' residuals binned
