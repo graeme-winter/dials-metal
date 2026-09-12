@@ -127,6 +127,48 @@ in place, which is the evidence: the imported detector model was wrong, and the
 cell was absorbing the error anisotropically because indexing had no other
 parameter to put it in.
 
+## Not the parallax correction, and how that was settled
+
+A natural suspicion about the cell and distance discrepancy is that the
+millimetre-to-pixel mapping is missing from the prediction path: omitting it
+would make predictions fall short radially, and refinement would push the
+detector further out to compensate, enlarging the cell. The magnitude fits --
+the correction is 0.048 mm median, which at a typical 50 mm radius is about a
+tenth of a per cent in distance, against the 0.16 observed.
+
+It is not that. Predicting from DIALS' own refined model reproduces DIALS' own
+`xyzcal.px` **exactly**, 0.0000 px median and maximum. Turning the correction
+off displaces predictions by 0.68 px median, 1.0 px worst.
+
+The test that should have settled this immediately had a tolerance of 0.5 px,
+which is less than the effect it was guarding against -- so it would have
+passed for more than half the reflections with the correction missing
+altogether. It now asserts exactness, and a companion test measures what
+switching the correction off does, so the bound is known to be sensitive to the
+thing it guards. **A tolerance looser than the error it exists to catch is not
+a weak test, it is not a test.**
+
+## The valley is shallow but not flat, and x and y disagree about it
+
+Scanning the detector distance and refining the crystal at each fixed value:
+
+    offset   distance   rmsd_x   rmsd_y   rmsd_z
+     -0.60   169.74     0.3730   0.3041   0.3591
+     -0.20   170.14     0.3457   0.3174   0.3007
+      0.00   170.34     0.3434   0.3423   0.3053
+     +0.40   170.74     0.3512   0.4344   0.3406
+
+Each residual has a minimum, and they are in different places: x at 170.34, y at
+169.74, z at 170.14. DIALS' 170.07 sits inside that spread.
+
+If the model were adequate the fast and slow directions would agree about the
+distance. A 0.6 mm disagreement between them is an anisotropy the model cannot
+express, and the combined target settles wherever the weights put it -- which
+is why this refinement and DIALS' land in different places while both fit
+about equally well. **Open: what the anisotropy is.** A panel rotation not
+being absorbed, an effective pixel size difference between fast and slow, or
+something in the weighting.
+
 ## The degeneracy that replaces it
 
 Detector distance and cell scale are very nearly degenerate. A detector further
