@@ -536,6 +536,27 @@ orthogonal, which is true for goniometers and is not checked.
 ignores it gets an answer that looks wrong, rather than NaNs that propagate
 silently through a refinement and come out as a plausible-looking cell.
 
+## Command lines take options in any position
+
+All three programs originally read their file names from `argv[1]` and
+`argv[2]` and scanned for options from `argv[3]` onwards, so
+
+    mxi_refine --beam indexed.expt indexed.refl
+
+took `--beam` as the experiment list, `indexed.expt` as the reflections, and
+reported "unknown option 'indexed.refl'". The error named an argument that was
+not the problem, which is worse than no message.
+
+`src/args.h` splits a command line into positionals and options wherever they
+appear, and is in `src/` rather than `apps/` so that it can be tested. Argument
+parsing is exactly the kind of code that never gets tested because it looks too
+simple to get wrong.
+
+An unknown option is refused rather than ignored. Silently accepting a
+misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
+would otherwise have been dropped and the refinement would have used every
+reflection while the operator believed otherwise.
+
 ## Style
 
 Row-major Mat3, because that is how DIALS serialises a matrix into a flat nine,
