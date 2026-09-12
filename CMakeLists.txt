@@ -21,6 +21,7 @@ add_library(mxi
   src/refl.cc
   src/fft.cc
   src/index.cc
+  src/refine.cc
 )
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
@@ -29,6 +30,10 @@ add_executable(mxi_index apps/mxi_index.cc)
 target_link_libraries(mxi_index PRIVATE mxi)
 target_compile_options(mxi_index PRIVATE -Wall -Wextra)
 
+add_executable(mxi_refine apps/mxi_refine.cc)
+target_link_libraries(mxi_refine PRIVATE mxi)
+target_compile_options(mxi_refine PRIVATE -Wall -Wextra)
+
 enable_testing()
 add_executable(mxi_tests
   tests/main.cc
@@ -36,6 +41,7 @@ add_executable(mxi_tests
   tests/test_real_geometry.cc
   tests/test_multi_axis.cc
   tests/test_index.cc
+  tests/test_refine.cc
 )
 target_link_libraries(mxi_tests PRIVATE mxi)
 target_compile_options(mxi_tests PRIVATE -Wall -Wextra)
