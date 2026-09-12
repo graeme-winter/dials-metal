@@ -25,6 +25,7 @@ add_executable(mxi_tests
   tests/main.cc
   tests/test_geometry.cc
   tests/test_real_geometry.cc
+  tests/test_multi_axis.cc
 )
 target_link_libraries(mxi_tests PRIVATE mxi)
 target_compile_options(mxi_tests PRIVATE -Wall -Wextra)
