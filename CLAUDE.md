@@ -93,6 +93,38 @@ data makes the test fail rather than silently start passing for a new reason.
 composition order *against data*, `first_image != 1`, multi-panel detectors,
 and the `hierarchy` block, which is ignored.
 
+## Indexing: three things that produced plausible wrong answers
+
+**Peak centroids are not a basis.** The FFT grid step is around 0.8 Angstrom,
+so vectors straight off the transform are good to a few parts in a thousand,
+which is a tenth of an index at the detector edge. The least squares fit of A
+to the indexed reflections is what makes the cell numerically right rather than
+merely recognisable. It tightens its tolerance over four rounds; fitting
+throughout at the acceptance tolerance lets reflections a quarter of an index
+out pull the basis as hard as ones that are exact.
+
+**The fraction indexed is basis-dependent and cannot compare two bases of the
+same lattice.** Acceptance asks whether every fractional index is within
+tolerance, and a unimodular change of basis mixes the components: (0.2, 0.2,
+0.2) in one basis is (0.4, 0, 0.2) in another describing the same lattice. A
+guard that only accepted the reduction if it indexed at least as many
+reflections duly rejected the correct cell. The invariant to test is the
+volume.
+
+**Coincident reciprocal lattice points are input, not noise.** Pooling several
+sweeps puts the same reflection, measured at different goniometer settings, at
+the same place in the crystal frame — that is the point of measuring more than
+one sweep. Counting those pairs in the nearest-neighbour cell estimate made it
+diverge to 9e15 Angstrom and find no candidates at all.
+
+## Open: one cell edge, 0.45 per cent short
+
+On real insulin, two cell edges match DIALS to 0.02 per cent and one is 0.45
+per cent short. Reproducible, survives the fit, not shared by the other two. An
+asymmetric error suggests a subset of reflections misindexed along one
+direction rather than a scale error. Not explained. Refinement is the next
+stage and may absorb it, which would not be the same as understanding it.
+
 ## Planned: how indexing should handle multiple sweeps
 
 Index across **all** sweeps at once, then immediately split and refine against

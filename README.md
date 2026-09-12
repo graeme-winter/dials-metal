@@ -29,7 +29,7 @@ cmake --build build
 
 No third-party libraries. C++20, one static library, one test binary.
 
-## Why prediction first
+## Why prediction was built first
 
 Prediction is the oracle for everything after it. Given a crystal it generates
 a reflection list with known `hkl` and known centroids; throw the indices away,
