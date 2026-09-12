@@ -101,12 +101,18 @@ TEST(cysteine_all_sweeps_map_onto_the_dials_reciprocal_lattice) {
 
 TEST(cysteine_residual_against_the_lattice_is_the_models_not_ours) {
   // The residual against A h here is a hundredfold larger than for insulin:
-  // 3e-3 to 9e-3 on a reciprocal cell edge of 0.082. That is the indexing
-  // residual of a large-cell P1 chemical dataset and not an error in this
-  // code, which the test above establishes by agreeing with DIALS' own rlp
-  // forty times more closely than either sits to the ideal lattice.
+  // 3e-3 to 9e-3 on a reciprocal cell edge of 0.082.
   //
-  // Asserted so that the distinction is recorded rather than remembered.
+  // That is NOT an error in this code, and it is not "what chemical data looks
+  // like" either. It is the cost of a constraint that is provably false for
+  // this experiment: one UB matrix and perfect goniometry shared across four
+  // sweeps. The goniometer does not return to precisely the same place, so no
+  // single matrix can fit all four. Breaking that constraint -- splitting the
+  // sweeps and refining them separately about a common bulk matrix -- is the
+  // first thing refinement does, and it improves these residuals greatly.
+  //
+  // Asserted so the distinction between a model constraint and a mapping error
+  // is recorded rather than remembered.
   const Experiment e = build(cysteine::sweeps()[0]);
   std::vector<double> from_lattice, from_dials;
   for (const cysteine::Row &r : cysteine::sweeps()[0].rows) {
@@ -202,4 +208,77 @@ TEST(cysteine_parallax_uses_each_sweeps_own_sensor) {
   const Vec3 a = v(cysteine::sweeps()[0].origin);
   const Vec3 b = v(cysteine::sweeps()[3].origin);
   check::is_true((a - b).norm() > 10.0, "the two detectors differ");
+}
+
+
+// --------------------------------------------------------------------------
+// Composition order, which no data to hand can settle
+// --------------------------------------------------------------------------
+//
+// The axes run from the sample outwards to the laboratory, so an axis further
+// out applies later and multiplies on the left. The l-cysteine goniometer has
+// two axes, so at most one ever lies below the scan axis and the order is
+// unobservable: every test above passes under either convention. These tests
+// pin the implementation against the physical arrangement instead, which is
+// the best that can be done until a three-circle instrument turns up.
+
+namespace {
+
+// Three mutually non-commuting axes, so that a wrong order is a different
+// matrix rather than the same one.
+const Vec3 kInner{1.0, 0.0, 0.0};
+const Vec3 kMiddle{0.0, 1.0, 0.0};
+const Vec3 kOuter = Vec3{0.3, 0.4, 0.866}.normalized();
+
+double difference(const Mat3 &a, const Mat3 &b) {
+  double worst = 0.0;
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      worst = std::fmax(worst, std::abs(a(i, j) - b(i, j)));
+    }
+  }
+  return worst;
+}
+
+}  // namespace
+
+TEST(axes_further_from_the_sample_apply_later) {
+  // Sample on kInner, which sits on kMiddle, which sits on the scanned axis.
+  const Goniometer g = Goniometer::from_axes({kInner, kMiddle, kOuter},
+                                             {30.0, 50.0, 0.0}, 2);
+  const Mat3 inner = rotation(kInner, Scan::radians(30.0));
+  const Mat3 middle = rotation(kMiddle, Scan::radians(50.0));
+
+  check::close(difference(g.fixed, middle * inner), 0.0, 1e-12,
+               "fixed must be outer-times-inner");
+  // And the inside-out order must be a genuinely different matrix, or this
+  // test would pass under either convention and prove nothing.
+  check::is_true(difference(inner * middle, middle * inner) > 0.1,
+                 "the two orders must actually differ");
+}
+
+TEST(the_inner_axis_is_itself_carried_by_the_outer_one) {
+  // The physical statement behind the order: the direction of the axis nearest
+  // the sample is not fixed in the laboratory -- the axis outside it moves it.
+  // So the fixed rotation applied to the inner axis direction must equal the
+  // outer rotation applied to it, the inner axis being invariant under its own
+  // rotation.
+  const Goniometer g = Goniometer::from_axes({kInner, kMiddle, kOuter},
+                                             {30.0, 50.0, 0.0}, 2);
+  const Vec3 carried = g.fixed * kInner;
+  const Vec3 expected = rotation(kMiddle, Scan::radians(50.0)) * kInner;
+  check::close((carried - expected).norm(), 0.0, 1e-12,
+               "the inner axis is carried by the outer one");
+}
+
+TEST(setting_rotation_composes_in_the_same_direction) {
+  // Scanning the innermost axis, with two axes above it.
+  const Goniometer g = Goniometer::from_axes({kInner, kMiddle, kOuter},
+                                             {0.0, 50.0, 20.0}, 0);
+  const Mat3 middle = rotation(kMiddle, Scan::radians(50.0));
+  const Mat3 outer = rotation(kOuter, Scan::radians(20.0));
+  check::close(difference(g.setting, outer * middle), 0.0, 1e-12,
+               "setting must be outer-times-middle");
+  check::close(rotation_angle(g.fixed), 0.0, 1e-12,
+               "nothing lies below the innermost axis");
 }

@@ -143,10 +143,14 @@ struct Goniometer {
   Mat3 setting = Mat3::identity();
 
   // A multi-axis goniometer, as dxtbx serialises one: a list of axes, the
-  // angle each is set to, and which of them the scan turns. Everything below
-  // the scan axis is carried by the sample and becomes the fixed rotation;
-  // everything above it moves the scan axis itself and becomes the setting
-  // rotation.
+  // angle each is set to, and which of them the scan turns.
+  //
+  // The axes run from the SAMPLE outwards to the laboratory. axes[0] is the
+  // one the sample is mounted on; each subsequent axis carries the one before
+  // it; the last is fixed to the floor. Axes below the scan axis are carried
+  // by the sample and compose into the fixed rotation, those above it move the
+  // scan axis itself and compose into the setting rotation -- and in both, an
+  // axis further out applies later and so multiplies on the left.
   //
   // The entry in `angles` for the scan axis itself is IGNORED, and must be:
   // that axis does not have one setting, it has a different one on every

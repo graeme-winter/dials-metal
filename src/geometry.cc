@@ -65,13 +65,27 @@ Goniometer Goniometer::from_axes(const std::vector<Vec3> &axes,
   Goniometer g;
   if (scan_axis >= axes.size()) return g;
   g.axis = axes[scan_axis].normalized();
+
+  // The axes are numbered from the SAMPLE outwards towards the laboratory.
+  // In the l-cysteine goniometer the sample is attached to GON_PHI (axes[0]),
+  // which sits on GON_OMEGA (axes[1]), which is bolted to the floor.
+  //
+  // So a vector fixed to the sample is carried first by axes[0], then by
+  // axes[1], and so on: each axis further out applies LATER and therefore
+  // multiplies on the LEFT. Accumulating the other way round composes the
+  // stack inside out.
+  //
+  // With only one axis on either side of the scan axis the two orders are the
+  // same matrix, which is why no dataset to hand can tell them apart -- the
+  // l-cysteine goniometer has two axes, so at most one is ever below the scan
+  // axis. This order is from the physical arrangement, not from a measurement.
   Mat3 fixed = Mat3::identity();
   for (std::size_t i = 0; i < scan_axis; ++i) {
-    fixed = fixed * rotation(axes[i], Scan::radians(angles_deg[i]));
+    fixed = rotation(axes[i], Scan::radians(angles_deg[i])) * fixed;
   }
   Mat3 setting = Mat3::identity();
   for (std::size_t i = scan_axis + 1; i < axes.size(); ++i) {
-    setting = setting * rotation(axes[i], Scan::radians(angles_deg[i]));
+    setting = rotation(axes[i], Scan::radians(angles_deg[i])) * setting;
   }
   g.fixed = fixed;
   g.setting = setting;
