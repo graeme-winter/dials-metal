@@ -117,13 +117,55 @@ the same place in the crystal frame — that is the point of measuring more than
 one sweep. Counting those pairs in the nearest-neighbour cell estimate made it
 diverge to 9e15 Angstrom and find no candidates at all.
 
-## Open: one cell edge, 0.45 per cent short
+## Resolved: the 0.45 per cent cell edge
 
-On real insulin, two cell edges match DIALS to 0.02 per cent and one is 0.45
-per cent short. Reproducible, survives the fit, not shared by the other two. An
-asymmetric error suggests a subset of reflections misindexed along one
-direction rather than a scale error. Not explained. Refinement is the next
-stage and may absorb it, which would not be the same as understanding it.
+Refinement fixed it, and the explanation is the detector. Before refinement two
+edges matched DIALS to 0.02 per cent and one was 0.45 per cent short; after
+refining crystal and detector together all three agree with each other and the
+asymmetry is gone. Refining with the detector *held fixed* leaves the asymmetry
+in place, which is the evidence: the imported detector model was wrong, and the
+cell was absorbing the error anisotropically because indexing had no other
+parameter to put it in.
+
+## The degeneracy that replaces it
+
+Detector distance and cell scale are very nearly degenerate. A detector further
+away with a proportionally larger cell predicts the same spots in the same
+places, so the two refinements settle at different points on a flat valley:
+
+    distance  170.34 mm (here)  vs  170.07 (DIALS)   0.16 per cent
+    cell      +0.18 per cent per edge, +0.55 in volume
+
+which is arithmetically the same statement twice. Both fit the observations
+about equally well, and through the reindexing operator the two models predict
+the same positions to 0.13 px median. So this is not a bug to find; it is a
+direction the data barely constrains. Anything that claims to have fixed it
+should be checked against whether the residual actually improved.
+
+Refining the beam as well moves it by almost nothing (170.340 against 170.344),
+so the beam is not what breaks the degeneracy.
+
+## Refinement notes
+
+**Derivatives are numerical, deliberately.** Fifteen parameters over thirteen
+thousand reflections is sixteen predictions per iteration and takes a second. A
+wrong analytical derivative does not crash — it converges smoothly to the wrong
+answer and reports a small residual doing it. If profiling ever demands the
+analytical version, this one stays as the thing it is checked against.
+
+**Choose the Ewald root by proximity to the observation, not by the `entering`
+flag.** The flag assumes a model already close enough to trust, which at the
+start of refinement it is not. Choosing wrongly puts a reflection tens of
+images away, so there is a test for it.
+
+**Rotate the detector about the panel centre, not the laboratory origin.** A
+rotation about a point 200 mm away is mostly a translation, and the two
+parameter groups would then be so correlated that the normal matrix is nearly
+singular.
+
+**Reject outliers between macrocycles, never within one.** Rejecting while the
+model is still moving throws away reflections for being far from a prediction
+that was wrong.
 
 ## Planned: how indexing should handle multiple sweeps
 
