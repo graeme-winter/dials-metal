@@ -34,6 +34,10 @@ add_executable(mxi_refine apps/mxi_refine.cc)
 target_link_libraries(mxi_refine PRIVATE mxi)
 target_compile_options(mxi_refine PRIVATE -Wall -Wextra)
 
+add_executable(mxi_residuals apps/mxi_residuals.cc)
+target_link_libraries(mxi_residuals PRIVATE mxi)
+target_compile_options(mxi_residuals PRIVATE -Wall -Wextra)
+
 enable_testing()
 add_executable(mxi_tests
   tests/main.cc
