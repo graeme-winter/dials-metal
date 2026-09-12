@@ -148,26 +148,45 @@ switching the correction off does, so the bound is known to be sensitive to the
 thing it guards. **A tolerance looser than the error it exists to catch is not
 a weak test, it is not a test.**
 
-## The valley is shallow but not flat, and x and y disagree about it
+## Residual structure: what is measured, and two claims retracted
 
-Scanning the detector distance and refining the crystal at each fixed value:
+There is real structure in the post-refinement residuals at the 0.2 px level.
+Binned eight ways with 1600 reflections each, the medians are far above the
+noise on the mean. `mxi_residuals` prints it.
 
-    offset   distance   rmsd_x   rmsd_y   rmsd_z
-     -0.60   169.74     0.3730   0.3041   0.3591
-     -0.20   170.14     0.3457   0.3174   0.3007
-      0.00   170.34     0.3434   0.3423   0.3053
-     +0.40   170.74     0.3512   0.4344   0.3406
+**Retracted: "x and y disagree about the distance by 0.6 mm."** That came from
+scanning the detector distance while holding the *whole panel rigid*, so the
+crystal had to absorb every lateral and angular error too. Measured properly --
+fitting the radial residual against radius separately along each axis, with the
+panel refined -- the implied distance differs between fast and slow by 0.04 mm,
+not 0.6. The 0.6 was an artefact of the scan's own constraint.
 
-Each residual has a minimum, and they are in different places: x at 170.34, y at
-169.74, z at 170.14. DIALS' 170.07 sits inside that spread.
+**Retracted: "a clean radial gradient."** Binned by radius the radial component
+does swing monotonically by 0.9 px. But the tangential component mirrors it
+almost exactly with the opposite sign, which is what a *directional* pattern
+looks like when it is pushed through a radial decomposition, not what a radial
+one looks like. Binned by position along fast or slow the pattern is not
+monotonic either. So there is structure, and it is not characterised.
 
-If the model were adequate the fast and slow directions would agree about the
-distance. A 0.6 mm disagreement between them is an anisotropy the model cannot
-express, and the combined target settles wherever the weights put it -- which
-is why this refinement and DIALS' land in different places while both fit
-about equally well. **Open: what the anisotropy is.** A panel rotation not
-being absorbed, an effective pixel size difference between fast and slow, or
-something in the weighting.
+What would characterise it: a two-dimensional map of the residual field rather
+than one-dimensional binnings, and DIALS' full `indexed.refl` rather than the
+forty rows embedded here -- forty is too thin to bin, and using this
+refinement's own residuals confounds the effect with this refinement's own
+error. The azimuthal sampling is also very uneven, the rotation axis lying
+along fast, which biases any radial binning.
+
+**Refuted: the absorption depth.** Eqn (6) is the unconditional first moment
+and counts photons that pass through the sensor as contributing depth zero. The
+conditional mean, dividing by 1 - exp(-mu t), is 24 per cent larger at normal
+incidence and varies with angle, so it cannot be absorbed into the distance.
+Implemented behind `parallax_conditional` and tested: rmsd goes from
+0.3514/0.3388 to 0.3516/0.3409 and the cell moves by 0.015 per cent. It is not
+the cause.
+
+**Confirmed: it is in DIALS too.** DIALS' own residuals on its own output show
+a radial gradient of the same sign, +1.09e-4 px per px, monotonic across four
+quartiles from -0.10 to +0.19 px. Forty reflections, so suggestive rather than
+established.
 
 ## The degeneracy that replaces it
 
