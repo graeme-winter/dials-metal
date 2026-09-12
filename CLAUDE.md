@@ -328,6 +328,60 @@ should be checked against whether the residual actually improved.
 Refining the beam as well moves it by almost nothing (170.340 against 170.344),
 so the beam is not what breaks the degeneracy.
 
+## Scan-varying refinement
+
+Control points in A, evenly spaced over the scan, linearly interpolated. Not
+DIALS' Gaussian smoother, and that difference should not be glossed: a smoother
+spreads each observation over three control points and gives a smoother second
+derivative. Linear interpolation is chosen for transparency -- the value at a
+control point is the model there -- and because with a handful of points the
+difference is far below the residual.
+
+It matches DIALS. On l-cysteine, median |d| against number of control points:
+
+    1 (static)  0.590      5  0.211
+    3           0.252      9  0.210
+                          15  0.217     DIALS (Gaussian smoother)  0.2096
+
+Five to nine points reproduces DIALS to the fourth decimal, and fifteen is
+worse -- the drift is captured and what is left is noise being fitted.
+
+**Static first, always.** Control points started from an unrefined model
+absorb errors that belong to the detector, fit well, and mean nothing.
+
+**Outlier rejection is required, not optional.** About four per cent of
+reflections cross the Ewald sphere near-tangentially, where the diffracting
+angle is enormously sensitive to the crystal model -- the same population that
+carries large Lorentz factors. Once the model varies over the scan, the forward
+and reverse maps select different roots for those, and their residuals run to
+tens of images. With them in, a planted 0.5 degree drift is not recovered at
+all; with them rejected it comes back as 0.5000. The fraction is 3.5 per cent
+at a drift of 0.02 degrees and 4.3 at 0.5, so it is a property of those
+reflections and not of how much the crystal moved.
+
+**The outermost control points are weakly constrained**, by whatever lies at
+the very ends of the scan, which after rejection can be very little. Nine
+points recovered the interior but let the endpoints wander; three did not.
+
+## A bug the round-trip test could not see
+
+The forward map (`predict`) and the reverse map (`centroid_residual`) must be
+one model seen from two directions. For a scan-varying crystal they were not:
+the iteration that finds the setting matrix was seeded from the start of the
+scan for *both* Ewald roots, so a reflection late in the sweep converged on the
+wrong one. Forward and reverse disagreed by 0.62 px rms, and since refinement
+minimises the reverse map against data made by the forward one, no amount of
+refining could reach the truth.
+
+`prediction_round_trips_through_reciprocal_space` could not catch it: it goes
+through `reciprocal_lattice_point`, not through the target function refinement
+actually minimises. **Test the function being minimised, not a cousin of it.**
+`prediction_and_the_refinement_target_agree_exactly` now does.
+
+It was found by asking the dullest possible question -- does the truth model
+reproduce its own predictions -- which should have been the first test written
+and was not.
+
 ## Refinement notes
 
 **Derivatives are numerical, deliberately.** Fifteen parameters over thirteen
