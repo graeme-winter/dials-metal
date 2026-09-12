@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <vector>
 
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 
@@ -31,7 +32,8 @@ namespace {
 
 struct Point {
   double radius = 0.0, radial = 0.0, tangential = 0.0, dx = 0.0, dy = 0.0;
-  double x = 0.0, y = 0.0;  // relative to the beam centre
+  double x = 0.0, y = 0.0;     // relative to the beam centre
+  double fast = 0.0, slow = 0.0;  // observed, for module assignment
 };
 
 double median(std::vector<double> v) {
@@ -49,9 +51,16 @@ int main(int argc, char **argv) {
   }
   int bins = 8;
   double clip = 1.5;
+  // Module layout, in pixels: active width and gap along each axis. The Eiger2
+  // 16M is 4 x 1028 + 3 x 12 = 4148 fast, 8 x 512 + 7 x 38 = 4362 slow.
+  long mod[4] = {0, 0, 0, 0};
   for (int i = 3; i + 1 < argc; ++i) {
     if (std::string(argv[i]) == "--bins") bins = std::atoi(argv[i + 1]);
     if (std::string(argv[i]) == "--clip") clip = std::atof(argv[i + 1]);
+    if (std::string(argv[i]) == "--modules") {
+      std::sscanf(argv[i + 1], "%ld,%ld,%ld,%ld", &mod[0], &mod[1], &mod[2],
+                  &mod[3]);
+    }
   }
 
   try {
@@ -100,6 +109,8 @@ int main(int argc, char **argv) {
       q.dy = dy;
       q.x = rx;
       q.y = ry;
+      q.fast = obs.real(i, 0);
+      q.slow = obs.real(i, 1);
       points.push_back(q);
     }
     if (points.size() < 50) {
@@ -181,6 +192,36 @@ int main(int argc, char **argv) {
                       points[to - 1].radius, median(left));
         }
       }
+    }
+
+    // Steps across module boundaries. A detector built from tiled modules and
+    // modelled as one flat panel cannot express their individual positions and
+    // tilts, so whatever is wrong with the tiling has nowhere to go but the
+    // residuals -- as a step at each boundary. Refinement absorbs the average
+    // of those steps into the panel scale and leaves the sawtooth.
+    if (mod[0] > 0 && mod[2] > 0) {
+      std::printf("\n  step across module boundaries (150 px either side):\n");
+      const double band = 150.0;
+      for (int axis = 0; axis < 2; ++axis) {
+        const long width = mod[axis * 2];
+        const long gap = mod[axis * 2 + 1];
+        for (long edge = width; edge < 5000; edge += width + gap) {
+          std::vector<double> before, after;
+          for (const Point &q : points) {
+            const double c = axis == 0 ? q.fast : q.slow;
+            const double v = axis == 0 ? q.dx : q.dy;
+            if (c > edge - band && c < edge) before.push_back(v);
+            if (c > edge + gap && c < edge + gap + band) after.push_back(v);
+          }
+          if (before.size() < 40 || after.size() < 40) continue;
+          const double step = median(after) - median(before);
+          std::printf("    %s at %4ld:  %+7.3f -> %+7.3f   step %+7.3f  (n %zu, %zu)\n",
+                      axis == 0 ? "fast" : "slow", edge, median(before),
+                      median(after), step, before.size(), after.size());
+        }
+      }
+      std::printf("    A consistent sign across every boundary on an axis is a\n");
+      std::printf("    tiling error, not noise.\n");
     }
 
     // A straight line through the radial residual. Its slope is what a
