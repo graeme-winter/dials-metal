@@ -302,3 +302,185 @@ TEST(update_predictions_writes_a_usable_xyzcal) {
   }
   check::close(worst, 0.0, 1e-8, "calculated equals observed for exact data");
 }
+
+// --------------------------------------------------------------------------
+// scan-varying crystals
+// --------------------------------------------------------------------------
+
+TEST(a_static_crystal_stays_static_under_scan_varying_refinement) {
+  // The control points are free to drift and the truth does not. If they
+  // wander anyway they are absorbing noise, and on real data they would be
+  // absorbing the detector.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 3.0);
+  ExperimentList list;
+  list.experiments.push_back(truth);
+
+  RefineOptions options;
+  options.outlier_sigma = 0.0;
+  options.scan_points = 5;
+  options.macrocycles = 1;
+  // No rejection needed: with a static truth there are no near-tangential
+  // failures to reject, which is itself the point -- they appear only once the
+  // model varies over the scan.
+  const RefineResult result = refine(list, t, options);
+
+  check::is_true(result.rmsd_x < 0.02, "still fits");
+  check::is_true(list[0].crystal->scan_varying(), "the model is scan-varying");
+  double worst = 0.0;
+  for (const Mat3 &A : list[0].crystal->A_points) {
+    for (std::size_t k = 0; k < 9; ++k) {
+      worst = std::fmax(worst, std::abs(A.m[k] - truth.crystal->A.m[k]));
+    }
+  }
+  // The elements of A are around 1/78, so this is a part in ten thousand.
+  check::is_true(worst < 1e-6, "control points must not wander off the truth");
+}
+
+TEST(scan_varying_refinement_recovers_a_drifting_crystal) {
+  // A crystal that rotates by a tenth of a degree across the scan, which is
+  // the kind of drift a real goniometer and a real sample produce. A static
+  // model cannot express it; the whole point of the scan-varying one is that
+  // it can.
+  Experiment truth = base_experiment();
+  const std::size_t points = 5;
+  truth.crystal->A_points.clear();
+  for (std::size_t i = 0; i < points; ++i) {
+    const double t = static_cast<double>(i) / static_cast<double>(points - 1);
+    truth.crystal->A_points.push_back(
+        rotation({0.2, 0.9, -0.39}, Scan::radians(0.10 * t)) * truth.crystal->A);
+  }
+  const Table observations = observations_from(truth, 3.0);
+  check::is_true(observations.nrows > 1000, "enough predictions");
+
+  ExperimentList list;
+  Experiment start = truth;
+  start.crystal->A_points.clear();  // begin from the static matrix
+  list.experiments.push_back(start);
+
+  // Outlier rejection is REQUIRED here, not incidental. About four per cent of
+  // reflections cross the Ewald sphere near-tangentially, where the angle at
+  // which they diffract is enormously sensitive to the crystal model; once the
+  // model varies over the scan, the forward and reverse maps choose different
+  // roots for those and their residuals are tens of images. They are the same
+  // reflections that carry huge Lorentz factors. With them in, the fit is
+  // dragged and the drift is not recovered at all; with them out, the planted
+  // drift comes back to a per cent.
+  RefineOptions statically;
+  statically.outlier_sigma = 4.0;
+  statically.macrocycles = 3;
+  ExperimentList fixed = list;
+  const RefineResult without = refine(fixed, observations, statically);
+
+  RefineOptions varying = statically;
+  // Three, not five. The outermost control points of a finer model are
+  // constrained by whatever reflections happen to lie at the very ends of the
+  // scan, which after rejection can be very few, and they wander.
+  varying.scan_points = 3;
+  const RefineResult with = refine(list, observations, varying);
+
+  check::is_true(with.rmsd_x < 0.1 * without.rmsd_x,
+                 "scan-varying must beat static on a drifting crystal");
+
+  // And recover the drift itself, not merely fit it: the rotation between the
+  // first and last control point should be the tenth of a degree put in.
+  const Mat3 first = list[0].crystal->A_points.front();
+  const Mat3 last = list[0].crystal->A_points.back();
+  const double turn = Scan::degrees(rotation_angle(last * first.inverse()));
+  check::close(turn, 0.10, 0.01, "recovered drift across the scan");
+}
+
+TEST(scan_varying_models_survive_a_file_round_trip) {
+  Experiment e = base_experiment();
+  e.crystal->A_points.assign(4, e.crystal->A);
+  e.crystal->A_points[3] = rotation({0, 0, 1}, Scan::radians(0.2)) * e.crystal->A;
+  ExperimentList list;
+  list.experiments.push_back(e);
+
+  const ExperimentList back = experiments_from_json(experiments_to_json(list));
+  check::is_true(back[0].crystal->scan_varying(), "still scan-varying");
+  // Written per image, as DIALS does, so the control points are expanded --
+  // what must survive is the model, not the parameterisation.
+  double worst = 0.0;
+  for (double t : {0.0, 0.25, 0.5, 0.75, 0.999}) {
+    const Mat3 a = list[0].crystal->A_at(t);
+    const Mat3 b = back[0].crystal->A_at(t);
+    for (std::size_t k = 0; k < 9; ++k) {
+      worst = std::fmax(worst, std::abs(a.m[k] - b.m[k]));
+    }
+  }
+  check::is_true(worst < 1e-6, "A(t) must survive the round trip");
+}
+
+TEST(prediction_and_the_refinement_target_agree_exactly) {
+  // The forward map (predict) and the reverse map (centroid_residual) must be
+  // the same model seen from two directions. They were not for a scan-varying
+  // crystal: the iteration that finds the setting matrix was seeded from the
+  // start of the scan for both Ewald roots, so a reflection late in the sweep
+  // converged on the wrong one. The existing round-trip test could not see it,
+  // because it goes through reciprocal_lattice_point rather than through the
+  // target function refinement actually minimises.
+  //
+  // Static first, where agreement is exact for every reflection.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 4.0);
+  const Column &xyz = t.at("xyzobs.px.value");
+  const Column &miller = t.at("miller_index");
+  double worst = 0.0;
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    const Residual r = centroid_residual(
+        truth, 0, static_cast<int>(miller.integer(i, 0)),
+        static_cast<int>(miller.integer(i, 1)),
+        static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
+        xyz.real(i, 2));
+    if (!r.valid) continue;
+    worst = std::fmax(worst, std::hypot(r.dx, r.dy));
+  }
+  check::close(worst, 0.0, 1e-9, "static: every reflection must agree exactly");
+}
+
+TEST(a_scan_varying_model_agrees_except_where_the_angle_is_ill_conditioned) {
+  // With a drifting crystal the two maps agree exactly for the great majority
+  // and disagree wildly for a few per cent. Those few are reflections crossing
+  // the Ewald sphere near-tangentially, where the diffracting angle is hugely
+  // sensitive to the model -- the same population that carries large Lorentz
+  // factors. This test pins both halves of that: the bulk must be exact, and
+  // the tail must be small.
+  Experiment truth = base_experiment();
+  truth.crystal->A_points.clear();
+  for (std::size_t i = 0; i < 5; ++i) {
+    const double t = static_cast<double>(i) / 4.0;
+    truth.crystal->A_points.push_back(
+        rotation({0.2, 0.9, -0.39}, Scan::radians(0.10 * t)) * truth.crystal->A);
+  }
+  const Table t = observations_from(truth, 4.0);
+  const Column &xyz = t.at("xyzobs.px.value");
+  const Column &miller = t.at("miller_index");
+
+  std::vector<double> offsets;
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    const Residual r = centroid_residual(
+        truth, 0, static_cast<int>(miller.integer(i, 0)),
+        static_cast<int>(miller.integer(i, 1)),
+        static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
+        xyz.real(i, 2));
+    if (r.valid) offsets.push_back(std::hypot(r.dx, r.dy));
+  }
+  std::sort(offsets.begin(), offsets.end());
+  check::is_true(offsets.size() > 1000, "enough reflections");
+  check::close(offsets[offsets.size() / 2], 0.0, 1e-9, "the median must be exact");
+  // The ninetieth percentile is 1.9e-9 px rather than zero: the iteration in
+  // the forward map stops after three passes, and for reflections whose angle
+  // is moderately sensitive that leaves a couple of nanopixels. A fourth pass
+  // would remove it and buy nothing.
+  check::close(offsets[offsets.size() * 9 / 10], 0.0, 1e-7,
+               "and the ninetieth percentile to within the iteration limit");
+  const double bad =
+      static_cast<double>(std::count_if(offsets.begin(), offsets.end(),
+                                        [](double d) { return d > 0.05; })) /
+      static_cast<double>(offsets.size());
+  // Measured at 4.3 per cent, and near-independent of how large the drift is,
+  // which is what marks it as a property of those reflections rather than of
+  // the amount of drift.
+  check::is_true(bad < 0.08, "the ill-conditioned tail must stay small");
+}
