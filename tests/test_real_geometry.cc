@@ -245,9 +245,16 @@ TEST(real_cell_is_insulin) {
   check::close(u.alpha, 109.5, 3.0, "alpha");
 }
 
-TEST(real_prediction_lands_on_the_observed_spots) {
-  // End to end: predict from the refined model and require each observed
-  // reflection in the sample to have a prediction close to where it was seen.
+TEST(real_prediction_reproduces_dials_xyzcal_exactly) {
+  // End to end: predict from DIALS' own refined model and land on DIALS' own
+  // xyzcal.px. Not "close to" -- exactly, to the last bit of a double.
+  //
+  // The tolerance here was 0.5 px, which was useless. Omitting the parallax
+  // correction from the prediction path displaces a spot by 0.68 px median and
+  // 1.0 px worst on this data, so a half-pixel bound would have passed for
+  // more than half the reflections while the correction was missing entirely.
+  // The companion test below measures that, so this bound is known to be
+  // sensitive to the thing it is guarding.
   Experiment e = refined_experiment();
   PredictOptions options;
   options.allow_outside_scan = true;
@@ -268,9 +275,33 @@ TEST(real_prediction_lands_on_the_observed_spots) {
     }
   }
   check::is_true(found > 30, "most sampled reflections should be predicted");
-  // Against DIALS' own xyzcal, so this is a comparison of two predictions of
-  // the same model rather than a fit to observation.
-  check::is_true(worst < 0.5, "predicted position must match DIALS' xyzcal");
+  // Against DIALS' own xyzcal, so this compares two predictions of the same
+  // model rather than fitting to observation. It is exact.
+  check::close(worst, 0.0, 1e-6, "predicted position must match DIALS' xyzcal");
+}
+
+TEST(real_prediction_would_notice_a_missing_parallax_correction) {
+  // The guard on the test above. Turn the correction off and the prediction
+  // moves by two thirds of a pixel, so the exact bound is genuinely sensitive
+  // to it rather than exact for some unrelated reason.
+  Experiment e = refined_experiment();
+  for (Panel &p : e.detector.panels) p.parallax = false;
+  PredictOptions options;
+  options.allow_outside_scan = true;
+
+  std::vector<double> displaced;
+  for (const real::Row &r : real::rows()) {
+    double best = 1e30;
+    for (const Prediction &q : predict_indices(e, {{{r.h, r.k, r.l}}}, options)) {
+      best = std::fmin(best, std::hypot(q.px_fast - r.cal_px_fast,
+                                        q.px_slow - r.cal_px_slow));
+    }
+    if (best < 1e29) displaced.push_back(best);
+  }
+  std::sort(displaced.begin(), displaced.end());
+  check::is_true(displaced.size() > 30, "enough predictions");
+  check::is_true(displaced[displaced.size() / 2] > 0.5,
+                 "without parallax the prediction should move over half a pixel");
 }
 
 
