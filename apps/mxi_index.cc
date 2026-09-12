@@ -10,6 +10,9 @@
 #include <cstring>
 #include <string>
 
+#include <set>
+
+#include "args.h"
 #include "expt.h"
 #include "index.h"
 #include "refl.h"
@@ -28,60 +31,54 @@ void usage() {
       "  --candidates N   basis vectors taken from the peak list (30)\n"
       "  --output-expt P  (default indexed.expt)\n"
       "  --output-refl P  (default indexed.refl)\n"
+      "  --macrocycles N  assign/refine/re-assign cycles (3)\n"
+      "  --all-reflections  refine on everything, not the stronger half\n"
       "  --quiet\n");
-}
-
-double number(const char *text, const char *what) {
-  char *end = nullptr;
-  const double v = std::strtod(text, &end);
-  if (end == text) {
-    std::fprintf(stderr, "mxi_index: %s needs a number, got '%s'\n", what, text);
-    std::exit(2);
-  }
-  return v;
 }
 
 }  // namespace
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
+  const std::set<std::string> known = {
+      "--d-min",       "--max-cell",    "--grid",          "--tolerance",
+      "--candidates",  "--output-expt", "--output-refl",   "--quiet",
+      "--macrocycles", "--all-reflections"};
+  const std::set<std::string> takes_value = {
+      "--d-min",      "--max-cell",    "--grid",        "--tolerance",
+      "--candidates", "--output-expt", "--output-refl", "--macrocycles"};
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  if (args.help) {
+    usage();
+    return 0;
+  }
+  if (!args.ok) {
+    std::fprintf(stderr, "mxi_index: %s\n", args.error.c_str());
+    return 2;
+  }
+  if (args.positional.size() != 2) {
+    std::fprintf(stderr,
+                 "mxi_index: expected an .expt and a .refl, got %zu file "
+                 "arguments\n",
+                 args.positional.size());
     usage();
     return 2;
   }
-  const std::string expt_path = argv[1];
-  const std::string refl_path = argv[2];
-  std::string out_expt = "indexed.expt";
-  std::string out_refl = "indexed.refl";
-  IndexOptions options;
-  options.verbose = true;
 
-  for (int i = 3; i < argc; ++i) {
-    const std::string arg = argv[i];
-    const auto next = [&](const char *what) -> const char * {
-      if (i + 1 >= argc) {
-        std::fprintf(stderr, "mxi_index: %s needs a value\n", what);
-        std::exit(2);
-      }
-      return argv[++i];
-    };
-    if (arg == "--d-min") options.d_min = number(next("--d-min"), "--d-min");
-    else if (arg == "--max-cell") options.max_cell = number(next("--max-cell"), "--max-cell");
-    else if (arg == "--grid") options.grid = static_cast<std::size_t>(number(next("--grid"), "--grid"));
-    else if (arg == "--tolerance") options.tolerance = number(next("--tolerance"), "--tolerance");
-    else if (arg == "--candidates") options.n_candidates = static_cast<std::size_t>(number(next("--candidates"), "--candidates"));
-    else if (arg == "--output-expt") out_expt = next("--output-expt");
-    else if (arg == "--output-refl") out_refl = next("--output-refl");
-    else if (arg == "--quiet") options.verbose = false;
-    else if (arg == "-h" || arg == "--help") { usage(); return 0; }
-    else {
-      std::fprintf(stderr, "mxi_index: unknown option '%s'\n", arg.c_str());
-      return 2;
-    }
-  }
+  IndexOptions options;
+  options.verbose = !args.has("--quiet");
+  options.d_min = args.number("--d-min", 0.0);
+  options.max_cell = args.number("--max-cell", 0.0);
+  options.grid = static_cast<std::size_t>(args.number("--grid", 0));
+  options.tolerance = args.number("--tolerance", 0.3);
+  options.n_candidates = static_cast<std::size_t>(args.number("--candidates", 30));
+  options.macrocycles = static_cast<int>(args.number("--macrocycles", 3));
+  options.refine_on_strong = !args.has("--all-reflections");
+  const std::string out_expt = args.value("--output-expt", "indexed.expt");
+  const std::string out_refl = args.value("--output-refl", "indexed.refl");
 
   try {
-    ExperimentList experiments = read_experiments(expt_path);
-    Table reflections = read_reflections(refl_path);
+    ExperimentList experiments = read_experiments(args.positional[0]);
+    Table reflections = read_reflections(args.positional[1]);
     if (options.verbose) {
       std::printf("%zu experiments, %zu reflections\n", experiments.size(),
                   reflections.nrows);

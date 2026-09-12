@@ -22,6 +22,9 @@
 #include <cstdlib>
 #include <string>
 
+#include <set>
+
+#include "args.h"
 #include "expt.h"
 #include "linalg.h"
 #include "refl.h"
@@ -45,27 +48,38 @@ double median(std::vector<double> v) {
 }  // namespace
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
-    std::printf("usage: mxi_residuals EXPT REFL [--bins N] [--clip PX]\n");
+  const std::set<std::string> known = {"--bins", "--clip", "--modules"};
+  const Arguments args = parse_arguments(argc, argv, known, known);
+  if (args.help) {
+    std::printf(
+        "usage: mxi_residuals EXPT REFL [--bins N] [--clip PX]\n"
+        "                     [--modules FASTW,FASTGAP,SLOWW,SLOWGAP]\n");
+    return 0;
+  }
+  if (!args.ok) {
+    std::fprintf(stderr, "mxi_residuals: %s\n", args.error.c_str());
     return 2;
   }
-  int bins = 8;
-  double clip = 1.5;
+  if (args.positional.size() != 2) {
+    std::fprintf(stderr,
+                 "mxi_residuals: expected an .expt and a .refl, got %zu file "
+                 "arguments\n",
+                 args.positional.size());
+    return 2;
+  }
+  const int bins = static_cast<int>(args.number("--bins", 8));
+  const double clip = args.number("--clip", 1.5);
   // Module layout, in pixels: active width and gap along each axis. The Eiger2
   // 16M is 4 x 1028 + 3 x 12 = 4148 fast, 8 x 512 + 7 x 38 = 4362 slow.
   long mod[4] = {0, 0, 0, 0};
-  for (int i = 3; i + 1 < argc; ++i) {
-    if (std::string(argv[i]) == "--bins") bins = std::atoi(argv[i + 1]);
-    if (std::string(argv[i]) == "--clip") clip = std::atof(argv[i + 1]);
-    if (std::string(argv[i]) == "--modules") {
-      std::sscanf(argv[i + 1], "%ld,%ld,%ld,%ld", &mod[0], &mod[1], &mod[2],
-                  &mod[3]);
-    }
+  if (args.has("--modules")) {
+    std::sscanf(args.value("--modules").c_str(), "%ld,%ld,%ld,%ld", &mod[0],
+                &mod[1], &mod[2], &mod[3]);
   }
 
   try {
-    const ExperimentList experiments = read_experiments(argv[1]);
-    const Table t = read_reflections(argv[2]);
+    const ExperimentList experiments = read_experiments(args.positional[0]);
+    const Table t = read_reflections(args.positional[1]);
     if (!t.has("xyzcal.px")) {
       std::fprintf(stderr,
                    "mxi_residuals: no xyzcal.px; run mxi_refine first\n");

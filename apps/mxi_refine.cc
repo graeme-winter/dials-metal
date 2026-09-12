@@ -4,8 +4,10 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <set>
 #include <string>
 
+#include "args.h"
 #include "expt.h"
 #include "refine.h"
 #include "refl.h"
@@ -34,49 +36,51 @@ void usage() {
 }  // namespace
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
+  const std::set<std::string> known = {
+      "--no-crystal",   "--no-detector",  "--beam",         "--separate",
+      "--macrocycles",  "--outlier-sigma", "--output-expt", "--output-refl",
+      "--conditional-depth", "--scan-varying", "--unit-weights",
+      "--strong-only",  "--z-weight"};
+  const std::set<std::string> takes_value = {
+      "--macrocycles", "--outlier-sigma", "--output-expt", "--output-refl",
+      "--scan-varying", "--z-weight"};
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  if (args.help) {
+    usage();
+    return 0;
+  }
+  if (!args.ok) {
+    std::fprintf(stderr, "mxi_refine: %s\n", args.error.c_str());
+    return 2;
+  }
+  if (args.positional.size() != 2) {
+    std::fprintf(stderr,
+                 "mxi_refine: expected an .expt and a .refl, got %zu file "
+                 "arguments\n",
+                 args.positional.size());
     usage();
     return 2;
   }
-  std::string out_expt = "refined.expt";
-  std::string out_refl = "refined.refl";
+
   RefineOptions options;
   options.verbose = true;
-  bool conditional_depth = false;
-  int scan_points = 1;
-
-  for (int i = 3; i < argc; ++i) {
-    const std::string arg = argv[i];
-    const auto next = [&]() -> const char * {
-      if (i + 1 >= argc) {
-        std::fprintf(stderr, "mxi_refine: %s needs a value\n", arg.c_str());
-        std::exit(2);
-      }
-      return argv[++i];
-    };
-    if (arg == "--no-crystal") options.crystal = false;
-    else if (arg == "--no-detector") options.detector = false;
-    else if (arg == "--beam") options.beam = true;
-    else if (arg == "--separate") options.shared_crystal = false;
-    else if (arg == "--conditional-depth") conditional_depth = true;
-    else if (arg == "--scan-varying") scan_points = std::atoi(next());
-    else if (arg == "--unit-weights") options.unit_weights = true;
-    else if (arg == "--strong-only") options.strong_only = true;
-    else if (arg == "--z-weight") options.z_weight = std::atof(next());
-    else if (arg == "--macrocycles") options.macrocycles = std::atoi(next());
-    else if (arg == "--outlier-sigma") options.outlier_sigma = std::atof(next());
-    else if (arg == "--output-expt") out_expt = next();
-    else if (arg == "--output-refl") out_refl = next();
-    else if (arg == "-h" || arg == "--help") { usage(); return 0; }
-    else {
-      std::fprintf(stderr, "mxi_refine: unknown option '%s'\n", arg.c_str());
-      return 2;
-    }
-  }
+  options.crystal = !args.has("--no-crystal");
+  options.detector = !args.has("--no-detector");
+  options.beam = args.has("--beam");
+  options.shared_crystal = !args.has("--separate");
+  options.unit_weights = args.has("--unit-weights");
+  options.strong_only = args.has("--strong-only");
+  options.macrocycles = static_cast<int>(args.number("--macrocycles", 3));
+  options.outlier_sigma = args.number("--outlier-sigma", 4.0);
+  options.z_weight = args.number("--z-weight", 1.0);
+  const int scan_points = static_cast<int>(args.number("--scan-varying", 1));
+  const bool conditional_depth = args.has("--conditional-depth");
+  const std::string out_expt = args.value("--output-expt", "refined.expt");
+  const std::string out_refl = args.value("--output-refl", "refined.refl");
 
   try {
-    ExperimentList experiments = read_experiments(argv[1]);
-    Table reflections = read_reflections(argv[2]);
+    ExperimentList experiments = read_experiments(args.positional[0]);
+    Table reflections = read_reflections(args.positional[1]);
     if (conditional_depth) {
       for (Experiment &e : experiments) {
         for (Panel &p : e.detector.panels) p.parallax_conditional = true;
@@ -86,9 +90,6 @@ int main(int argc, char **argv) {
     std::printf("%zu experiments, %zu reflections\n", experiments.size(),
                 reflections.nrows);
 
-    // Static first, always. Scan-varying control points started from an
-    // unrefined model absorb errors that belong to the detector, and the
-    // result fits well and means nothing.
     RefineResult result = refine(experiments, reflections, options);
     if (scan_points > 1 && result.n_used > 0) {
       std::printf("static: rmsd %.4f %.4f %.4f -> now %d control points\n",
