@@ -22,6 +22,7 @@
 #include <string>
 
 #include "expt.h"
+#include "linalg.h"
 #include "refl.h"
 
 using namespace mxi;
@@ -30,6 +31,7 @@ namespace {
 
 struct Point {
   double radius = 0.0, radial = 0.0, tangential = 0.0, dx = 0.0, dy = 0.0;
+  double x = 0.0, y = 0.0;  // relative to the beam centre
 };
 
 double median(std::vector<double> v) {
@@ -96,6 +98,8 @@ int main(int argc, char **argv) {
       q.tangential = (-dx * ry + dy * rx) / r;
       q.dx = dx;
       q.dy = dy;
+      q.x = rx;
+      q.y = ry;
       points.push_back(q);
     }
     if (points.size() < 50) {
@@ -124,6 +128,59 @@ int main(int argc, char **argv) {
       std::printf("  %5.0f - %5.0f  %7zu  %+9.4f    %+9.4f %+9.4f %+9.4f\n",
                   points[from].radius, points[to - 1].radius, to - from,
                   median(radial), median(tangential), median(dx), median(dy));
+    }
+
+    // The affine part of the residual field, which is everything the detector
+    // model can express: two scales, a rotation about the beam, a shear, and a
+    // translation. Fitting and removing it answers the only question that
+    // matters about a residual pattern -- whether refinement could have
+    // removed it and did not, or whether the model has no parameter for it.
+    {
+      double n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
+      double tx = 0, txx = 0, txy = 0, ty = 0, tyx = 0, tyy = 0;
+      for (const Point &q : points) {
+        n += 1;
+        sx += q.x;
+        sy += q.y;
+        sxx += q.x * q.x;
+        sxy += q.x * q.y;
+        syy += q.y * q.y;
+        tx += q.dx;
+        txx += q.dx * q.x;
+        txy += q.dx * q.y;
+        ty += q.dy;
+        tyx += q.dy * q.x;
+        tyy += q.dy * q.y;
+      }
+      double a[9] = {n, sx, sy, sx, sxx, sxy, sy, sxy, syy};
+      double bx[3] = {tx, txx, txy};
+      double by[3] = {ty, tyx, tyy};
+      double a2[9];
+      for (int i = 0; i < 9; ++i) a2[i] = a[i];
+      if (solve_spd(a, bx, 3) && solve_spd(a2, by, 3)) {
+        const double scale_fast = bx[1], scale_slow = by[2];
+        const double turn = 0.5 * (bx[2] - by[1]);
+        const double shear = 0.5 * (bx[2] + by[1]);
+        std::printf("\n  affine part, all of which the detector model can express:\n");
+        std::printf("    scale fast   %+8.4f %%\n", 100 * scale_fast);
+        std::printf("    scale slow   %+8.4f %%\n", 100 * scale_slow);
+        std::printf("    rotation     %+8.4f mrad about the beam\n", 1000 * turn);
+        std::printf("    shear        %+8.4f mrad\n", 1000 * shear);
+        std::printf("\n  radial residual AFTER removing the affine part:\n");
+        for (int b = 0; b < bins; ++b) {
+          const std::size_t from = static_cast<std::size_t>(b) * per;
+          const std::size_t to = (b + 1 == bins) ? points.size() : from + per;
+          std::vector<double> left;
+          for (std::size_t i = from; i < to; ++i) {
+            const Point &q = points[i];
+            const double ex = q.dx - (bx[0] + bx[1] * q.x + bx[2] * q.y);
+            const double ey = q.dy - (by[0] + by[1] * q.x + by[2] * q.y);
+            left.push_back((ex * q.x + ey * q.y) / q.radius);
+          }
+          std::printf("    %5.0f - %5.0f  %+9.4f\n", points[from].radius,
+                      points[to - 1].radius, median(left));
+        }
+      }
     }
 
     // A straight line through the radial residual. Its slope is what a
