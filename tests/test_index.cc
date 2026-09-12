@@ -354,3 +354,67 @@ TEST(index_refuses_rather_than_inventing_a_lattice) {
   check::is_true(result.fraction_indexed() < 0.5,
                  "random points must not index well");
 }
+
+TEST(macrocycles_keep_a_weak_population_from_dragging_the_model) {
+  // The mechanism this exists for, reproduced. Take exact predictions from a
+  // known crystal, then add a population of weak spots displaced by a fifth of
+  // a pixel outwards -- small enough to index within tolerance, consistent
+  // enough that no outlier rejection will find them, which is precisely the
+  // situation on real data.
+  //
+  // Assigning once and fitting everything lets them pull the cell. Refining on
+  // the strong half and re-assigning does not.
+  Experiment truth = synthetic(78.0);
+  Table good = spots_from(truth, 3.0);
+  check::is_true(good.nrows > 2000, "enough good spots");
+
+  const std::size_t n_bad = good.nrows / 4;
+  Table all;
+  all.nrows = good.nrows + n_bad;
+  Column &xyz = all.real_column("xyzobs.px.value", "vec3<double>", 3);
+  Column &panel = all.int_column("panel", "std::size_t", 1);
+  Column &id = all.int_column("id", "int", 1);
+  Column &signal = all.int_column("n_signal", "int", 1);
+  const Column &from = good.at("xyzobs.px.value");
+
+  const Vec3 centre{2074.0, 2181.0, 0.0};
+  for (std::size_t i = 0; i < good.nrows; ++i) {
+    for (std::size_t k = 0; k < 3; ++k) xyz.reals[i * 3 + k] = from.real(i, k);
+    signal.ints[i] = 30;  // strong
+  }
+  for (std::size_t i = 0; i < n_bad; ++i) {
+    const std::size_t row = good.nrows + i;
+    const std::size_t src = (i * 3) % good.nrows;
+    const double dx = from.real(src, 0) - centre.x;
+    const double dy = from.real(src, 1) - centre.y;
+    const double r = std::hypot(dx, dy);
+    // Pushed outwards: a coherent bias, not noise.
+    xyz.reals[row * 3 + 0] = from.real(src, 0) + 0.2 * dx / std::fmax(r, 1.0);
+    xyz.reals[row * 3 + 1] = from.real(src, 1) + 0.2 * dy / std::fmax(r, 1.0);
+    xyz.reals[row * 3 + 2] = from.real(src, 2);
+    signal.ints[row] = 3;  // weak
+  }
+  (void)panel;
+  (void)id;
+
+  const auto recover = [&](int cycles, bool strong) {
+    ExperimentList list;
+    Experiment blank = truth;
+    blank.crystal.reset();
+    list.experiments.push_back(blank);
+    Table copy = all;
+    IndexOptions options;
+    options.macrocycles = cycles;
+    options.refine_on_strong = strong;
+    const IndexResult r = index(list, copy, options);
+    const UnitCell c = r.crystal.cell();
+    const UnitCell t = truth.crystal->cell();
+    return std::abs(c.volume() - t.volume()) / t.volume();
+  };
+
+  const double once = recover(0, false);
+  const double cycled = recover(3, true);
+  check::is_true(cycled < once,
+                 "macrocycles on strong reflections must beat assigning once");
+  check::is_true(cycled < 0.002, "and land within 0.2 per cent on volume");
+}
