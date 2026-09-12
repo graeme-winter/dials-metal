@@ -96,11 +96,40 @@ The entry in `angles` for the scan axis itself is ignored, and must be: that
 axis does not have one setting, it has a different one on every frame, and the
 scan supplies it.
 
-**Still untested.** Every other angle in this dataset is zero, so both compose
-to the identity. **A single-axis insulin sweep cannot test the decomposition at
-all.** It needs a dataset with a non-zero chi or phi setting -- the chemical
-crystallography case in the DIALS paper, four sweeps on a fixed-chi goniometer
-at 57.74 degrees, is exactly the shape of data that would.
+**Now validated**, against the l-cysteine data: four sweeps from one crystal on
+a fixed-chi goniometer, the chemical crystallography case from section 4.3 of
+the paper. Agreement with DIALS' own `rlp` column is 1.8e-5 to 3.8e-5 on every
+sweep, against a reciprocal cell edge of 0.082.
+
+What makes that dataset able to test it, where insulin was not:
+
+| sweep | scan axis | setting angle | what it catches |
+| --- | --- | --- | --- |
+| 0 | omega | phi = 0 | **only** the scan-axis-angle rule |
+| 1, 2 | omega | phi = 120, 240 | fixed/setting swapped, fixed dropped |
+| 3 | **phi** | omega = 0 | that the scan axis is not assumed to be last |
+
+`tests/test_multi_axis.cc` asserts not only that the right composition works
+but that each wrong one is caught, and by how many sweeps. That distinction
+matters: a test that passes under the wrong composition as readily as the right
+one tests nothing, and the only way to know which kind it is, is to try the
+wrong ones.
+
+**The scan-axis angle is the scan start.** All three omega sweeps carry
+`angles[scan_axis] = -145`, and all three scans begin at exactly -145 degrees.
+Composing it into the fixed rotation applies the same rotation twice. Sweep 0
+is the only case that catches this, because its fixed rotation is otherwise the
+identity, so it is blind to every other way of getting the decomposition wrong
+and sensitive only to this one.
+
+**Residuals on this data are a hundredfold larger** than for insulin -- 3e-3 to
+9e-3 against a cell edge of 0.082 -- and that is the indexing residual of a
+large-cell P1 chemical dataset, not an error here. DIALS' own `rlp` sits the
+same distance from `A h`, to three figures.
+
+**Still untested:** the multiplication *order* when more than one axis lies
+below the scan axis. This goniometer has two axes, so only one is ever below
+it, and the order is unobservable. A three-circle instrument would settle it.
 
 ## Wrong shape: the scan
 
@@ -145,11 +174,15 @@ left is the indexing residual, not an error here.
 
 ## Still open
 
-1. **The goniometer decomposition.** Needs a non-zero setting angle.
+1. **The order of composition for two or more axes below the scan axis.** The
+   l-cysteine goniometer has two axes, so at most one is ever below the scan
+   axis and the order cannot be observed. Needs a three-circle instrument.
 2. **`first_image != 1`.** The z anchor wrinkle is still untested; insulin
    starts at image 1, where the two conventions agree by construction.
-3. **Multi-panel detectors.** One panel here, and the `hierarchy` block is
-   ignored entirely.
+3. **Multi-panel detectors.** Both datasets have one panel per detector, and
+   the `hierarchy` block is ignored entirely. l-cysteine does at least exercise
+   two *different* detectors, one at a 2theta offset, and a second sensor
+   (320 micron, mu 1.415, 172 micron pixels) for the parallax correction.
 4. **The provenance of the `s1` column.** Normalised to exactly
    `1/wavelength`, and 9.5e-5 from the value computed from `xyzobs.mm` under
    the refined geometry -- closer than any other candidate tried, but not

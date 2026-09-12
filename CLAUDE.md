@@ -60,9 +60,22 @@ that produced them, regenerable by `tests/make_real_data.py`. Both parallax
 directions reproduce DIALS to the last bit; `entering` agrees on 100% of 13072
 reflections; the full chain lands on `A h` with median residual 1.9e-4.
 
+The goniometer decomposition is now closed too, against the l-cysteine
+four-sweep data in `tests/real_cysteine.h`. Insulin could never have done it:
+every setting angle there is zero, so both rotations are the identity and any
+arrangement passes.
+
+**Test the wrong versions, not just the right one.** `test_multi_axis.cc`
+asserts that swapping fixed and setting is caught by exactly two sweeps, that
+dropping the fixed rotation is caught by exactly two, and that folding the
+scan-axis angle into the fixed rotation is caught by three -- including sweep
+0, which is blind to the other two failures and is the only thing that pins
+that rule. Without those, a green suite would not distinguish a correct
+composition from a lucky one.
+
 **Still open, and a green suite says nothing about any of them:** the
-goniometer decomposition (every angle is zero in this dataset, so both
-rotations collapse to the identity), `first_image != 1`, multi-panel
+composition order for two or more axes below the scan axis (this goniometer has
+two axes, so only one is ever below it), `first_image != 1`, multi-panel
 detectors, and the `hierarchy` block, which is ignored.
 
 ## Things got right for a reason
