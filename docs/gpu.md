@@ -87,22 +87,64 @@ model. That is cheap, decisive, and tests the arithmetic rather than an
 estimate of it. If it holds, the port is mechanical; if it does not, the
 measurement says exactly where.
 
-## What would still be wrong
+## Analytical derivatives: written, and validated
 
-Analytical derivatives would remove the per-parameter factor entirely -- one
-evaluation per reflection instead of 42 -- and are perhaps twenty times faster
-again. They were deliberately not written, because a wrong analytical
-derivative does not crash: it converges smoothly to the wrong answer and
-reports a small residual doing it. If they are written, the numerical version
-is the oracle they must be checked against, and it should stay in the tree for
-that purpose.
+`src/derivatives.h` implements Appendix A of Waterman et al. (2016) for the
+crystal parameters. They matter more for a device than for a CPU, and for a
+reason that is not speed: a finite difference is a difference of two nearly
+equal residuals, and on a float32 device some of the significance is spent on
+the cancellation however carefully the step is chosen. Measured earlier, float32
+leaves about four digits in a numerical derivative; an analytical one leaves
+seven. They also remove the per-parameter factor entirely -- one evaluation per
+reflection instead of forty-two.
 
-The order in which to do this, then:
+The chain, with this code's parameterisation:
 
-1. Run the whole target in `float` on the CPU. Compare residuals and the
-   refined model against `double`.
-2. Port the target evaluation, keeping numerical differentiation, accumulating
-   the normal matrix on the device.
-3. Exploit the banding.
-4. Only then consider analytical derivatives, with the numerical version as
-   the acceptance test.
+    dphi/dp   = -(R_phi dr0/dp . s1) / ((e x r_phi) . s0)      eqn (40)
+    dr_phi/dp = (e x r_phi) dphi/dp + R_phi dr0/dp             eqn (46)
+    dv/dp     = D dr_phi/dp                                    eqn (45)
+    dX/dp     = (w du/dp - u dw/dp) / w^2                      eqn (43)
+
+Refining the nine elements of A directly pays for itself here: since r0 = A h,
+the derivative with respect to element A(i, j) is just h_j sitting in row i and
+zero elsewhere. Through U and B it would be a chain through the metrical
+matrix. And the derivative with respect to a B-spline control point is that
+same vector times the control point's weight -- so `spline_weights` returns the
+four indices and weights, and the banding falls out with no extra work.
+
+**They are checked against central finite differences on the real refined
+insulin geometry**, element by element, in `tests/test_derivatives.cc`: median
+relative agreement below 1e-8 and the 99th percentile below 1e-5. That test is
+the reason they are allowed to exist. A wrong analytical derivative does not
+crash; it converges smoothly to the wrong answer and reports a small residual
+doing it, so the numerical version stays in the tree as the oracle.
+
+Still to do:
+
+1. Derivatives for the detector and beam parameters, Appendix B.
+2. Wire them into `refine` behind a flag, and check the refined model against
+   the numerical path on real data -- agreeing on derivatives is necessary and
+   not sufficient.
+3. Run the whole target in `float` on the CPU and compare against `double`.
+4. Port, accumulating the normal matrix on the device, exploiting the banding.
+
+## The volume cutoff, and a guess it did not support
+
+Eqn (40) divides by the volume of the parallelepiped formed by the rotation
+axis, the reciprocal lattice vector and the beam, which vanishes for
+reflections near the rotation axis. DIALS discards any below 0.05. Those are
+the reflections with large Lorentz factors and genuinely ill determined phi,
+and the analytical derivative makes the reason explicit rather than empirical:
+the measured rotation-angle derivative per unit |h| is 3.9 times larger in the
+smallest-volume quartile than the largest.
+
+It is **not**, however, the four per cent of reflections whose forward and
+reverse maps disagree under a scan-varying model, which is what this code had
+previously guessed. Tested: at a cutoff of 0.05 the volume criterion removes
+5.4 per cent of reflections and only 12 per cent of the disagreements, leaving
+the rate essentially unchanged at 3.97 per cent. Nor is it the iteration count
+in the forward map -- three, six and twelve passes all give 4.27 per cent -- nor
+reflections whose two Ewald roots are close, which show the same 4.2 per cent as
+those whose roots are ninety degrees apart. **That population is unexplained.**
+Outlier rejection removes it and refinement then works, which is a workaround
+rather than an answer.

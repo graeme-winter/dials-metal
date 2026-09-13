@@ -461,9 +461,14 @@ worse -- the drift is captured and what is left is noise being fitted.
 absorb errors that belong to the detector, fit well, and mean nothing.
 
 **Outlier rejection is required, not optional.** About four per cent of
-reflections cross the Ewald sphere near-tangentially, where the diffracting
-angle is enormously sensitive to the crystal model -- the same population that
-carries large Lorentz factors. Once the model varies over the scan, the forward
+reflections have forward and reverse maps that disagree under a scan-varying
+model. This was attributed to near-tangential geometry; **that attribution is
+withdrawn**. The paper's own criterion for near-tangential -- the volume
+(e x r_phi) . s0 below 0.05 -- removes 5.4 per cent of reflections and only 12
+per cent of the disagreements. Nor is it convergence of the forward iteration,
+nor reflections whose two Ewald roots are close. The population is
+unexplained; rejection removes it and refinement then works, which is a
+workaround. Once the model varies over the scan, the forward
 and reverse maps select different roots for those, and their residuals run to
 tens of images. With them in, a planted 0.5 degree drift is not recovered at
 all; with them rejected it comes back as 0.5000. The fraction is 3.5 per cent
