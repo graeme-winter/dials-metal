@@ -119,14 +119,46 @@ the reason they are allowed to exist. A wrong analytical derivative does not
 crash; it converges smoothly to the wrong answer and reports a small residual
 doing it, so the numerical version stays in the tree as the oracle.
 
+Detector and beam follow Appendix B. Neither the detector nor the beam appears
+in r0, and the detector does not appear in s0 either, so `dphi` for a detector
+parameter is exactly zero rather than merely small -- asserted, because a
+nonzero value there would mean the chain rule had picked up a term that does
+not exist.
+
+One piece is not in the paper. DIALS measures its residual in millimetres and
+radians; this code measures it in pixels and images, and the parallax
+correction sits between the two, so the conversion is a 2x2 Jacobian rather
+than a division by the pixel size. It is worth 7e-4 relative on the diagonal at
+the corner of an Eiger2 panel, which is small and is a hundred times the
+tolerance the derivatives are held to. `Panel::mm_to_px_jacobian` computes it
+analytically, for the same reason as everything else here.
+
+**Available as `mxi_refine --analytic`.** On insulin it reaches the same model
+to five decimal places in detector distance and four in cell, six times faster;
+on four sweeps of l-cysteine with about two hundred parameters, 12 s against
+33 s.
+
+### Where the two Jacobians disagree, and why it is not the analytical one
+
+Compared entry by entry over the whole Jacobian -- crystal, detector and beam,
+static and scan-varying:
+
+    median               1.5e-9 to 3.6e-8
+    99th percentile      1.4e-2 to 1.5e-1
+    grossly different    0.07 to 0.3 per cent of entries
+
+The tail is not a gradual loss of accuracy. It is a small set of entries where
+the two disagree completely, often in sign. Those are reflections where the
+perturbation moves which Ewald root lies nearest the observation, so the finite
+difference compares two different branches of the prediction and its value is
+meaningless. **The analytical derivative is the correct one there.** That is
+worth knowing beyond precision: it means the numerical path has been feeding
+refinement a fraction of a per cent of invalid derivatives all along.
+
 Still to do:
 
-1. Derivatives for the detector and beam parameters, Appendix B.
-2. Wire them into `refine` behind a flag, and check the refined model against
-   the numerical path on real data -- agreeing on derivatives is necessary and
-   not sufficient.
-3. Run the whole target in `float` on the CPU and compare against `double`.
-4. Port, accumulating the normal matrix on the device, exploiting the banding.
+1. Run the whole target in `float` on the CPU and compare against `double`.
+2. Port, accumulating the normal matrix on the device, exploiting the banding.
 
 ## The volume cutoff, and a guess it did not support
 
