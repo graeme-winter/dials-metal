@@ -599,8 +599,14 @@ pixels. Its absolute error in float32 is epsilon times the *position*, about
 
 Measured rather than estimated, in `tests/test_precision.cc`: median relative
 error 1.00 at the step the refinement uses, and 1.4e-2 at the best step float
-can manage. Analytical derivatives are therefore a precondition for a device
-port and not an optimisation.
+can manage. The analytical derivative in the same precision gives 1.3e-7.
+Analytical derivatives are therefore a precondition for a device port and not
+an optimisation.
+
+Both `target.h` and `derivatives_t.h` are templated on the scalar type for this
+reason, and both are checked against the double-precision originals first --
+the derivatives bit for bit. Writing a second implementation to measure the
+first is worse than useless: a disagreement could be either thing.
 
 ## Style
 

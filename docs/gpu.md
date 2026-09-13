@@ -109,10 +109,28 @@ as an optimisation.
 `tests/test_precision.cc` asserts the failure as well as the success, so that
 nobody later assumes numerical differentiation would port as it stands.
 
-Not yet measured: the analytical derivative itself in float32. It has no
-cancellation of nearly-equal large quantities, so it should keep six or seven
-digits, but that is an expectation and the last one was wrong. Templating
-`derivatives.h` the same way would settle it and is the next thing to do.
+### The analytical derivative in float32: measured
+
+`src/derivatives_t.h` is the same treatment applied to the derivatives.
+Compiled with `double` it reproduces `crystal_derivatives`,
+`detector_derivatives` and `beam_derivatives` **bit for bit** -- the same
+operations in the same order -- so the float number is not confounded by a
+transcription difference.
+
+    finite difference, float, step 1e-6    median relative error  1.00
+    finite difference, float, step 3e-4    median relative error  1.4e-02
+    analytical,        float               median relative error  1.3e-07
+
+Seven orders of magnitude, and structural rather than lucky: an analytical
+derivative never forms the difference of two nearly equal positions, so there
+is no cancellation to spend the significance on. The ninety-ninth percentile is
+1.2e-5 and the worst case 3.5e-2, the latter on the same near-tangential
+reflections that trouble everything else.
+
+So the whole target and its Jacobian can be computed in single precision. The
+device port is not blocked on precision, provided the derivatives are
+analytical -- which is the conclusion the earlier estimate had exactly
+backwards.
 
 ## Analytical derivatives: written, and validated
 
@@ -184,9 +202,13 @@ refinement a fraction of a per cent of invalid derivatives all along.
 
 Still to do:
 
-1. Template `derivatives.h` on the scalar type and measure the analytical
-   derivative in float32, as `target.h` now allows for the target itself.
-2. Port, accumulating the normal matrix on the device, exploiting the banding.
+1. Port, accumulating the normal matrix on the device, exploiting the banding.
+   `target.h` and `derivatives_t.h` are written to be compiled as they stand;
+   what is missing is the dispatch, the reduction and the host side.
+2. Check the normal matrix itself in float32. Every measurement so far is of a
+   single reflection's contribution; accumulating thirteen thousand of them is
+   a sum of positive quantities of widely differing size, which is a different
+   question and deserves its own measurement rather than an assumption.
 
 ## The volume cutoff, and a guess it did not support
 
