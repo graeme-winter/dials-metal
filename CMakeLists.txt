@@ -50,6 +50,7 @@ add_executable(mxi_tests
   tests/test_refine.cc
   tests/test_args.cc
   tests/test_derivatives.cc
+  tests/test_precision.cc
 )
 target_link_libraries(mxi_tests PRIVATE mxi)
 target_compile_options(mxi_tests PRIVATE -Wall -Wextra)
