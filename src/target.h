@@ -36,6 +36,7 @@ struct TargetModel {
   T fixed[9];     // goniometer fixed rotation
   T setting[9];   // goniometer setting rotation
   T fast[3], slow[3], origin[3];
+  T centre[3];    // panel centre in the laboratory frame, for detector rotations
   T pixel_size[2];
   T mu = 0, thickness = 0;
   bool parallax = false;
@@ -70,6 +71,10 @@ TargetModel<T> narrow(const Experiment &e, std::size_t panel, const Mat3 &A) {
     m.slow[i] = static_cast<T>(p.slow[i]);
     m.origin[i] = static_cast<T>(p.origin[i]);
   }
+  const Vec3 centre = p.lab_coord_mm(
+      0.5 * static_cast<double>(p.image_size[0]) * p.pixel_size[0],
+      0.5 * static_cast<double>(p.image_size[1]) * p.pixel_size[1]);
+  for (std::size_t i = 0; i < 3; ++i) m.centre[i] = static_cast<T>(centre[i]);
   m.pixel_size[0] = static_cast<T>(p.pixel_size[0]);
   m.pixel_size[1] = static_cast<T>(p.pixel_size[1]);
   m.mu = static_cast<T>(p.mu);
