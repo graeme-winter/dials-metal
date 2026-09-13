@@ -1,0 +1,10 @@
+# bitshuffle, for decompressing Eiger chunks in the spot finder.
+#
+# The path is prefixed because git reads .gitmodules from the repository root
+# only. The spot finder arrived here as a subtree merge carrying its own
+# .gitmodules with the unprefixed path, which git could not see and which would
+# have left the submodule silently uninitialised. That file has been removed; if
+# the subtree is ever split back out, it needs restoring.
+[submodule "spotfinder/third_party/bitshuffle"]
+	path = spotfinder/third_party/bitshuffle
+	url = https://github.com/kiyo-masui/bitshuffle.git

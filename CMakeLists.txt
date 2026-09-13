@@ -40,6 +40,27 @@ add_executable(mxi_residuals apps/mxi_residuals.cc)
 target_link_libraries(mxi_residuals PRIVATE mxi)
 target_compile_options(mxi_residuals PRIVATE -Wall -Wextra)
 
+# The spot finder, which needs HDF5 and the bitshuffle submodule. Both are
+# checked rather than required, so that a machine with neither still configures
+# and still builds and tests everything else -- the clean-clone check has caught
+# several real problems in this repository and it has to keep working on a
+# machine that cannot build the whole of it.
+#
+# It is added unmodified. Its own CMakeLists calls find_package(HDF5 REQUIRED),
+# which would abort the whole configure rather than skip one subdirectory, so
+# the decision is made here before the subdirectory is entered.
+find_package(HDF5 QUIET COMPONENTS C)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/spotfinder/third_party/bitshuffle/LICENSE")
+    message(STATUS
+            "spotfinder: bitshuffle submodule not checked out, skipping. "
+            "git submodule update --init --recursive")
+elseif(NOT HDF5_FOUND)
+    message(STATUS "spotfinder: HDF5 not found, skipping")
+else()
+    message(STATUS "spotfinder: building")
+    add_subdirectory(spotfinder)
+endif()
+
 enable_testing()
 add_executable(mxi_tests
   tests/main.cc

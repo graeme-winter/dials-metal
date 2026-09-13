@@ -5,10 +5,35 @@
 The standalone Metal pipeline downstream of spot finding: indexing, refinement
 and prediction. Reads `strong.refl`, writes `indexed.expt` and `indexed.refl`.
 
-`mxeq/` lives in the same tree and must stay independent of it. It is the
-referee, and a referee that depends on the thing it judges is not one. Nothing
-in `src/` or `apps/` may import it, and it must never import them; it reads
-files, which is the whole point. Its own notes are in `mxeq/CLAUDE.md`.
+Three independent pieces share this repository and are not one program:
+`spotfinder/`, the pipeline in `src/` and `apps/`, and `mxeq/`. Each has its own
+notes; `spotfinder/CLAUDE.md` and `mxeq/CLAUDE.md` are theirs and this file does
+not restate them.
+
+`mxeq` must stay independent of everything else here. It is the referee, and a
+referee that depends on the thing it judges is not one. Nothing in `src/` or
+`apps/` may import it, and it must never import them; it reads files, which is
+the whole point.
+
+**The spot finder has not been built or tested in the environment these notes
+were written in**, which has no HDF5 and no way to install it. Its CMake is
+included unmodified and guarded at the top level, and the only path verified
+here is the one where it is skipped. Anything said about it below comes from
+reading it, not from running it.
+
+Two overlaps, neither resolved:
+
+* `spotfinder/src/refl.cc` writes reflection tables and so does `src/refl.cc`.
+  The spot finder's is specialised to its Spot type, mine is a general reader
+  and writer validated against real DIALS files. Consolidating them is worth
+  doing and is exactly the kind of change that quietly breaks a format that
+  currently works, so: not in the same commit as the merge, and with the spot
+  finder's own output compared before and after.
+* `spotfinder/src/expt.cc` reads experiment lists too, but only for the scan
+  range, the panel size and the identifier, and its header says plainly that it
+  is not trying to be dxtbx. So the geometry conventions still live in exactly
+  one place, `src/geometry.h`, which was the thing worth checking before
+  merging.
 
 ## Hard constraints
 
