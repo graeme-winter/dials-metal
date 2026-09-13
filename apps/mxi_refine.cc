@@ -27,6 +27,7 @@ void usage() {
       "  --scan-varying N  control points in A across each scan (1 = static)\n"
       "  --unit-weights    ignore the centroid variances\n"
       "  --strong-only     build the model from the stronger half only\n"
+      "  --analytic        analytical derivatives, not finite differences\n"
       "  --z-weight W      scale the weight on the rotation-angle residual\n"
       "  --macrocycles N   (3)\n"
       "  --outlier-sigma S (4; 0 disables rejection)\n"
@@ -40,7 +41,7 @@ int main(int argc, char **argv) {
       "--no-crystal",   "--no-detector",  "--beam",         "--separate",
       "--macrocycles",  "--outlier-sigma", "--output-expt", "--output-refl",
       "--conditional-depth", "--scan-varying", "--unit-weights",
-      "--strong-only",  "--z-weight"};
+      "--strong-only",  "--z-weight",  "--analytic"};
   const std::set<std::string> takes_value = {
       "--macrocycles", "--outlier-sigma", "--output-expt", "--output-refl",
       "--scan-varying", "--z-weight"};
@@ -70,6 +71,7 @@ int main(int argc, char **argv) {
   options.shared_crystal = !args.has("--separate");
   options.unit_weights = args.has("--unit-weights");
   options.strong_only = args.has("--strong-only");
+  options.analytic = args.has("--analytic");
   options.macrocycles = static_cast<int>(args.number("--macrocycles", 3));
   options.outlier_sigma = args.number("--outlier-sigma", 4.0);
   options.z_weight = args.number("--z-weight", 1.0);

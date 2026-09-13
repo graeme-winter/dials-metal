@@ -63,6 +63,47 @@ Scan Scan::from_oscillation(const std::vector<double> &oscillation_deg,
   return s;
 }
 
+void Panel::mm_to_px_jacobian(double mm_fast, double mm_slow, double out[4]) const {
+  // Without the correction it is just the pixel size.
+  out[0] = 1.0 / pixel_size[0];
+  out[1] = 0.0;
+  out[2] = 0.0;
+  out[3] = 1.0 / pixel_size[1];
+  if (!parallax || mu <= 0.0 || thickness <= 0.0) return;
+
+  const Vec3 lab = lab_coord_mm(mm_fast, mm_slow);
+  const double length = lab.norm();
+  if (!(length > 0.0)) return;
+  const Vec3 u = lab / length;
+  const Vec3 n = normal();
+  const double cosine = u.dot(n);
+  const double c = std::abs(cosine);
+  if (!(c > 0.0)) return;
+
+  const double attenuation_length = 1.0 / mu;
+  const double path = thickness / c;
+  const double transmitted = std::exp(-mu * path);
+  const double depth =
+      attenuation_length - (path + attenuation_length) * transmitted;
+  // d(depth)/dc, worked from depth(a) with a = t/c: d(depth)/da = mu a e^-mu a
+  // and da/dc = -t/c^2.
+  const double ddepth_dc =
+      -mu * thickness * thickness * transmitted / (c * c * c);
+
+  const Vec3 axis[2] = {fast, slow};
+  for (int j = 0; j < 2; ++j) {
+    // Derivative of a normalised vector: the component along u does not move
+    // it, which is what the projection removes.
+    const Vec3 du = (axis[j] - u * u.dot(axis[j])) / length;
+    const double dc = (cosine >= 0.0 ? 1.0 : -1.0) * du.dot(n);
+    const double ddepth = ddepth_dc * dc;
+    for (int i = 0; i < 2; ++i) {
+      const double doffset = ddepth * u.dot(axis[i]) + depth * du.dot(axis[i]);
+      out[i * 2 + j] += doffset / pixel_size[i];
+    }
+  }
+}
+
 Goniometer Goniometer::from_axes(const std::vector<Vec3> &axes,
                                  const std::vector<double> &angles_deg,
                                  std::size_t scan_axis) {

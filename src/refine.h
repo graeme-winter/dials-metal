@@ -75,6 +75,13 @@ struct RefineOptions {
   int macrocycles = 3;
   //: Stop when the weighted residual improves by less than this fraction.
   double convergence = 1e-6;
+  //: Use analytical derivatives instead of finite differences.
+  //:
+  //: Same answer, and that is the point of having both: the numerical path is
+  //: the oracle the analytical one is checked against, and it stays. The
+  //: analytical path exists for single precision, where a finite difference
+  //: spends most of its significance on the cancellation.
+  bool analytic = false;
   bool verbose = false;
   //: Ignore the centroid variances and weight every residual equally.
   //:
@@ -123,6 +130,25 @@ Residual centroid_residual(const Experiment &e, std::size_t panel, int h, int k,
 
 RefineResult refine(ExperimentList &experiments, const Table &reflections,
                     const RefineOptions &options = {});
+
+//: How far the analytical Jacobian sits from the numerical one, over the
+//: entries large enough to compare. Exposed so a test can check them against
+//: each other on any model -- a single sweep, several sweeps, static or
+//: scan-varying -- rather than only inferring agreement from a refined result,
+//: which can hide a wrong derivative behind a flat minimum.
+struct JacobianComparison {
+  std::size_t compared = 0;
+  double median_relative = 0.0;
+  double percentile_99 = 0.0;
+  double percentile_999 = 0.0;
+  double worst_relative = 0.0;
+  //: Entries where the two disagree by more than half, which for a derivative
+  //: means they do not even agree on the sign.
+  std::size_t grossly_different = 0;
+};
+JacobianComparison compare_jacobians(const ExperimentList &experiments,
+                                     const Table &reflections,
+                                     const RefineOptions &options);
 
 // Write xyzcal.px and xyzcal.mm into the table from the current models, so the
 // result can be compared against DIALS' own predictions.

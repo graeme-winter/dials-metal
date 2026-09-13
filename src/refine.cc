@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "derivatives.h"
 #include "predict.h"
 
 namespace mxi {
@@ -197,37 +198,19 @@ void apply(const ExperimentList &base, const Layout &layout,
     }
     if (layout.detector) {
       const std::size_t at = layout.detector_at(i);
-      const Vec3 translation{shift[at], shift[at + 1], shift[at + 2]};
-      const Vec3 turn{shift[at + 3], shift[at + 4], shift[at + 5]};
-      const double angle = turn.norm();
-      for (Panel &p : e.detector.panels) {
-        if (angle > 0.0) {
-          // Rotate about the panel centre, not the laboratory origin: a
-          // rotation about a point two hundred millimetres away is mostly a
-          // translation, and the two parameters would then be so correlated
-          // that the normal matrix is near singular.
-          const Vec3 centre = p.lab_coord_mm(
-              0.5 * static_cast<double>(p.image_size[0]) * p.pixel_size[0],
-              0.5 * static_cast<double>(p.image_size[1]) * p.pixel_size[1]);
-          const Mat3 r = rotation(turn / angle, angle);
-          p.fast = r * p.fast;
-          p.slow = r * p.slow;
-          p.origin = centre + r * (p.origin - centre);
-        }
-        p.origin += translation;
-      }
+      const double panel_shift[6] = {shift[at],     shift[at + 1],
+                                     shift[at + 2], shift[at + 3],
+                                     shift[at + 4], shift[at + 5]};
+      // perturb_panel lives beside its own derivative, so the two cannot
+      // drift apart. A derivative that does not match how the model actually
+      // moves is a silent failure: the refinement takes confident steps in a
+      // direction that means nothing.
+      for (Panel &p : e.detector.panels) p = perturb_panel(p, panel_shift);
     }
     if (layout.beam) {
       const std::size_t at = layout.beam_at(i);
-      // Two tilts, about axes perpendicular to the beam, which is all the
-      // freedom a direction has. A third would be a rotation about the beam
-      // itself and would do nothing at all.
-      const Vec3 d = e.beam.direction.normalized();
-      Vec3 u = Vec3{0.0, 0.0, 1.0}.cross(d);
-      if (u.norm() < 1e-6) u = Vec3{1.0, 0.0, 0.0}.cross(d);
-      u = u.normalized();
-      const Vec3 v = d.cross(u);
-      e.beam.direction = (d + u * shift[at] + v * shift[at + 1]).normalized();
+      const double beam_shift[2] = {shift[at], shift[at + 1]};
+      e.beam = perturb_beam(e.beam, beam_shift);
     }
   }
 }
@@ -254,6 +237,81 @@ double residuals_of(const ExperimentList &experiments,
              o.weight[2] * r.dz * r.dz;
   }
   return total;
+}
+
+// The Jacobian of the residual, analytically. The residual is observed minus
+// calculated, so every entry is the NEGATIVE of the derivative of the
+// prediction -- which matches what the finite-difference branch produces,
+// since it differences the residual and not the prediction.
+void build_analytic_jacobian(const ExperimentList &experiments,
+                             const std::vector<TargetRow> &observations,
+                             const Layout &layout,
+                             std::vector<std::vector<double>> *jacobian) {
+  const std::size_t n = layout.size();
+  jacobian->assign(n, std::vector<double>(observations.size() * 3, 0.0));
+
+  for (std::size_t i = 0; i < observations.size(); ++i) {
+    const TargetRow &o = observations[i];
+    if (!o.active) continue;
+    const Experiment &e = experiments[o.experiment];
+    const PredictionState s =
+        prediction_state(e, o.panel, o.h, o.k, o.l, o.z);
+    if (!s.valid || s.volume == 0.0) continue;
+
+    // The residual is in pixels and images; the derivatives are in millimetres
+    // and radians. The parallax correction sits between the two, so the
+    // conversion is a 2x2 Jacobian rather than a division by the pixel size.
+    const Panel &p = e.detector[o.panel];
+    double J[4];
+    p.mm_to_px_jacobian(s.v.x / s.v.z, s.v.y / s.v.z, J);
+    const double per_image =
+        e.scan.osc_width != 0.0 ? 1.0 / Scan::radians(e.scan.osc_width) : 0.0;
+
+    const auto place = [&](std::size_t parameter, const CentroidDerivative &d,
+                           double weight) {
+      const double dpx_fast = weight * (J[0] * d.dX + J[1] * d.dY);
+      const double dpx_slow = weight * (J[2] * d.dX + J[3] * d.dY);
+      const double dz = weight * d.dphi * per_image;
+      (*jacobian)[parameter][i * 3 + 0] = -dpx_fast;
+      (*jacobian)[parameter][i * 3 + 1] = -dpx_slow;
+      (*jacobian)[parameter][i * 3 + 2] = -dz;
+    };
+
+    if (layout.crystal && e.crystal) {
+      const auto d = crystal_derivatives(s, o.h, o.k, o.l);
+      const std::size_t at = layout.crystal_at(o.experiment);
+      if (layout.points < 2) {
+        for (std::size_t k = 0; k < 9; ++k) place(at + k, d[k], 1.0);
+      } else {
+        // Only four control points are touched. This is the banding, and it
+        // is the reason the B-spline was chosen over an interpolating spline.
+        const SplineWeights w = spline_weights(e, o.z);
+        for (std::size_t c = 0; c < w.count; ++c) {
+          for (std::size_t k = 0; k < 9; ++k) {
+            const std::size_t parameter = at + w.index[c] * 9 + k;
+            const double dpx_fast = w.weight[c] * (J[0] * d[k].dX + J[1] * d[k].dY);
+            const double dpx_slow = w.weight[c] * (J[2] * d[k].dX + J[3] * d[k].dY);
+            const double dz = w.weight[c] * d[k].dphi * per_image;
+            // Accumulated, not assigned: the padding repeats a control point
+            // at the ends of the scan and both contributions are real.
+            (*jacobian)[parameter][i * 3 + 0] -= dpx_fast;
+            (*jacobian)[parameter][i * 3 + 1] -= dpx_slow;
+            (*jacobian)[parameter][i * 3 + 2] -= dz;
+          }
+        }
+      }
+    }
+    if (layout.detector) {
+      const auto d = detector_derivatives(s, p);
+      const std::size_t at = layout.detector_at(o.experiment);
+      for (std::size_t k = 0; k < 6; ++k) place(at + k, d[k], 1.0);
+    }
+    if (layout.beam) {
+      const auto d = beam_derivatives(s, e.beam);
+      const std::size_t at = layout.beam_at(o.experiment);
+      for (std::size_t k = 0; k < 2; ++k) place(at + k, d[k], 1.0);
+    }
+  }
 }
 
 std::vector<double> step_sizes(const ExperimentList &experiments,
@@ -348,10 +406,13 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       // differences would cost twice as much for an accuracy the Gauss-Newton
       // step does not need, since the step is recomputed every iteration.
       std::vector<std::vector<double>> jacobian(n);
-      std::vector<double> shift(n, 0.0);
       ExperimentList trial;
-      std::vector<double> moved(residual.size());
-      for (std::size_t p = 0; p < n; ++p) {
+      if (options.analytic) {
+        build_analytic_jacobian(experiments, observations, layout, &jacobian);
+      } else {
+        std::vector<double> shift(n, 0.0);
+        std::vector<double> moved(residual.size());
+        for (std::size_t p = 0; p < n; ++p) {
         std::fill(shift.begin(), shift.end(), 0.0);
         shift[p] = step[p];
         apply(experiments, layout, shift, &trial);
@@ -364,6 +425,7 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
           // so this is the negative of the derivative of the prediction.
           jacobian[p][i] = (moved[i] - residual[i]) / step[p];
         }
+      }
       }
 
       std::vector<double> normal(n * n, 0.0);
@@ -495,6 +557,78 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
     result.rmsd_z = std::sqrt(sz / static_cast<double>(count));
   }
   return result;
+}
+
+JacobianComparison compare_jacobians(const ExperimentList &experiments,
+                                     const Table &reflections,
+                                     const RefineOptions &options) {
+  JacobianComparison out;
+  std::vector<TargetRow> observations = gather(experiments, reflections, options);
+  if (observations.empty()) return out;
+
+  Layout layout;
+  layout.crystal = options.crystal;
+  layout.detector = options.detector;
+  layout.beam = options.beam;
+  layout.shared_crystal = options.shared_crystal;
+  layout.n_experiments = experiments.size();
+  layout.crystal_blocks =
+      options.crystal ? (options.shared_crystal ? 1 : experiments.size()) : 0;
+  layout.points = std::max<std::size_t>(1, options.scan_points);
+  const std::size_t n = layout.size();
+  if (n == 0) return out;
+
+  ExperimentList base = experiments;
+  if (layout.points > 1) {
+    for (Experiment &e : base) {
+      if (e.crystal && e.crystal->A_points.size() != layout.points) {
+        e.crystal->A_points.assign(layout.points, e.crystal->A);
+      }
+    }
+  }
+
+  std::vector<std::vector<double>> analytic;
+  build_analytic_jacobian(base, observations, layout, &analytic);
+
+  std::vector<double> residual;
+  residuals_of(base, observations, &residual);
+  const std::vector<double> step = step_sizes(base, layout);
+
+  std::vector<double> relative;
+  std::vector<double> shift(n, 0.0);
+  ExperimentList trial;
+  for (std::size_t p = 0; p < n; ++p) {
+    std::fill(shift.begin(), shift.end(), 0.0);
+    shift[p] = step[p];
+    apply(base, layout, shift, &trial);
+    std::vector<double> plus = residual;
+    residuals_of(trial, observations, &plus, layout.owner(p));
+    std::fill(shift.begin(), shift.end(), 0.0);
+    shift[p] = -step[p];
+    apply(base, layout, shift, &trial);
+    std::vector<double> minus = residual;
+    residuals_of(trial, observations, &minus, layout.owner(p));
+
+    for (std::size_t i = 0; i < plus.size(); ++i) {
+      const double numeric = (plus[i] - minus[i]) / (2.0 * step[p]);
+      const double exact = analytic[p][i];
+      const double size = std::fmax(std::abs(numeric), std::abs(exact));
+      // Entries where both are essentially zero say nothing about agreement.
+      if (size < 1e-3) continue;
+      relative.push_back(std::abs(numeric - exact) / size);
+    }
+  }
+  if (relative.empty()) return out;
+  std::sort(relative.begin(), relative.end());
+  out.compared = relative.size();
+  out.median_relative = relative[relative.size() / 2];
+  out.percentile_99 = relative[relative.size() * 99 / 100];
+  out.percentile_999 = relative[relative.size() * 999 / 1000];
+  out.worst_relative = relative.back();
+  for (double v : relative) {
+    if (v > 0.5) ++out.grossly_different;
+  }
+  return out;
 }
 
 void update_predictions(const ExperimentList &experiments, Table &reflections) {

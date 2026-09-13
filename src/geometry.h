@@ -124,6 +124,17 @@ struct Panel {
   std::pair<double, double> px_to_mm(double px_fast, double px_slow) const;
   std::pair<double, double> mm_to_px(double mm_fast, double mm_slow) const;
 
+  // The 2x2 Jacobian d(pixel) / d(millimetre), row-major, evaluated
+  // analytically. Needed because refinement measures its residual in pixels
+  // while the prediction derivatives are in millimetres, and the parallax
+  // correction sits between the two -- so the conversion is not simply a
+  // division by the pixel size.
+  //
+  // Analytic rather than a finite difference of mm_to_px, for the same reason
+  // the prediction derivatives are: a difference of two positions of order two
+  // thousand pixels loses most of its significance in single precision.
+  void mm_to_px_jacobian(double mm_fast, double mm_slow, double out[4]) const;
+
   // Laboratory position of a point given in millimetres on the panel face.
   Vec3 lab_coord_mm(double mm_fast, double mm_slow) const {
     return origin + fast * mm_fast + slow * mm_slow;

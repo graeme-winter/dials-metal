@@ -92,6 +92,110 @@ std::array<CentroidDerivative, 9> crystal_derivatives(const PredictionState &s,
   return out;
 }
 
+namespace {
+
+// The panel centre, in the laboratory frame. Rotations act about this point.
+Vec3 panel_centre(const Panel &p) {
+  return p.lab_coord_mm(0.5 * static_cast<double>(p.image_size[0]) * p.pixel_size[0],
+                        0.5 * static_cast<double>(p.image_size[1]) * p.pixel_size[1]);
+}
+
+}  // namespace
+
+Panel perturb_panel(const Panel &p, const double shift[6]) {
+  Panel out = p;
+  const Vec3 turn{shift[3], shift[4], shift[5]};
+  const double angle = turn.norm();
+  if (angle > 0.0) {
+    const Vec3 centre = panel_centre(p);
+    const Mat3 r = rotation(turn / angle, angle);
+    out.fast = r * p.fast;
+    out.slow = r * p.slow;
+    out.origin = centre + r * (p.origin - centre);
+  }
+  out.origin += Vec3{shift[0], shift[1], shift[2]};
+  return out;
+}
+
+Beam perturb_beam(const Beam &b, const double shift[2]) {
+  Beam out = b;
+  const Vec3 d = b.direction.normalized();
+  Vec3 u = Vec3{0.0, 0.0, 1.0}.cross(d);
+  if (u.norm() < 1e-6) u = Vec3{1.0, 0.0, 0.0}.cross(d);
+  u = u.normalized();
+  const Vec3 v = d.cross(u);
+  out.direction = (d + u * shift[0] + v * shift[1]).normalized();
+  return out;
+}
+
+std::array<CentroidDerivative, 6> detector_derivatives(const PredictionState &s,
+                                                       const Panel &p) {
+  std::array<CentroidDerivative, 6> out{};
+  if (!s.valid) return out;
+
+  const Vec3 centre = panel_centre(p);
+  const double w = s.v.z;
+  const double w2 = w * w;
+
+  for (std::size_t k = 0; k < 6; ++k) {
+    // Columns of dd/dp: the derivative of (fast | slow | origin).
+    Vec3 dfast{0.0, 0.0, 0.0}, dslow{0.0, 0.0, 0.0}, dorigin{0.0, 0.0, 0.0};
+    if (k < 3) {
+      dorigin[k] = 1.0;  // a pure translation moves only the origin
+    } else {
+      // The derivative of a rotation at the identity is the cross product with
+      // the axis, so an infinitesimal rotation about laboratory axis j takes
+      // any vector x to e_j x x.
+      Vec3 axis{0.0, 0.0, 0.0};
+      axis[k - 3] = 1.0;
+      dfast = axis.cross(p.fast);
+      dslow = axis.cross(p.slow);
+      dorigin = axis.cross(p.origin - centre);
+    }
+    const Mat3 dd = Mat3::from_columns(dfast, dslow, dorigin);
+
+    // eqn (47) with dr0/dp, ds0/dp and dphi/dp all zero: only the detector
+    // term survives.
+    const Vec3 dv = -(s.D * (dd * s.v));
+    out[k].dphi = 0.0;
+    out[k].dX = (w * dv.x - s.v.x * dv.z) / w2;
+    out[k].dY = (w * dv.y - s.v.y * dv.z) / w2;
+  }
+  return out;
+}
+
+std::array<CentroidDerivative, 2> beam_derivatives(const PredictionState &s,
+                                                   const Beam &b) {
+  std::array<CentroidDerivative, 2> out{};
+  if (!s.valid || s.volume == 0.0) return out;
+
+  const Vec3 d = b.direction.normalized();
+  Vec3 u = Vec3{0.0, 0.0, 1.0}.cross(d);
+  if (u.norm() < 1e-6) u = Vec3{1.0, 0.0, 0.0}.cross(d);
+  u = u.normalized();
+  const Vec3 basis[2] = {u, d.cross(u)};
+
+  const Vec3 e_cross_r = s.axis.cross(s.r_phi);
+  const double w = s.v.z;
+  const double w2 = w * w;
+
+  for (std::size_t k = 0; k < 2; ++k) {
+    // s0 = -direction / wavelength, and a tilt perpendicular to the direction
+    // has no first-order effect on its length, so the normalisation drops out.
+    const Vec3 ds0 = -basis[k] / b.wavelength;
+
+    // eqn (40) with dr0/dp zero.
+    const double dphi = -s.r_phi.dot(ds0) / s.volume;
+    // eqn (47) with dd/dp and dr0/dp zero.
+    const Vec3 ds1 = e_cross_r * dphi + ds0;
+    const Vec3 dv = s.D * ds1;
+    out[k].dphi = dphi;
+    out[k].dX = (w * dv.x - s.v.x * dv.z) / w2;
+    out[k].dY = (w * dv.y - s.v.y * dv.z) / w2;
+  }
+  return out;
+}
+
 SplineWeights spline_weights(const Experiment &e, double z) {
   SplineWeights out;
   if (!e.crystal || !e.crystal->scan_varying()) {

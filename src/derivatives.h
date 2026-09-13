@@ -93,4 +93,34 @@ struct SplineWeights {
 };
 SplineWeights spline_weights(const Experiment &e, double z);
 
+// --------------------------------------------------------------------------
+// Detector and beam
+// --------------------------------------------------------------------------
+//
+// The perturbations live here, next to their derivatives, and refinement uses
+// these same functions. A derivative and the thing it differentiates drifting
+// apart is a silent failure: the refinement would take confident steps in a
+// direction that does not correspond to how it then moves the model.
+
+//: Six parameters: three translations along the laboratory axes, then three
+//: rotations about the laboratory axes THROUGH THE PANEL CENTRE. Rotating
+//: about the laboratory origin instead would be mostly a translation for a
+//: panel two hundred millimetres away, and the two groups would correlate
+//: badly enough to make the normal matrix near singular.
+Panel perturb_panel(const Panel &p, const double shift[6]);
+
+//: Two parameters: tilts about the two directions perpendicular to the beam.
+//: A third would be a rotation about the beam itself and would do nothing.
+Beam perturb_beam(const Beam &b, const double shift[2]);
+
+//: Derivatives with respect to the six detector parameters. The rotation angle
+//: does not depend on them at all -- neither r0 nor s0 does -- so `dphi` is
+//: exactly zero, which is worth knowing when building a normal matrix.
+std::array<CentroidDerivative, 6> detector_derivatives(const PredictionState &s,
+                                                       const Panel &p);
+
+//: Derivatives with respect to the two beam parameters.
+std::array<CentroidDerivative, 2> beam_derivatives(const PredictionState &s,
+                                                   const Beam &b);
+
 }  // namespace mxi
