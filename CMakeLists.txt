@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(dials_metal_index LANGUAGES CXX)
+project(dials_metal LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -1,11 +1,14 @@
-# dials-metal-index -- working notes
+# dials-metal -- working notes
 
 ## What this is
 
-The indexing, refinement and prediction stages of the standalone Metal
-pipeline. Reads `strong.refl`, writes `indexed.expt` and `indexed.refl`.
-Separate from `mxeq`, which is the referee and must never depend on a pipeline
-it judges.
+The standalone Metal pipeline downstream of spot finding: indexing, refinement
+and prediction. Reads `strong.refl`, writes `indexed.expt` and `indexed.refl`.
+
+`mxeq/` lives in the same tree and must stay independent of it. It is the
+referee, and a referee that depends on the thing it judges is not one. Nothing
+in `src/` or `apps/` may import it, and it must never import them; it reads
+files, which is the whole point. Its own notes are in `mxeq/CLAUDE.md`.
 
 ## Hard constraints
 
@@ -419,12 +422,31 @@ so the beam is not what breaks the degeneracy.
 
 ## Scan-varying refinement
 
-Control points in A, evenly spaced over the scan, linearly interpolated. Not
-DIALS' Gaussian smoother, and that difference should not be glossed: a smoother
-spreads each observation over three control points and gives a smoother second
-derivative. Linear interpolation is chosen for transparency -- the value at a
-control point is the model there -- and because with a handful of points the
-difference is far below the residual.
+Control points in A, evenly spaced over the scan, interpolated by a uniform
+cubic B-spline clamped at both ends. Not DIALS' Gaussian smoother, which
+weights three sample points per observation; both are smooth and local, and
+they are not the same model.
+
+It was linear at first. Cubic because a crystal does not change direction
+abruptly at arbitrary points in a scan, and linear interpolation says it does --
+continuous, but with a derivative that jumps at every control point. A B-spline
+is C2.
+
+B-spline rather than an interpolating spline because the support is local: four
+control points per evaluation, so the Jacobian is banded rather than dense.
+That is worth more than it sounds -- see `docs/gpu.md`.
+
+The cost is that in the interior a control point is a coefficient, not the
+value of the model at its own position. Only the two ends interpolate, by the
+clamping. Anything reading an interior control point as "the setting matrix
+there" is wrong.
+
+What changed and what did not: on real l-cysteine the fit is identical, 0.2101
+px at nine control points against 0.2100 for linear and DIALS' 0.2096. On
+synthetic data with a planted drift the spline recovers it exactly at five
+control points where linear needed three and could only approximate -- because
+the clamped ends are pinned by the data near them, where linear's outermost
+points wandered.
 
 It matches DIALS. On l-cysteine, median |d| against number of control points:
 
@@ -448,9 +470,10 @@ all; with them rejected it comes back as 0.5000. The fraction is 3.5 per cent
 at a drift of 0.02 degrees and 4.3 at 0.5, so it is a property of those
 reflections and not of how much the crystal moved.
 
-**The outermost control points are weakly constrained**, by whatever lies at
-the very ends of the scan, which after rejection can be very little. Nine
-points recovered the interior but let the endpoints wander; three did not.
+**The outermost control points were weakly constrained under linear
+interpolation**, by whatever lay at the very ends of the scan. Clamping the
+B-spline fixed that: the end control points are on the curve, so the data near
+the ends pins them directly.
 
 ## A bug the round-trip test could not see
 
