@@ -57,35 +57,62 @@ The banding is by scan position, so reflections sort naturally into bands by
 image number, and a threadgroup covering one band touches a contiguous slice of
 the parameter vector.
 
-## Precision: measured, and less of an obstacle than expected
+## Precision: measured, and the earlier estimate was wrong
 
-Apple GPUs have no double precision at all, and the geometry here is carried in
-double throughout. The worry is finite differences: a derivative is the
-difference of two nearly equal residuals, and catastrophic cancellation in
-float32 could leave nothing.
+Apple GPUs have no double precision at all. `src/target.h` is the whole target
+written once and templated on the scalar type, so the same code compiles at
+both precisions -- which matters, because a separate float implementation
+disagreeing with the double one could be the precision or could be a
+transcription error, and the measurement could not tell them apart. Compiled
+with `double` it reproduces `centroid_residual` to 5e-13 px; only then does the
+`float` result mean anything.
 
-Measured, on a step of 1e-6 relative -- what the refinement currently uses --
-the residual changes by a median of 1.5e-3 of its own size. Against float32's
-epsilon of 1.2e-7 that leaves **4.1 significant digits** in the derivative. With
-a step of 3e-4 relative, which is near sqrt(epsilon) and is what a float32
-implementation should use, the change is 0.46 relative and **6.6 digits**
-remain.
+**The residual survives float32.** Median difference 2.2e-4 px against
+residuals of 0.32 px -- under a tenth of a per cent, random per reflection, and
+averaging away over thirteen thousand of them.
 
-So numerical differentiation survives float32, which was not obvious. A
-Gauss-Newton step only has to be a descent direction, and it is accepted only if
-the residual actually falls, so four digits is ample.
+**A finite-difference derivative does not.** Compared against the analytical
+derivative, on real insulin:
 
-The residual itself is a weaker constraint than it looks. It is a difference of
-detector positions of order 2000 px, so float32 rounding contributes about
-2.4e-4 px, against residuals of 0.3 px: one part in a thousand, random per
-reflection, averaging away over thirteen thousand of them.
+    double, step 1e-6 relative          median error 4.4e-07     6.4 digits
+    float,  step 1e-6 relative          median error 1.00        none at all
+    float,  step 3e-4 (near sqrt eps)   median error 1.4e-02     1.8 digits
 
-**The experiment to run first needs no GPU.** Compute the whole target in
-`float` on the CPU and compare against the `double` version, reflection by
-reflection, and then run a full refinement that way and compare the refined
-model. That is cheap, decisive, and tests the arithmetic rather than an
-estimate of it. If it holds, the port is mechanical; if it does not, the
-measurement says exactly where.
+At the step the refinement uses, a float finite difference is entirely noise.
+At the best step available to float it does not reach two digits, and its
+ninety-ninth percentile is above five, meaning some entries have the wrong
+sign.
+
+### The estimate that was wrong, and why
+
+An earlier entry in this file claimed float32 would leave 4.1 digits in a
+numerical derivative. The reasoning was: a 1e-6 relative parameter step changes
+the residual by 1.5e-3 of its own size, float epsilon is 1.2e-7, so four digits
+survive.
+
+That compares the change against the *residual*. But the residual is a
+difference of detector positions of order two thousand pixels, so its absolute
+error in float32 is epsilon times the position, about 2.4e-4 px -- not epsilon
+times the residual. The change being measured is 1.5e-3 x 0.32 px, about
+5e-4 px. Signal and noise are the same size, which is exactly the 1.00 relative
+error measured.
+
+The general form of the mistake: **relative precision belongs to the quantity
+the arithmetic is carried in, not to the quantity you are interested in.**
+
+### What follows
+
+Analytical derivatives are not a nicety for a device port, they are a
+precondition. That reverses the earlier plan, which had them fourth on the list
+as an optimisation.
+
+`tests/test_precision.cc` asserts the failure as well as the success, so that
+nobody later assumes numerical differentiation would port as it stands.
+
+Not yet measured: the analytical derivative itself in float32. It has no
+cancellation of nearly-equal large quantities, so it should keep six or seven
+digits, but that is an expectation and the last one was wrong. Templating
+`derivatives.h` the same way would settle it and is the next thing to do.
 
 ## Analytical derivatives: written, and validated
 
@@ -157,7 +184,8 @@ refinement a fraction of a per cent of invalid derivatives all along.
 
 Still to do:
 
-1. Run the whole target in `float` on the CPU and compare against `double`.
+1. Template `derivatives.h` on the scalar type and measure the analytical
+   derivative in float32, as `target.h` now allows for the target itself.
 2. Port, accumulating the normal matrix on the device, exploiting the banding.
 
 ## The volume cutoff, and a guess it did not support

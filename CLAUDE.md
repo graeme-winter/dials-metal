@@ -585,6 +585,23 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## Relative precision belongs to the arithmetic, not to the answer
+
+This file once claimed that float32 would leave about four digits in a
+numerical derivative of the target. It leaves none. The reasoning was that a
+1e-6 relative parameter step changes the residual by 1.5e-3 of its own size and
+float epsilon is 1.2e-7, so four digits survive.
+
+The residual is a difference of detector positions of order two thousand
+pixels. Its absolute error in float32 is epsilon times the *position*, about
+2.4e-4 px, not epsilon times the residual. The change being measured is about
+5e-4 px. Signal and noise are the same size.
+
+Measured rather than estimated, in `tests/test_precision.cc`: median relative
+error 1.00 at the step the refinement uses, and 1.4e-2 at the best step float
+can manage. Analytical derivatives are therefore a precondition for a device
+port and not an optimisation.
+
 ## Style
 
 Row-major Mat3, because that is how DIALS serialises a matrix into a flat nine,
