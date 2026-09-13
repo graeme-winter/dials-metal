@@ -240,3 +240,301 @@ TEST(only_four_control_points_are_ever_touched) {
     }
   }
 }
+
+TEST(analytical_detector_derivatives_match_finite_differences) {
+  const Experiment e = real_experiment();
+  std::vector<double> relative;
+  int tested = 0;
+
+  for (const real::Row &r : real::rows()) {
+    const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
+    if (!s.valid) continue;
+    const auto analytic = detector_derivatives(s, e.detector[0]);
+
+    for (std::size_t p = 0; p < 6; ++p) {
+      // Translations are in millimetres, rotations in radians, so they need
+      // different steps; using one for both makes the rotation derivative
+      // look wrong when it is the step that is.
+      const double step = p < 3 ? 1e-4 : 1e-6;
+      double shift[6] = {0, 0, 0, 0, 0, 0};
+      Experiment plus = e, minus = e;
+      shift[p] = step;
+      plus.detector.panels[0] = perturb_panel(e.detector[0], shift);
+      shift[p] = -step;
+      minus.detector.panels[0] = perturb_panel(e.detector[0], shift);
+
+      const Centroid a = centroid(plus, r.h, r.k, r.l, r.px_z);
+      const Centroid b = centroid(minus, r.h, r.k, r.l, r.px_z);
+      if (!a.valid || !b.valid) continue;
+
+      const double numeric[3] = {(a.X - b.X) / (2 * step),
+                                 (a.Y - b.Y) / (2 * step),
+                                 (a.phi - b.phi) / (2 * step)};
+      const double exact[3] = {analytic[p].dX, analytic[p].dY, analytic[p].dphi};
+      for (int c = 0; c < 3; ++c) {
+        const double size = std::fmax(std::abs(numeric[c]), std::abs(exact[c]));
+        if (size < 1e-6) continue;
+        relative.push_back(std::abs(numeric[c] - exact[c]) / size);
+        ++tested;
+      }
+    }
+  }
+  std::sort(relative.begin(), relative.end());
+  check::is_true(tested > 300, "enough derivative components compared");
+  check::is_true(relative[relative.size() / 2] < 1e-7, "median agreement");
+  check::is_true(relative[relative.size() * 99 / 100] < 1e-4, "and the tail");
+}
+
+TEST(the_detector_cannot_move_the_rotation_angle) {
+  // Not an approximation: neither r0 nor s0 depends on where the detector is,
+  // so the diffracting angle cannot either. Asserted because a nonzero dphi
+  // here would mean the chain rule had picked up a term that does not exist.
+  const Experiment e = real_experiment();
+  for (const real::Row &r : real::rows()) {
+    const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
+    if (!s.valid) continue;
+    for (const CentroidDerivative &d : detector_derivatives(s, e.detector[0])) {
+      check::close(d.dphi, 0.0, 0.0, "exactly zero, not merely small");
+    }
+  }
+}
+
+TEST(analytical_beam_derivatives_match_finite_differences) {
+  const Experiment e = real_experiment();
+  std::vector<double> relative;
+  int tested = 0;
+
+  for (const real::Row &r : real::rows()) {
+    const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
+    if (!s.valid) continue;
+    if (std::abs(s.volume) < 0.05) continue;
+    const auto analytic = beam_derivatives(s, e.beam);
+
+    for (std::size_t p = 0; p < 2; ++p) {
+      const double step = 1e-6;
+      double shift[2] = {0.0, 0.0};
+      Experiment plus = e, minus = e;
+      shift[p] = step;
+      plus.beam = perturb_beam(e.beam, shift);
+      shift[p] = -step;
+      minus.beam = perturb_beam(e.beam, shift);
+
+      const Centroid a = centroid(plus, r.h, r.k, r.l, r.px_z);
+      const Centroid b = centroid(minus, r.h, r.k, r.l, r.px_z);
+      if (!a.valid || !b.valid) continue;
+
+      const double numeric[3] = {(a.X - b.X) / (2 * step),
+                                 (a.Y - b.Y) / (2 * step),
+                                 (a.phi - b.phi) / (2 * step)};
+      const double exact[3] = {analytic[p].dX, analytic[p].dY, analytic[p].dphi};
+      for (int c = 0; c < 3; ++c) {
+        const double size = std::fmax(std::abs(numeric[c]), std::abs(exact[c]));
+        if (size < 1e-6) continue;
+        relative.push_back(std::abs(numeric[c] - exact[c]) / size);
+        ++tested;
+      }
+    }
+  }
+  std::sort(relative.begin(), relative.end());
+  check::is_true(tested > 50, "enough derivative components compared");
+  check::is_true(relative[relative.size() / 2] < 1e-6, "median agreement");
+  check::is_true(relative.back() < 1e-3, "worst case");
+}
+
+TEST(the_shared_perturbation_is_what_refinement_applies) {
+  // perturb_panel and perturb_beam are used by refine and by the derivative
+  // tests both. This checks the properties refinement relies on rather than
+  // the identity of the code path: a zero shift changes nothing, a rotation
+  // keeps the panel axes orthonormal however many times it is applied, and a
+  // rotation about the panel centre leaves that centre where it was.
+  const Experiment e = real_experiment();
+  const Panel &p = e.detector[0];
+
+  const double none[6] = {0, 0, 0, 0, 0, 0};
+  const Panel same = perturb_panel(p, none);
+  check::close((same.origin - p.origin).norm(), 0.0, 0.0, "origin untouched");
+  check::close((same.fast - p.fast).norm(), 0.0, 0.0, "fast untouched");
+
+  Panel turned = p;
+  const double turn[6] = {0, 0, 0, 1e-3, -5e-4, 2e-4};
+  for (int i = 0; i < 50; ++i) turned = perturb_panel(turned, turn);
+  check::close(turned.fast.norm(), 1.0, 1e-12, "fast stays a unit vector");
+  check::close(turned.slow.norm(), 1.0, 1e-12, "slow stays a unit vector");
+  check::close(turned.fast.dot(turned.slow), 0.0, 1e-12, "and stay orthogonal");
+
+  // The centre of the panel is the point rotations act about, so it moves only
+  // by the translation.
+  const auto centre_of = [](const Panel &q) {
+    return q.lab_coord_mm(0.5 * static_cast<double>(q.image_size[0]) * q.pixel_size[0],
+                          0.5 * static_cast<double>(q.image_size[1]) * q.pixel_size[1]);
+  };
+  const double turn_only[6] = {0, 0, 0, 2e-3, 1e-3, -1e-3};
+  const Panel rotated = perturb_panel(p, turn_only);
+  check::close((centre_of(rotated) - centre_of(p)).norm(), 0.0, 1e-9,
+               "a pure rotation leaves the panel centre alone");
+
+  const double move[2] = {1e-3, -2e-3};
+  const Beam b = perturb_beam(e.beam, move);
+  check::close(b.direction.norm(), 1.0, 1e-12, "the beam stays a unit vector");
+}
+
+TEST(the_parallax_jacobian_matches_finite_differences) {
+  // The bridge between millimetres and pixels. Without the parallax correction
+  // it would be a division by the pixel size; with it, it is not, and getting
+  // that wrong scales every analytical derivative by a few parts in a thousand
+  // in a way no test of the prediction itself would notice.
+  const Experiment e = real_experiment();
+  const Panel &p = e.detector[0];
+  double worst = 0.0;
+  for (double mm_f : {5.0, 60.0, 150.0, 280.0}) {
+    for (double mm_s : {5.0, 90.0, 200.0, 320.0}) {
+      double analytic[4];
+      p.mm_to_px_jacobian(mm_f, mm_s, analytic);
+      const double step = 1e-4;
+      const auto plus_f = p.mm_to_px(mm_f + step, mm_s);
+      const auto minus_f = p.mm_to_px(mm_f - step, mm_s);
+      const auto plus_s = p.mm_to_px(mm_f, mm_s + step);
+      const auto minus_s = p.mm_to_px(mm_f, mm_s - step);
+      const double numeric[4] = {(plus_f.first - minus_f.first) / (2 * step),
+                                 (plus_s.first - minus_s.first) / (2 * step),
+                                 (plus_f.second - minus_f.second) / (2 * step),
+                                 (plus_s.second - minus_s.second) / (2 * step)};
+      for (int i = 0; i < 4; ++i) {
+        // Scaled against the size of the Jacobian as a whole, not against each
+        // element. The off-diagonal terms pass through zero near the beam
+        // centre, and dividing by them turns an absolute agreement of 3e-10
+        // into an apparently enormous relative error.
+        const double size = 1.0 / p.pixel_size[0];
+        worst = std::fmax(worst, std::abs(numeric[i] - analytic[i]) / size);
+      }
+    }
+  }
+  check::is_true(worst < 1e-9, "analytic parallax Jacobian");
+}
+
+TEST(the_parallax_jacobian_is_not_just_the_pixel_size) {
+  // If it were, the whole function would be pointless. The off-diagonal terms
+  // and the departure of the diagonal from 1/pixel_size are the correction.
+  const Experiment e = real_experiment();
+  const Panel &p = e.detector[0];
+  double analytic[4];
+  p.mm_to_px_jacobian(280.0, 320.0, analytic);
+  const double plain = 1.0 / p.pixel_size[0];
+  // Measured at 7.0e-4 in the far corner of this panel: small, and a hundred
+  // times the tolerance the derivative comparison is held to, so neglecting it
+  // would be visible there.
+  check::is_true(std::abs(analytic[0] - plain) / plain > 5e-4,
+                 "the diagonal must differ from the pixel size");
+  check::is_true(std::abs(analytic[1]) > 1e-4,
+                 "and there must be an off-diagonal term at all");
+}
+
+// --------------------------------------------------------------------------
+// the two Jacobians, whole
+// --------------------------------------------------------------------------
+
+#include "../src/refine.h"
+#include "../src/refl.h"
+
+namespace {
+
+// A reflection table of predictions from the real geometry, so the comparison
+// runs on the full Jacobian rather than one reflection at a time.
+Table table_from(const Experiment &e, double d_min) {
+  PredictOptions po;
+  po.d_min = d_min;
+  const std::vector<Prediction> predictions = predict(e, po);
+  Table t;
+  t.nrows = predictions.size();
+  Column &xyz = t.real_column("xyzobs.px.value", "vec3<double>", 3);
+  Column &miller = t.int_column("miller_index", "cctbx::miller::index<>", 3);
+  Column &panel = t.int_column("panel", "std::size_t", 1);
+  Column &id = t.int_column("id", "int", 1);
+  for (std::size_t i = 0; i < predictions.size(); ++i) {
+    xyz.reals[i * 3 + 0] = predictions[i].px_fast;
+    xyz.reals[i * 3 + 1] = predictions[i].px_slow;
+    xyz.reals[i * 3 + 2] = predictions[i].z;
+    miller.ints[i * 3 + 0] = predictions[i].h;
+    miller.ints[i * 3 + 1] = predictions[i].k;
+    miller.ints[i * 3 + 2] = predictions[i].l;
+    panel.ints[i] = 0;
+    id.ints[i] = 0;
+  }
+  return t;
+}
+
+}  // namespace
+
+TEST(the_two_jacobians_agree_where_a_finite_difference_is_valid) {
+  // The whole Jacobian, not one reflection at a time: crystal, detector and
+  // beam together, static and scan-varying, which is what refinement actually
+  // assembles. Agreeing on a refined result is not enough -- a flat minimum
+  // can hide a wrong derivative.
+  const Experiment e = real_experiment();
+  ExperimentList list;
+  list.experiments.push_back(e);
+  const Table t = table_from(e, 3.5);
+  check::is_true(t.nrows > 1000, "enough reflections");
+
+  for (std::size_t points : {std::size_t(1), std::size_t(5)}) {
+    RefineOptions options;
+    options.scan_points = points;
+    options.beam = true;
+    const JacobianComparison c = compare_jacobians(list, t, options);
+    check::is_true(c.compared > 100000, "enough entries compared");
+    // Measured: median 1.2e-8 static, 3.6e-8 scan-varying. The ninety-ninth
+    // percentile is 0.15 and 0.05 -- far worse than the median, because the
+    // tail is not a gradual loss of accuracy but a small set of entries where
+    // the two disagree completely, and a percentile walks into it.
+    check::is_true(c.median_relative < 1e-6, "median agreement");
+    check::is_true(c.percentile_99 < 0.3, "ninety-ninth percentile");
+    // And the tail is small. It is NOT a defect in the analytical derivative:
+    // a finite difference that straddles a change in which Ewald root is
+    // nearest the observation is comparing two different branches, so the
+    // numerical value is the invalid one there. Measured at 0.07 to 0.3 per
+    // cent of entries, depending on the data and the parameterisation.
+    const double gross = static_cast<double>(c.grossly_different) /
+                         static_cast<double>(c.compared);
+    check::is_true(gross < 0.01, "grossly disagreeing entries stay rare");
+  }
+}
+
+TEST(analytic_and_numerical_refinement_reach_the_same_model) {
+  // The end-to-end check. Perturb, refine both ways, and require the same
+  // answer -- necessary because a derivative can be right and still be wired
+  // into the normal equations with the wrong sign or index.
+  const Experiment truth = real_experiment();
+  const Table t = table_from(truth, 3.5);
+
+  Experiment moved = truth;
+  const double shift[6] = {0.3, -0.2, 0.5, 0.0, 0.0, 0.0};
+  moved.detector.panels[0] = perturb_panel(truth.detector[0], shift);
+  moved.crystal->A = moved.crystal->A * 1.0003;
+
+  const auto run = [&](bool analytic) {
+    ExperimentList list;
+    list.experiments.push_back(moved);
+    RefineOptions options;
+    options.analytic = analytic;
+    options.outlier_sigma = 0.0;
+    options.macrocycles = 1;
+    const RefineResult r = refine(list, t, options);
+    return std::make_pair(r, list[0]);
+  };
+
+  const auto numerical = run(false);
+  const auto analytical = run(true);
+
+  check::is_true(numerical.first.rmsd_x < 0.02, "numerical converged");
+  check::is_true(analytical.first.rmsd_x < 0.02, "analytical converged");
+  check::close(analytical.first.rmsd_x, numerical.first.rmsd_x,
+               0.1 * std::fmax(numerical.first.rmsd_x, 1e-6),
+               "same residual either way");
+  const UnitCell a = analytical.second.crystal->cell();
+  const UnitCell b = numerical.second.crystal->cell();
+  check::close(a.volume(), b.volume(), 1e-4 * b.volume(), "same cell volume");
+  check::close((analytical.second.detector[0].origin -
+                numerical.second.detector[0].origin)
+                   .norm(),
+               0.0, 1e-3, "same detector origin");
+}
