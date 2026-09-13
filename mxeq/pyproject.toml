@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mxeq"
+version = "0.1.0"
+description = "Equivalence checks between two runs of an MX processing pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "Graeme Winter", email = "graeme.winter@gmail.com" }]
+dependencies = ["numpy>=1.22", "scipy>=1.8", "msgpack>=1.0", "gemmi>=0.6"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+mxeq = "mxeq.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
