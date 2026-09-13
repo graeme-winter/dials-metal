@@ -186,3 +186,109 @@ TEST(a_finite_difference_derivative_does_not_survive_single_precision) {
   check::is_true(percentile(in_float_big, 0.5) > 1e-3,
                  "float at sqrt(eps) is still not good enough");
 }
+
+// --------------------------------------------------------------------------
+// the analytical derivative in single precision
+// --------------------------------------------------------------------------
+
+#include "../src/derivatives_t.h"
+
+namespace {
+
+// Every derivative for one reflection, flattened, at precision T.
+template <typename T>
+std::vector<double> templated_derivatives(const Experiment &e, int h, int k,
+                                          int l, double z) {
+  std::vector<double> out;
+  const auto model = narrow<T>(e, 0, e.setting_at(z));
+  const auto state = target_state<T>(model, h, k, l, static_cast<T>(z));
+  if (!state.valid) return out;
+  Derivative3<T> crystal[9], detector[6], beam[2];
+  crystal_derivatives_t<T>(model, state, h, k, l, crystal);
+  detector_derivatives_t<T>(model, state, detector);
+  beam_derivatives_t<T>(model, state, static_cast<T>(e.beam.wavelength), beam);
+  const auto push = [&out](const Derivative3<T> &d) {
+    out.push_back(static_cast<double>(d.dX));
+    out.push_back(static_cast<double>(d.dY));
+    out.push_back(static_cast<double>(d.dphi));
+  };
+  for (const auto &d : crystal) push(d);
+  for (const auto &d : detector) push(d);
+  for (const auto &d : beam) push(d);
+  return out;
+}
+
+std::vector<double> reference_derivatives(const Experiment &e,
+                                          const PredictionState &s, int h,
+                                          int k, int l) {
+  std::vector<double> out;
+  const auto crystal = crystal_derivatives(s, h, k, l);
+  const auto detector = detector_derivatives(s, e.detector[0]);
+  const auto beam = beam_derivatives(s, e.beam);
+  const auto push = [&out](const CentroidDerivative &d) {
+    out.push_back(d.dX);
+    out.push_back(d.dY);
+    out.push_back(d.dphi);
+  };
+  for (const auto &d : crystal) push(d);
+  for (const auto &d : detector) push(d);
+  for (const auto &d : beam) push(d);
+  return out;
+}
+
+}  // namespace
+
+TEST(the_templated_derivatives_reproduce_the_real_ones_in_double) {
+  // Bit for bit, measured: the same operations in the same order. Anything
+  // less and the float measurement below would be confounded by a
+  // transcription difference.
+  const Experiment e = insulin_experiment();
+  double worst = 0.0;
+  std::size_t compared = 0;
+  for (const real::Row &r : real::rows()) {
+    const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
+    if (!s.valid || std::abs(s.volume) < 0.05) continue;
+    const std::vector<double> reference = reference_derivatives(e, s, r.h, r.k, r.l);
+    const std::vector<double> got =
+        templated_derivatives<double>(e, r.h, r.k, r.l, r.px_z);
+    if (got.size() != reference.size()) continue;
+    for (std::size_t i = 0; i < got.size(); ++i) {
+      if (std::abs(reference[i]) < 1e-8) continue;
+      worst = std::fmax(worst, std::abs(got[i] - reference[i]) / std::abs(reference[i]));
+      ++compared;
+    }
+  }
+  check::is_true(compared > 1000, "enough components compared");
+  check::close(worst, 0.0, 0.0, "identical, not merely close");
+}
+
+TEST(the_analytical_derivative_does_survive_single_precision) {
+  // The measurement this whole exercise was for, and the one that decides
+  // whether a device port is possible at all.
+  //
+  //   finite difference, float, step 1e-6   median relative error 1.00
+  //   analytical,        float              median relative error 1.3e-07
+  //
+  // Seven orders of magnitude, and the reason is structural rather than lucky:
+  // an analytical derivative never forms the difference of two nearly equal
+  // positions, so there is no cancellation to spend the significance on.
+  const Experiment e = insulin_experiment();
+  std::vector<double> relative;
+  for (const real::Row &r : real::rows()) {
+    const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
+    if (!s.valid || std::abs(s.volume) < 0.05) continue;
+    const std::vector<double> wide =
+        templated_derivatives<double>(e, r.h, r.k, r.l, r.px_z);
+    const std::vector<double> narrowed =
+        templated_derivatives<float>(e, r.h, r.k, r.l, r.px_z);
+    if (wide.size() != narrowed.size() || wide.empty()) continue;
+    for (std::size_t i = 0; i < wide.size(); ++i) {
+      if (std::abs(wide[i]) < 1e-8) continue;
+      relative.push_back(std::abs(narrowed[i] - wide[i]) / std::abs(wide[i]));
+    }
+  }
+  check::is_true(relative.size() > 1000, "enough components compared");
+  // Measured: median 1.3e-7, ninety-ninth percentile 1.2e-5.
+  check::is_true(percentile(relative, 0.5) < 1e-6, "median, about seven digits");
+  check::is_true(percentile(relative, 0.99) < 1e-3, "and the tail holds up");
+}
