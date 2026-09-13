@@ -373,13 +373,17 @@ TEST(scan_varying_refinement_recovers_a_drifting_crystal) {
   const RefineResult without = refine(fixed, observations, statically);
 
   RefineOptions varying = statically;
-  // Three, not five. The outermost control points of a finer model are
-  // constrained by whatever reflections happen to lie at the very ends of the
-  // scan, which after rejection can be very few, and they wander.
-  varying.scan_points = 3;
+  // Five, matching the truth's own parameterisation. Under linear
+  // interpolation this had to be dropped to three, because the outermost
+  // control points of a finer model were constrained only by whatever lay at
+  // the very ends of the scan and wandered. The B-spline does not have that
+  // problem: its end control points are clamped to the curve, so the data near
+  // the ends pins them directly, and five recovers the planted drift exactly
+  // where three can only approximate it.
+  varying.scan_points = points;
   const RefineResult with = refine(list, observations, varying);
 
-  check::is_true(with.rmsd_x < 0.1 * without.rmsd_x,
+  check::is_true(with.rmsd_x < 0.02 * without.rmsd_x,
                  "scan-varying must beat static on a drifting crystal");
 
   // And recover the drift itself, not merely fit it: the rotation between the
@@ -387,7 +391,9 @@ TEST(scan_varying_refinement_recovers_a_drifting_crystal) {
   const Mat3 first = list[0].crystal->A_points.front();
   const Mat3 last = list[0].crystal->A_points.back();
   const double turn = Scan::degrees(rotation_angle(last * first.inverse()));
-  check::close(turn, 0.10, 0.01, "recovered drift across the scan");
+  // Exact, not approximate: the model being fitted is the model that made the
+  // data, so anything short of exact recovery is a defect in the refinement.
+  check::close(turn, 0.10, 0.001, "recovered drift across the scan");
 }
 
 TEST(scan_varying_models_survive_a_file_round_trip) {

@@ -1,5 +1,6 @@
 #include "geometry.h"
 
+#include <algorithm>
 #include <cmath>
 #include <tuple>
 
@@ -184,18 +185,45 @@ UnitCell Crystal::cell() const {
 }
 
 Mat3 Crystal::A_at(double t) const {
-  if (A_points.size() < 2) return A;
-  const double span = static_cast<double>(A_points.size() - 1);
+  const std::size_t n = A_points.size();
+  if (n < 2) return A;
+
+  // The control points are padded by two copies at each end, which is what
+  // clamps the curve so that it passes through the first and last exactly.
+  // With Q[k] = P[clamp(k - 2, 0, n - 1)] the padded sequence has n + 4 entries
+  // and n + 1 cubic segments.
+  const auto Q = [&](long k) -> const Mat3 & {
+    const long j = std::max(0L, std::min(k - 2, static_cast<long>(n) - 1));
+    return A_points[static_cast<std::size_t>(j)];
+  };
+
+  const double segments = static_cast<double>(n + 1);
   // Clamped rather than extrapolated. A reflection predicted a little outside
-  // the scan should be modelled by the nearest end of it, not by a linear
-  // continuation of whatever the crystal was doing when the scan stopped.
-  const double u = std::fmax(0.0, std::fmin(1.0, t)) * span;
-  const auto i = static_cast<std::size_t>(std::fmin(std::floor(u), span - 1.0));
+  // the scan should be modelled by the nearest end of it, not by a cubic
+  // continuation of whatever the crystal was doing when the scan stopped --
+  // and a cubic extrapolates far more violently than a line.
+  const double u = std::fmax(0.0, std::fmin(1.0, t)) * segments;
+  const auto i = static_cast<long>(std::fmin(std::floor(u), segments - 1.0));
   const double f = u - static_cast<double>(i);
-  const Mat3 &a = A_points[i];
-  const Mat3 &b = A_points[i + 1];
+
+  // Uniform cubic B-spline basis. The four weights sum to one at every f, so a
+  // set of identical control points gives a constant curve exactly -- which is
+  // what keeps a scan-varying refinement of a static crystal from drifting.
+  const double f2 = f * f;
+  const double f3 = f2 * f;
+  const double b0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+  const double b1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+  const double b2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+  const double b3 = f3 / 6.0;
+
+  const Mat3 &p0 = Q(i - 1 + 1);
+  const Mat3 &p1 = Q(i + 1);
+  const Mat3 &p2 = Q(i + 1 + 1);
+  const Mat3 &p3 = Q(i + 2 + 1);
   Mat3 out;
-  for (std::size_t k = 0; k < 9; ++k) out.m[k] = a.m[k] * (1.0 - f) + b.m[k] * f;
+  for (std::size_t k = 0; k < 9; ++k) {
+    out.m[k] = b0 * p0.m[k] + b1 * p1.m[k] + b2 * p2.m[k] + b3 * p3.m[k];
+  }
   return out;
 }
 

@@ -425,3 +425,91 @@ TEST(a_crystal_free_experiment_predicts_nothing) {
   check::equal(static_cast<long long>(predict(e).size()), 0,
                "no crystal, no predictions");
 }
+
+// --------------------------------------------------------------------------
+// the scan-varying interpolation
+// --------------------------------------------------------------------------
+
+TEST(the_spline_passes_through_the_end_control_points) {
+  // Clamping is the reason the ends mean something. In the interior a control
+  // point is a coefficient, not the value of the model there, so the two ends
+  // are the only places the curve can be pinned by inspection.
+  Crystal c;
+  c.A = Mat3::identity();
+  for (int i = 0; i < 5; ++i) {
+    c.A_points.push_back(Mat3::identity() * (1.0 + 0.1 * i));
+  }
+  check::close(c.A_at(0.0).m[0], 1.0, 1e-12, "first control point");
+  check::close(c.A_at(1.0).m[0], 1.4, 1e-12, "last control point");
+}
+
+TEST(identical_control_points_give_a_constant_curve) {
+  // The B-spline weights sum to one at every parameter value. Without that, a
+  // scan-varying refinement of a genuinely static crystal would drift, and it
+  // would drift by an amount that depended on where in the scan you looked.
+  Crystal c;
+  c.A_points.assign(6, Mat3{1, 2, 3, 4, 5, 6, 7, 8, 9});
+  for (double t = 0.0; t <= 1.0; t += 0.037) {
+    for (std::size_t k = 0; k < 9; ++k) {
+      check::close(c.A_at(t).m[k], static_cast<double>(k + 1), 1e-12,
+                   "constant everywhere");
+    }
+  }
+}
+
+TEST(the_spline_is_smooth_where_linear_interpolation_was_not) {
+  // The point of the change. Sample the second derivative either side of an
+  // interior control point: for a cubic B-spline it is continuous, for linear
+  // interpolation the FIRST derivative already jumps.
+  Crystal c;
+  for (int i = 0; i < 6; ++i) {
+    const double x = static_cast<double>(i);
+    Mat3 m = Mat3::identity();
+    m.m[0] = x * x;  // a curve with genuine curvature
+    c.A_points.push_back(m);
+  }
+  const auto value = [&](double t) { return c.A_at(t).m[0]; };
+  const double h = 1e-4;
+  // Interior control point of six sits at roughly t = 0.43 in the padded
+  // parameterisation; the exact position does not matter, only that the
+  // derivative is continuous across it.
+  for (double t : {0.25, 0.43, 0.57, 0.75}) {
+    const double left = (value(t - h) - 2 * value(t - 2 * h) + value(t - 3 * h)) / (h * h);
+    const double right = (value(t + 3 * h) - 2 * value(t + 2 * h) + value(t + h)) / (h * h);
+    check::close(left, right, 0.05 * std::fmax(1.0, std::abs(left)),
+                 "second derivative continuous");
+  }
+}
+
+TEST(the_spline_does_not_extrapolate_beyond_the_scan) {
+  Crystal c;
+  for (int i = 0; i < 4; ++i) {
+    Mat3 m = Mat3::identity();
+    m.m[0] = 1.0 + i;
+    c.A_points.push_back(m);
+  }
+  // A cubic extrapolates far more violently than a line, so the clamp matters
+  // more here than it did before.
+  check::close(c.A_at(-0.5).m[0], c.A_at(0.0).m[0], 1e-12, "before the scan");
+  check::close(c.A_at(1.7).m[0], c.A_at(1.0).m[0], 1e-12, "after the scan");
+}
+
+TEST(the_spline_stays_within_the_range_of_its_control_points) {
+  // A cubic can overshoot. A B-spline cannot: every point on the curve is a
+  // convex combination of four control points, all weights being non-negative.
+  // That is what makes it safe to refine without restraints.
+  Crystal c;
+  const double values[6] = {0.0, 1.0, 0.0, 1.0, 0.0, 1.0};
+  for (double v : values) {
+    Mat3 m = Mat3::identity();
+    m.m[0] = v;
+    c.A_points.push_back(m);
+  }
+  double low = 1e30, high = -1e30;
+  for (double t = 0.0; t <= 1.0; t += 0.001) {
+    low = std::fmin(low, c.A_at(t).m[0]);
+    high = std::fmax(high, c.A_at(t).m[0]);
+  }
+  check::is_true(low >= -1e-12, "no undershoot below the control points");
+  check::is_true(high <= 1.0 + 1e-12, "no overshoot above them");
+}

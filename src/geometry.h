@@ -243,18 +243,30 @@ struct Crystal {
   Mat3 A = Mat3::identity();
   std::string space_group_hall = " P 1";
 
-  // Scan-varying model: control points in A, evenly spaced over the scan and
-  // linearly interpolated between. Empty means the crystal is static and `A`
-  // is used directly.
+  // Scan-varying model: control points in A, evenly spaced over the scan,
+  // interpolated by a uniform cubic B-spline clamped at both ends. Empty means
+  // the crystal is static and `A` is used directly.
   //
-  // Linear interpolation rather than DIALS' Gaussian smoother. That is a real
-  // difference and it should not be described as the same model: a Gaussian
-  // smoother spreads each observation's influence over three control points
-  // and produces a smoother second derivative. Linear interpolation is chosen
-  // because it makes the parameterisation transparent -- the value at a
-  // control point is the model at that point, not a weighted contribution to
-  // it -- and because with a handful of control points over a scan the
-  // difference between the two is far below the residual.
+  // Cubic rather than linear because a crystal does not change direction
+  // abruptly at arbitrary points in a scan, and linear interpolation says it
+  // does: the model is continuous but its derivative jumps at every control
+  // point. The B-spline is C2, so the orientation, its rate of change and its
+  // curvature are all continuous, which is what a physical drift looks like.
+  //
+  // B-spline rather than an interpolating natural spline because its support
+  // is local: each point on the curve depends on four control points and no
+  // more. An interpolating spline couples every control point to every
+  // observation through a global solve, which conditions the normal matrix
+  // worse and would make the Jacobian dense where it is now banded.
+  //
+  // The cost of local support is that a control point is a coefficient rather
+  // than the value of the model at its own position -- except at the two ends,
+  // where the clamping makes the curve pass through the first and last control
+  // points exactly. Anything reading a control point as "the setting matrix at
+  // this scan position" is wrong in the interior.
+  //
+  // Still not DIALS' Gaussian smoother, which weights three sample points per
+  // observation. Both are smooth and local; they are not the same model.
   std::vector<Mat3> A_points;
 
   bool scan_varying() const { return A_points.size() > 1; }
