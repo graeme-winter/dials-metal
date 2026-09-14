@@ -373,6 +373,40 @@ Info read(const std::string &path) {
     }
   }
 
+  if (model_index(first, "imageset", &index)) {
+    const Value *imagesets = document.find("imageset");
+    if (imagesets != nullptr && imagesets->kind == Value::Kind::Array)
+      info.imagesets = imagesets->items.size();
+    const Value *imageset = element(document, "imageset", index);
+    const Value *tmpl =
+        imageset != nullptr ? imageset->find("template") : nullptr;
+    if (tmpl != nullptr && tmpl->kind == Value::Kind::String &&
+        !tmpl->text.empty()) {
+      info.has_imageset = true;
+      info.image_file = tmpl->text;
+      info.templated = tmpl->text.find('#') != std::string::npos;
+    }
+    const Value *indices =
+        imageset != nullptr ? imageset->find("single_file_indices") : nullptr;
+    if (indices != nullptr && indices->kind == Value::Kind::Array &&
+        !indices->items.empty()) {
+      info.frames = indices->items.size();
+      info.first_index = static_cast<std::int64_t>(indices->items.front().number);
+      info.last_index = static_cast<std::int64_t>(indices->items.back().number);
+      // Checked rather than assumed: a sliced or filtered import can leave
+      // gaps, and reading them as a range would quietly read the wrong frames.
+      for (std::size_t i = 1; i < indices->items.size(); ++i) {
+        const auto previous =
+            static_cast<std::int64_t>(indices->items[i - 1].number);
+        const auto current = static_cast<std::int64_t>(indices->items[i].number);
+        if (current != previous + 1) {
+          info.contiguous_indices = false;
+          break;
+        }
+      }
+    }
+  }
+
   if (model_index(first, "detector", &index)) {
     const Value *detector = element(document, "detector", index);
     const Value *panels =
@@ -404,6 +438,11 @@ std::string describe(const Info &info) {
               std::to_string(info.last_image);
   } else {
     result += ", no scan";
+  }
+  if (info.has_imageset) {
+    result += ", " + info.image_file;
+    if (info.frames != 0)
+      result += " (" + std::to_string(info.frames) + " frames)";
   }
   if (info.has_detector) {
     result += ", " + std::to_string(info.panels) + " panel";

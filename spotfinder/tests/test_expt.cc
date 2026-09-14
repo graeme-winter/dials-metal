@@ -135,6 +135,58 @@ const char *kSweep = R"({
   "scaling_model": []
 })";
 
+// The imageset block, which says where the images actually are. Without it the
+// tool has to be told the master file separately, and the two can disagree --
+// spots from one file indexed against the geometry of another, which nothing
+// downstream catches.
+const char *kWithImageset = R"({
+  "__id__": "ExperimentList",
+  "experiment": [{"__id__": "Experiment", "imageset": 0, "scan": 0,
+                  "identifier": "abc"}],
+  "imageset": [{"__id__": "ImageSequence",
+                "template": "/data/ins10_1.nxs",
+                "single_file_indices": [0, 1, 2, 3, 4],
+                "dx": null, "dy": null,
+                "params": {"dynamic_shadowing": "Auto", "multi_panel": false}}],
+  "scan": [{"image_range": [1, 5]}]
+})";
+
+// A numbered sequence of CBFs, which this tool cannot read. What matters is
+// that it says so rather than handing a path with hashes in it to HDF5.
+const char *kTemplatedImageset = R"({
+  "__id__": "ExperimentList",
+  "experiment": [{"__id__": "Experiment", "imageset": 0}],
+  "imageset": [{"__id__": "ImageSequence",
+                "template": "/data/lys_1_####.cbf"}]
+})";
+
+// Indices with a gap. A sliced or filtered import can produce this, and
+// reading first..last as a range would quietly read the frames left out.
+const char *kGappyImageset = R"({
+  "__id__": "ExperimentList",
+  "experiment": [{"__id__": "Experiment", "imageset": 0}],
+  "imageset": [{"__id__": "ImageSequence", "template": "/data/x.nxs",
+                "single_file_indices": [0, 1, 4, 5]}]
+})";
+
+// No imageset at all, which is not an error: an .expt can be assembled without
+// one, and everything that worked before this field existed must still work.
+const char *kNoImageset = R"({
+  "__id__": "ExperimentList",
+  "experiment": [{"__id__": "Experiment", "scan": 0}],
+  "scan": [{"image_range": [1, 5]}]
+})";
+
+// Ten frames in the imageset, five in the scan: one has been sliced and the
+// other has not.
+const char *kMismatchedImageset = R"({
+  "__id__": "ExperimentList",
+  "experiment": [{"__id__": "Experiment", "imageset": 0, "scan": 0}],
+  "imageset": [{"__id__": "ImageSequence", "template": "/data/x.nxs",
+                "single_file_indices": [0,1,2,3,4,5,6,7,8,9]}],
+  "scan": [{"image_range": [1, 5]}]
+})";
+
 } // namespace
 
 int main() {
@@ -269,6 +321,82 @@ int main() {
                "a/b\xc3\xa9"
                "c");
   }
+
+  {
+    put(kWithImageset);
+    const expt::Info info = expt::read(kPath);
+    check("it has an imageset", info.has_imageset ? 1 : 0, 1);
+    check_text("the image file", info.image_file, "/data/ins10_1.nxs");
+    check("one imageset", info.imagesets, 1);
+    check("five frames", info.frames, 5);
+    check("not templated", info.templated ? 1 : 0, 0);
+    check("the indices are contiguous", info.contiguous_indices ? 1 : 0, 1);
+    // The indices count from zero and image_range counts from one. Conflating
+    // those is the off-by-one this field exists to make visible rather than
+    // to hide.
+    check("the first image is one",
+          static_cast<unsigned long long>(info.first_image), 1);
+    check("the first index is zero",
+          static_cast<unsigned long long>(info.first_index), 0);
+    check("the last index is four",
+          static_cast<unsigned long long>(info.last_index), 4);
+    check("imageset and scan agree", info.imageset_matches_scan() ? 1 : 0, 1);
+  }
+
+  {
+    put(kTemplatedImageset);
+    const expt::Info info = expt::read(kPath);
+    check("templated is seen", info.templated ? 1 : 0, 1);
+    // Kept verbatim. Working out what the hashes stand for is dials.import's
+    // job and it has already done it; a second guess here could differ.
+    check_text("the path is kept as written", info.image_file,
+               "/data/lys_1_####.cbf");
+    check("no frames listed", info.frames, 0);
+  }
+
+  {
+    put(kGappyImageset);
+    const expt::Info info = expt::read(kPath);
+    check("four frames", info.frames, 4);
+    check("first index", static_cast<unsigned long long>(info.first_index), 0);
+    check("last index", static_cast<unsigned long long>(info.last_index), 5);
+    check("the gap is noticed", info.contiguous_indices ? 1 : 0, 0);
+  }
+
+  {
+    put(kMismatchedImageset);
+    const expt::Info info = expt::read(kPath);
+    check("ten frames", info.frames, 10);
+    check("five images in the scan",
+          static_cast<unsigned long long>(info.images()), 5);
+    check("the disagreement is noticed",
+          info.imageset_matches_scan() ? 1 : 0, 0);
+  }
+
+  {
+    // The fixture that was already here carries an imageset, so it doubles as a
+    // check that this is read out of a document written the way dials.import
+    // writes one rather than only out of the cut-down examples above.
+    put(kSweep);
+    const expt::Info info = expt::read(kPath);
+    check("the existing fixture has an imageset", info.has_imageset ? 1 : 0, 1);
+    check_text("and names its file", info.image_file,
+               "/data/ins10_1_master.h5");
+  }
+
+  {
+    // An .expt without one is not an error, and everything that worked before
+    // this field existed must still work.
+    put(kNoImageset);
+    const expt::Info info = expt::read(kPath);
+    check("no imageset here", info.has_imageset ? 1 : 0, 0);
+    check("no frames", info.frames, 0);
+    check("contiguous by default", info.contiguous_indices ? 1 : 0, 1);
+    check("matches vacuously", info.imageset_matches_scan() ? 1 : 0, 1);
+    check("the scan is still read",
+          static_cast<unsigned long long>(info.images()), 5);
+  }
+
 
   std::remove(kPath);
 

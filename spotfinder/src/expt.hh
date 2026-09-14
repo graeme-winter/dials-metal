@@ -39,6 +39,40 @@ struct Info {
   std::int64_t first_image = 0;
   std::int64_t last_image = 0;
 
+  // Where the images are. dials.import records this in the imageset block:
+  // `template` names the file and `single_file_indices` lists the array
+  // indices within it, so an .expt on its own says everything needed to find
+  // the data. Without this the tool has to be told the master file separately
+  // and the two can disagree, which is a mistake nothing downstream catches --
+  // spots from one file indexed against the geometry of another.
+  bool has_imageset = false;
+  std::string image_file;
+  std::size_t imagesets = 0;
+
+  // A template with '#' placeholders names a numbered sequence of files, not
+  // one file. This tool reads NXmx and so cannot follow it; reported rather
+  // than resolved, because guessing which file the placeholders stand for is
+  // dials.import's job and it has already done it.
+  bool templated = false;
+
+  // The entries of single_file_indices. They are zero-based array indices,
+  // where image_range counts from one.
+  std::size_t frames = 0;
+  std::int64_t first_index = 0;
+  std::int64_t last_index = 0;
+  //: False when the indices skip, which a sliced or filtered import can
+  //: produce. Nothing here handles that yet, so it has to be visible.
+  bool contiguous_indices = true;
+
+  // Whether the imageset and the scan describe the same number of images. They
+  // can disagree -- an .expt assembled by hand, or a slice taken of one but not
+  // the other -- and the difference would otherwise appear as spots on the
+  // wrong frames.
+  bool imageset_matches_scan() const {
+    return !has_scan || !has_imageset || frames == 0 ||
+           static_cast<std::int64_t>(frames) == images();
+  }
+
   // The first detector's panels. A segmented detector is reported rather than
   // refused here; the caller decides.
   bool has_detector = false;
