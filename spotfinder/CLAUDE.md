@@ -4,6 +4,29 @@ Notes for working in this repository. `README.md` is the document for people
 building and running the tool; this one records the conventions, the invariants
 that are expensive to rediscover, and what is not yet proven.
 
+## The .expt says where the images are
+
+`dials.import` records the file in the imageset block -- `template` names it,
+`single_file_indices` lists the array indices within it -- so `-e imported.expt`
+alone is enough and the master file need not be named twice. `-x` still wins,
+because the recorded path is absolute and a dataset that has moved since import
+would otherwise be unusable.
+
+Making the operator repeat the file only creates an opportunity for the two to
+disagree, and spots found in one file and indexed against the geometry of
+another is a mistake nothing downstream catches.
+
+Three things the imageset can say that have to be acted on rather than
+assumed:
+
+* a `template` containing `#` is a numbered sequence of files, not one NXmx
+  file, and is refused by name rather than handed to HDF5;
+* `single_file_indices` with gaps means the imageset is not the whole file in
+  order, and since frames are read as a contiguous run a gap would shift every
+  spot after it onto the wrong image -- refused;
+* an imageset and a scan disagreeing about how many images there are means one
+  has been sliced and the other has not; warned, because z follows the scan.
+
 ## What this is
 
 One C++20 tool: `dials-metal-find-spots` reads an NXmx HDF5 series, runs the

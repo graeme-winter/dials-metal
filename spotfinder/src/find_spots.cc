@@ -8,7 +8,7 @@
 // format -- src/dials_spots.{hh,cc} and src/refl.{hh,cc}.
 //
 //   dials.import /data/ins10_1_master.h5
-//   dials-metal-find-spots -gpu -e imported.expt -x /data/ins10_1_master.h5
+//   dials-metal-find-spots -gpu -e imported.expt
 //   dials.index imported.expt strong.refl
 //
 // The .expt is dials.import's business and is read rather than written: the
@@ -102,9 +102,12 @@ void usage(const char *program) {
   std::fprintf(
       stderr,
       "usage: %s [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]\n"
-      "       [options] master.nxs\n"
+      "       [options] [master.nxs]\n"
       "\n"
-      "  master.nxs         an NXmx HDF5 master file, or -x master.nxs\n"
+      "  master.nxs         an NXmx HDF5 master file, or -x master.nxs.\n"
+      "                     Optional when -e names an .expt: dials.import\n"
+      "                     already recorded the file in its imageset block,\n"
+      "                     and -x overrides it if the data has moved.\n"
       "  -e imported.expt   what dials.import wrote, for the scan range, the\n"
       "                     panel size and the experiment identifier\n"
       "  -o file            where to write the reflection table (strong.refl)\n"
@@ -175,7 +178,48 @@ bool parse_options(int argc, char **argv, Options *options) {
       return false;
     }
   }
-  if (options->threads < 1 || options->master.empty()) {
+  if (options->threads < 1) {
+    usage(argv[0]);
+    return false;
+  }
+  // The master file may come from the .expt instead of the command line.
+  // dials.import already recorded where the images are, in the imageset block,
+  // so making the operator repeat it only creates an opportunity for the two to
+  // disagree -- and spots found in one file and indexed against the geometry of
+  // another is a mistake nothing downstream catches.
+  //
+  // An explicit -x still wins, because the .expt records an absolute path and a
+  // dataset that has moved since import would otherwise be unusable.
+  if (options->master.empty() && !options->experiments.empty()) {
+    expt::Info info;
+    try {
+      info = expt::read(options->experiments);
+    } catch (const std::exception &error) {
+      std::fprintf(stderr, "%s\n", error.what());
+      return false;
+    }
+    if (!info.has_imageset) {
+      std::fprintf(stderr,
+                   "%s has no imageset, so it does not say where the images "
+                   "are; name the master file, or pass -x\n",
+                   options->experiments.c_str());
+      return false;
+    }
+    if (info.templated) {
+      // Hashes stand for a numbered sequence of files, which this reads none
+      // of. Saying so beats handing the path to HDF5 and reporting whatever it
+      // makes of it.
+      std::fprintf(stderr,
+                   "%s names a file template, '%s', which is a numbered "
+                   "sequence rather than one NXmx file; this reads NXmx only\n",
+                   options->experiments.c_str(), info.image_file.c_str());
+      return false;
+    }
+    options->master = info.image_file;
+    std::fprintf(stderr, "Images: %s, from %s\n", options->master.c_str(),
+                 options->experiments.c_str());
+  }
+  if (options->master.empty()) {
     usage(argv[0]);
     return false;
   }
@@ -390,6 +434,28 @@ void reconcile(const expt::Info &experiments, const series::Info &series,
                  options->experiments.c_str(),
                  static_cast<long long>(experiments.images()),
                  static_cast<unsigned long long>(series.images));
+  }
+
+  // The imageset and the scan can disagree about how many images there are --
+  // one sliced and the other not, or an .expt assembled by hand. The scan sets
+  // z, so a mismatch means z is measured against a range the images do not
+  // cover.
+  if (!experiments.imageset_matches_scan()) {
+    std::fprintf(stderr,
+                 "warning: %s lists %llu frames in its imageset and %lld in "
+                 "its scan; z follows the scan\n",
+                 options->experiments.c_str(),
+                 static_cast<unsigned long long>(experiments.frames),
+                 static_cast<long long>(experiments.images()));
+  }
+  // Gaps in single_file_indices mean the imageset is not the whole file in
+  // order, which nothing here allows for: frames are read as a contiguous run,
+  // so a gap would silently shift every spot after it onto the wrong image.
+  if (experiments.has_imageset && !experiments.contiguous_indices) {
+    throw std::runtime_error(
+        "the imageset in " + options->experiments +
+        " skips frames, and this reads a contiguous run; z would be wrong "
+        "from the first gap onwards");
   }
 
   // The array index of image n is n - 1, and z is measured in array indices.
