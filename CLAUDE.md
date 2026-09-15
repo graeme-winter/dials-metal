@@ -610,6 +610,38 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## Which model each observed column was computed through
+
+`dials.refine` stops without `xyzobs.mm.value`, and reasonably: DIALS measures
+its residual in millimetres and radians -- Waterman eqn (25) is in X, Y and phi
+-- so that column is the observation it minimises against. `dials.index`
+produces it and this did not.
+
+The columns split by **which model they were computed through**, and the split
+was measured against DIALS' own output rather than assumed:
+
+    xyzobs.mm.value       the model as IMPORTED    median difference 3e-17
+    xyzobs.mm.variance    the model as imported    essentially exact
+    s1, rlp, entering     the CURRENT model        3e-3 from imported,
+                                                   9e-5 from DIALS' refined
+
+`dials.find_spots` writes the millimetre centroids through the detector as
+imported and nothing recomputes them; `dials.index` calls
+map_centroids_to_reciprocal_space after refining, so s1 and rlp follow the
+refined model. **That is why xyzobs.mm.value is stale after refinement and must
+never be a join key** -- a fact recorded here long before the reason for it was
+understood.
+
+Recomputing the millimetre centroids from the refined model would look like a
+correction and would be a silent change to the observations refinement had just
+been fitted to.
+
+`entering` is `s1 . (m2 x s0) > 0`, the opposite sign to the test as usually
+written, because s0 here points source to sample and dxtbx's beam direction
+points the other way. Determined against DIALS' flags: 13760 of 13766 agreed,
+the rest having a triple product within rounding of zero. The wrong sign gave
+six.
+
 ## Write back everything that was there, not only what we model
 
 `dials.refine` then failed with

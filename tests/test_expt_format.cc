@@ -263,3 +263,127 @@ TEST(an_experiment_list_built_in_memory_still_writes) {
   check::is_true(experiment["imageset"].is_null(),
                  "with the reference null, not zero and not -1");
 }
+
+// --------------------------------------------------------------------------
+// the columns dials.index produces
+// --------------------------------------------------------------------------
+
+#include "../src/derivatives.h"
+#include "../src/refine.h"
+
+namespace {
+
+Table observations_of(const ExperimentList &list, std::size_t n) {
+  Table t;
+  t.nrows = n;
+  Column &xyz = t.real_column("xyzobs.px.value", "vec3<double>", 3);
+  Column &var = t.real_column("xyzobs.px.variance", "vec3<double>", 3);
+  Column &panel = t.int_column("panel", "std::size_t", 1);
+  Column &id = t.int_column("id", "int", 1);
+  for (std::size_t i = 0; i < n; ++i) {
+    xyz.reals[i * 3 + 0] = 300.0 + 220.0 * static_cast<double>(i);
+    xyz.reals[i * 3 + 1] = 250.0 + 180.0 * static_cast<double>(i);
+    xyz.reals[i * 3 + 2] = 0.5 + static_cast<double>(i);
+    var.reals[i * 3 + 0] = var.reals[i * 3 + 1] = var.reals[i * 3 + 2] = 1.0 / 12.0;
+    panel.ints[i] = 0;
+    id.ints[i] = 0;
+  }
+  (void)list;
+  return t;
+}
+
+}  // namespace
+
+TEST(millimetre_centroids_are_the_corrected_conversion_and_an_angle) {
+  // dials.refine will not read a table without xyzobs.mm.value: DIALS measures
+  // its residual in millimetres and radians, so this is the observation it
+  // minimises against.
+  const ExperimentList list = one_experiment(0.0);
+  Table t = observations_of(list, 5);
+  add_observed_columns(list, t);
+
+  const Panel &p = list[0].detector[0];
+  const Column &px = t.at("xyzobs.px.value");
+  const Column &mm = t.at("xyzobs.mm.value");
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    const auto expected = p.px_to_mm(px.real(i, 0), px.real(i, 1));
+    check::close(mm.real(i, 0), expected.first, 1e-12, "fast in millimetres");
+    check::close(mm.real(i, 1), expected.second, 1e-12, "slow in millimetres");
+    // Radians, not degrees and not images.
+    check::close(mm.real(i, 2), list[0].scan.phi_from_z(px.real(i, 2)), 1e-12,
+                 "the rotation angle in radians");
+  }
+
+  // The variance carries the same factors, squared.
+  const Column &pv = t.at("xyzobs.px.variance");
+  const Column &mv = t.at("xyzobs.mm.variance");
+  const double width = Scan::radians(list[0].scan.osc_width);
+  check::close(mv.real(0, 0), pv.real(0, 0) * p.pixel_size[0] * p.pixel_size[0],
+               1e-15, "fast variance in mm squared");
+  check::close(mv.real(0, 2), pv.real(0, 2) * width * width, 1e-18,
+               "angular variance in radians squared");
+}
+
+TEST(the_millimetre_conversion_is_not_a_division_by_the_pixel_size) {
+  // If it were, the parallax correction would be missing from the observation
+  // that DIALS refines against, and everything would still look plausible.
+  ExperimentList list = one_experiment(0.0);
+  list[0].detector.panels[0].parallax = true;
+  list[0].detector.panels[0].mu = 3.663;
+  list[0].detector.panels[0].thickness = 0.45;
+  Table t = observations_of(list, 3);
+  add_observed_columns(list, t);
+  const Column &px = t.at("xyzobs.px.value");
+  const Column &mm = t.at("xyzobs.mm.value");
+  const double plain = px.real(2, 0) * list[0].detector[0].pixel_size[0];
+  check::is_true(std::abs(mm.real(2, 0) - plain) > 1e-4,
+                 "the correction must be in there");
+}
+
+TEST(refinement_does_not_move_the_millimetre_centroids) {
+  // They are what the spot finder measured through the model as imported. DIALS
+  // never recomputes them, which is exactly why they are stale after refinement
+  // and must not be used as a join key. Recomputing them here would silently
+  // change the observations that refinement was just fitted to.
+  const ExperimentList list = one_experiment(0.0);
+  Table t = observations_of(list, 5);
+  add_observed_columns(list, t);
+  std::vector<double> before = t.at("xyzobs.mm.value").reals;
+
+  // Move the detector by a millimetre and recompute what follows the model.
+  ExperimentList moved = list;
+  const double shift[6] = {1.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  moved[0].detector.panels[0] = perturb_panel(list[0].detector[0], shift);
+  add_reciprocal_columns(moved, t);
+
+  const std::vector<double> &after = t.at("xyzobs.mm.value").reals;
+  for (std::size_t i = 0; i < before.size(); ++i) {
+    check::close(after[i], before[i], 0.0, "millimetre centroids are frozen");
+  }
+  // And s1 did follow it, so the test is not passing because nothing happened.
+  check::is_true(t.has("s1"), "s1 was written");
+}
+
+TEST(entering_is_a_property_of_the_geometry_not_a_placeholder) {
+  // The flag is part of a reflection's identity: the same Miller index can be
+  // recorded both entering and exiting in one scan, and a join on the index
+  // alone would merge them. A column that is all one value would satisfy any
+  // test that only checked it existed.
+  const ExperimentList list = one_experiment(0.0);
+  Table t = observations_of(list, 12);
+  // Spread the observations across the panel so both cases occur.
+  Column &xyz = t.real_column("xyzobs.px.value", "vec3<double>", 3);
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    xyz.reals[i * 3 + 0] = 100.0 + 350.0 * static_cast<double>(i);
+    xyz.reals[i * 3 + 1] = 100.0 + 330.0 * static_cast<double>(i % 6);
+    xyz.reals[i * 3 + 2] = 0.5 + static_cast<double>(i % 10);
+  }
+  add_reciprocal_columns(list, t);
+  const Column &entering = t.at("entering");
+  std::size_t yes = 0;
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    if (entering.integer(i)) ++yes;
+  }
+  check::is_true(yes > 0 && yes < t.nrows,
+                 "both entering and exiting must occur");
+}
