@@ -29,6 +29,24 @@
 
 namespace mxi {
 
+// The `flags` column is a bitmask, and dials.* filters on it. A table whose
+// flags are never set processes perfectly and then cannot be selected,
+// filtered or plotted by anything downstream, because every DIALS tool asks
+// the flags which reflections it is looking at rather than inspecting the
+// Miller indices.
+//
+// These values are dxtbx's, and the two that are used here were confirmed
+// against a real DIALS indexed.refl: its indexed reflections carry 36, which
+// is strong | indexed.
+namespace flag {
+constexpr std::int64_t kPredicted = 1 << 0;
+constexpr std::int64_t kObserved = 1 << 1;
+constexpr std::int64_t kIndexed = 1 << 2;
+constexpr std::int64_t kUsedInRefinement = 1 << 3;
+constexpr std::int64_t kStrong = 1 << 5;
+}  // namespace flag
+
+
 class ReflError : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;
@@ -65,8 +83,20 @@ class Table {
 
   Column &real_column(const std::string &name, const std::string &type,
                       std::size_t width);
+  // NOTE: these REPLACE an existing column of the same name with a zeroed one.
+  // That is what a derived column wants -- xyzcal.px and the rest are
+  // recomputed in full, and leaving stale values in the rows that are skipped
+  // would be worse than clearing them. It is wrong for any column that has to
+  // be read before it is written, and `flags` is one: setting the indexed bit
+  // this way silently threw away the strong bit that dials.find_spots had set,
+  // and the loss is invisible until something downstream filters on it.
   Column &int_column(const std::string &name, const std::string &type,
                      std::size_t width);
+
+  // Returns the existing column if there is one, so it can be modified rather
+  // than replaced. Creates a zeroed column if not.
+  Column &modify_int_column(const std::string &name, const std::string &type,
+                            std::size_t width);
   void set(const std::string &name, Column column) {
     columns_[name] = std::move(column);
   }

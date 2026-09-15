@@ -111,6 +111,7 @@ int main(int argc, char **argv) {
     std::printf("cell %.4f %.4f %.4f  %.3f %.3f %.3f   volume %.1f\n", cell.a,
                 cell.b, cell.c, cell.alpha, cell.beta, cell.gamma, cell.volume());
 
+    set_indexed_flags(reflections);
     add_reciprocal_columns(experiments, reflections);
     update_predictions(experiments, reflections);
     write_experiments(out_expt, experiments);

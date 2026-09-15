@@ -124,6 +124,11 @@ struct RefineResult {
   //: averaged over, and a residual quoted over a different set is not
   //: comparable with anything.
   std::size_t n_ill_conditioned = 0;
+  //: Rows of the reflection table the fit actually used, after outlier
+  //: rejection and after the ill-conditioned ones were dropped. Reported so
+  //: that `used_in_refinement` can be set from it: which reflections a residual
+  //: was averaged over is not a detail, and this is where DIALS records it.
+  std::vector<std::size_t> rows_used;
   std::size_t n_used = 0;
   std::size_t n_rejected = 0;
   //: RMS of observed minus calculated, in pixels, pixels and images.
@@ -188,6 +193,22 @@ void update_predictions(const ExperimentList &experiments, Table &reflections);
 //: not recompute it either, which is why it must never be used as a join key
 //: between two processing runs. Recomputing it here would be a difference from
 //: DIALS dressed up as a correction.
+//: Set the `indexed` bit on reflections that have a Miller index, and clear it
+//: on those that do not.
+//:
+//: dials.* filters on the flags rather than on the indices, so a table with
+//: correct Miller indices and empty flags processes perfectly and is then
+//: invisible to every selection downstream.
+void set_indexed_flags(Table &reflections);
+
+//: Set the `used_in_refinement` bit on the reflections the last refinement
+//: actually fitted, and clear it on the rest.
+//:
+//: Which reflections a residual was averaged over is not a detail, and this is
+//: where DIALS records it. Without it there is no way to ask afterwards what
+//: the number was computed from.
+void set_refinement_flags(const RefineResult &result, Table &reflections);
+
 void add_observed_columns(const ExperimentList &experiments, Table &reflections);
 
 //: s1, rlp, entering and imageset_id, which DIALS recomputes from the CURRENT

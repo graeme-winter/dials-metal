@@ -149,6 +149,7 @@ int main(int argc, char **argv) {
     // xyzobs.mm deliberately does not: it is what the spot finder measured
     // through the model as imported, and recomputing it here would silently
     // change the observations refinement was just fitted to.
+    set_refinement_flags(result, reflections);
     add_reciprocal_columns(experiments, reflections);
     update_predictions(experiments, reflections);
     write_experiments(out_expt, experiments);

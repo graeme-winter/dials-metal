@@ -62,6 +62,9 @@ namespace {
 // rather than Observation because geometry.h already has an Observation and
 // the two would be ambiguous at namespace scope.
 struct TargetRow {
+  //: Which row of the reflection table this came from, so that what the
+  //: refinement used can be reported back.
+  std::size_t row = 0;
   std::size_t experiment = 0;
   std::size_t panel = 0;
   int h = 0, k = 0, l = 0;
@@ -108,6 +111,7 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
       if (value < threshold) continue;
     }
     TargetRow o;
+    o.row = i;
     o.h = static_cast<int>(miller.integer(i, 0));
     o.k = static_cast<int>(miller.integer(i, 1));
     o.l = static_cast<int>(miller.integer(i, 2));
@@ -558,6 +562,10 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
   }
 
   result.n_ill_conditioned = ill_conditioned;
+  result.rows_used.clear();
+  for (const TargetRow &o : observations) {
+    if (o.active) result.rows_used.push_back(o.row);
+  }
 
   double sx = 0, sy = 0, sz = 0;
   std::size_t count = 0;
@@ -649,6 +657,34 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
     if (v > 0.5) ++out.grossly_different;
   }
   return out;
+}
+
+void set_indexed_flags(Table &reflections) {
+  if (!reflections.has("miller_index")) return;
+  const Column &miller = reflections.at("miller_index");
+  // Modified, not replaced: the strong bit dials.find_spots set has to survive.
+  Column &flags = reflections.modify_int_column("flags", "std::size_t", 1);
+  for (std::size_t i = 0; i < reflections.nrows; ++i) {
+    const bool indexed = miller.integer(i, 0) != 0 || miller.integer(i, 1) != 0 ||
+                         miller.integer(i, 2) != 0;
+    // Cleared as well as set: a reflection that was indexed on an earlier pass
+    // and is not any more must stop claiming to be.
+    if (indexed) {
+      flags.ints[i] |= flag::kIndexed;
+    } else {
+      flags.ints[i] &= ~flag::kIndexed;
+    }
+  }
+}
+
+void set_refinement_flags(const RefineResult &result, Table &reflections) {
+  Column &flags = reflections.modify_int_column("flags", "std::size_t", 1);
+  for (std::size_t i = 0; i < reflections.nrows; ++i) {
+    flags.ints[i] &= ~flag::kUsedInRefinement;
+  }
+  for (std::size_t row : result.rows_used) {
+    if (row < reflections.nrows) flags.ints[row] |= flag::kUsedInRefinement;
+  }
 }
 
 void add_observed_columns(const ExperimentList &experiments, Table &reflections) {

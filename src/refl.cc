@@ -293,6 +293,15 @@ Column &Table::int_column(const std::string &name, const std::string &type,
   return columns_[name];
 }
 
+Column &Table::modify_int_column(const std::string &name,
+                                 const std::string &type, std::size_t width) {
+  auto it = columns_.find(name);
+  if (it != columns_.end() && it->second.integral && it->second.width == width) {
+    return it->second;
+  }
+  return int_column(name, type, width);
+}
+
 void Table::validate() const {
   for (const auto &entry : columns_) {
     if (entry.second.rows() != nrows) {
