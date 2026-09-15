@@ -610,6 +610,29 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## Write back everything that was there, not only what we model
+
+`dials.refine` then failed with
+
+    IndexError: list index out of range        experiment_list.py:603
+
+because the experiment said `"imageset": 0` and the imageset list had been
+written out empty. The imageset block is the only link from an experiment list
+to the images; `profile`, `scaling_model` and `history` are equally not this
+package's to discard.
+
+`ExperimentList` now keeps the document it was read from, and writing replaces
+the models it understands and leaves everything else alone. A list built in
+memory has no source, and then the absent models are **null** -- never `-1`,
+which is a valid index into a Python list and reaches for the last element of
+one that may be empty.
+
+Carrying a block through then exposed the other half of the number problem
+below: the reader did not record whether a value had been written with a
+decimal point, so an `"imageset": 0` came back out as `"imageset": 0.0` and
+dxtbx indexed a list with it. Both halves are needed, and each is useless
+alone.
+
 ## `0` is not `0.0`, and dxtbx knows the difference
 
 `dials.refine` refused an `indexed.expt` written here:
@@ -630,9 +653,9 @@ measurement is known at the point it is constructed and nowhere else, so
 **Nothing here could have caught this, and that is the recurring lesson.** The
 document round-tripped through this reader perfectly, because this reader parses
 `0` and `0.0` into the same double. A round-trip test cannot detect a wrong
-convention; only a file written or read by something else can. That is now four
+convention; only a file written or read by something else can. That is now five
 times: the `.refl` container shape, the geometry conventions, the scan
-oscillation form, and this.
+oscillation form, the number types, and the blocks dropped on write.
 
 `tests/test_expt_format.cc` therefore asserts on characters rather than values,
 and was checked by reverting the fix -- three of its tests fail without it.
