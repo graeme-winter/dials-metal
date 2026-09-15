@@ -44,6 +44,11 @@ constexpr std::int64_t kObserved = 1 << 1;
 constexpr std::int64_t kIndexed = 1 << 2;
 constexpr std::int64_t kUsedInRefinement = 1 << 3;
 constexpr std::int64_t kStrong = 1 << 5;
+//: Set on reflections the refinement drew in and then rejected. Identified
+//: from a real DIALS indexed.refl rather than guessed: 8230 rows carry bit 17,
+//: every one of them indexed, none of them also marked used_in_refinement, and
+//: their median |xyzcal - xyzobs| is 0.843 px against 0.310 for the rest.
+constexpr std::int64_t kCentroidOutlier = 1 << 17;
 }  // namespace flag
 
 

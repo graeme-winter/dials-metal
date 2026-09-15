@@ -129,6 +129,9 @@ struct RefineResult {
   //: that `used_in_refinement` can be set from it: which reflections a residual
   //: was averaged over is not a detail, and this is where DIALS records it.
   std::vector<std::size_t> rows_used;
+  //: Rows drawn into the fit and then rejected as outliers. Separate from the
+  //: ill-conditioned ones, which were never candidates.
+  std::vector<std::size_t> rows_rejected;
   std::size_t n_used = 0;
   std::size_t n_rejected = 0;
   //: RMS of observed minus calculated, in pixels, pixels and images.

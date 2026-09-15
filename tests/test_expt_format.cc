@@ -457,3 +457,38 @@ TEST(an_index_removed_on_a_later_pass_clears_its_flag) {
   set_indexed_flags(t);
   check::equal(t.at("flags").integer(0), flag::kStrong, "and cleared again");
 }
+
+TEST(refinement_records_which_reflections_it_used_and_which_it_threw_out) {
+  // The four values a real DIALS indexed.refl carries are 32, 36, 44 and
+  // 131108: strong; strong | indexed; strong | indexed | used_in_refinement;
+  // and strong | indexed | centroid_outlier. Nothing else appears, and the
+  // outlier bit never coincides with the used bit.
+  Table table;
+  table.nrows = 5;
+  Column &flags = table.int_column("flags", "std::size_t", 1);
+  for (std::size_t i = 0; i < table.nrows; ++i) flags.ints[i] = flag::kStrong | flag::kIndexed;
+
+  RefineResult result;
+  result.rows_used = {0, 2};
+  result.rows_rejected = {1, 4};
+  set_refinement_flags(result, table);
+
+  const Column &after = table.at("flags");
+  check::equal(after.integer(0), flag::kStrong | flag::kIndexed | flag::kUsedInRefinement, "used");
+  check::equal(after.integer(1), flag::kStrong | flag::kIndexed | flag::kCentroidOutlier, "rejected");
+  check::equal(after.integer(2), flag::kStrong | flag::kIndexed | flag::kUsedInRefinement, "used");
+  // Neither used nor rejected: never a candidate, because its rotation angle
+  // was not determined. It keeps the indexed bit and gains nothing.
+  check::equal(after.integer(3), flag::kStrong | flag::kIndexed, "never a candidate");
+  check::equal(after.integer(4), flag::kStrong | flag::kIndexed | flag::kCentroidOutlier, "rejected");
+
+  // And a second pass must not leave the first one's verdict behind.
+  RefineResult again;
+  again.rows_used = {1};
+  again.rows_rejected = {};
+  set_refinement_flags(again, table);
+  const Column &twice = table.at("flags");
+  check::equal(twice.integer(0), flag::kStrong | flag::kIndexed, "used bit cleared");
+  check::equal(twice.integer(1), flag::kStrong | flag::kIndexed | flag::kUsedInRefinement,
+               "and the outlier bit too, before the new verdict");
+}

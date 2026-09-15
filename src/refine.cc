@@ -563,8 +563,13 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
 
   result.n_ill_conditioned = ill_conditioned;
   result.rows_used.clear();
+  result.rows_rejected.clear();
   for (const TargetRow &o : observations) {
-    if (o.active) result.rows_used.push_back(o.row);
+    if (o.active) {
+      result.rows_used.push_back(o.row);
+    } else {
+      result.rows_rejected.push_back(o.row);
+    }
   }
 
   double sx = 0, sy = 0, sz = 0;
@@ -682,8 +687,14 @@ void set_refinement_flags(const RefineResult &result, Table &reflections) {
   for (std::size_t i = 0; i < reflections.nrows; ++i) {
     flags.ints[i] &= ~flag::kUsedInRefinement;
   }
+  for (std::size_t i = 0; i < reflections.nrows; ++i) {
+    flags.ints[i] &= ~flag::kCentroidOutlier;
+  }
   for (std::size_t row : result.rows_used) {
     if (row < reflections.nrows) flags.ints[row] |= flag::kUsedInRefinement;
+  }
+  for (std::size_t row : result.rows_rejected) {
+    if (row < reflections.nrows) flags.ints[row] |= flag::kCentroidOutlier;
   }
 }
 

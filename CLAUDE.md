@@ -636,11 +636,16 @@ outlier rejection and after the ill-conditioned ones were dropped, because
 which reflections a residual was averaged over is not a detail and this is
 where DIALS records it.
 
-Not yet set: the bit a real DIALS file carries on refinement outliers. A
-DIALS-written indexed.refl showed 131108 on badly-fitting rows, which is
-131072 | 36, so bit 17 marks them -- but the reference file has since been
-overwritten and guessing which named flag that is would be a convention taken
-on trust rather than from data. It needs a fresh DIALS file to settle.
+`centroid_outlier` is bit 17, settled from a real DIALS indexed.refl rather
+than guessed: 8230 rows carry it, every one indexed, none also marked
+used_in_refinement, and their median |xyzcal - xyzobs| is 0.843 px against
+0.310 for the rest. The four values DIALS writes are 32, 36, 44 and 131108, and
+this now writes the same four.
+
+DIALS sets `used_in_refinement` on exactly 18000 of 75406 indexed reflections
+on a 180 degree scan -- a hundred per degree, its sampling default. This sets
+it on everything it fitted, which is a real difference in what the flag means
+between the two and is not a defect in either.
 
 ## Hold the detector during the scan-varying pass
 
