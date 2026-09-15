@@ -158,3 +158,34 @@ package. They generate test data and have no business being installed.
 `black` formatting. Four-space indent, double quotes. No `from x import *`.
 Comments explain why, not what; a comment restating the line above it is
 deleted, not improved.
+
+## Say which file was wrong, not which byte
+
+`check refined` compares models and the rest compare reflections. Handing the
+wrong kind failed inside a UTF-8 decoder:
+
+    UnicodeDecodeError: 'utf-8' codec can't decode byte 0x93 in position 0
+
+which names the byte and not the mistake. 0x93 is msgpack's header for a
+three-element array, so a reflection table announces itself in its first byte
+and the message can say so.
+
+A pair of reflection tables passed to `check refined` is now routed to the
+reflection comparison rather than refused, because comparing two refined
+pipelines usually does mean comparing their reflections. Anything genuinely
+mismatched is refused with what it is and what was wanted.
+
+## Two residuals over different reflections do not compare
+
+DIALS refined 1800 images of insulin on 61679 of 78618 reflections; this
+package on 71454. The headline rmsds are not answering the same question, and
+the difference between them is partly a difference in which reflections were
+averaged.
+
+`check indexed` now reports both sides over the reflections both predicted. On
+insulin, over the same 75343:
+
+    DIALS   median 0.3307 px   99% 1.517
+    ours    median 0.3997 px   99% 1.785
+
+So the gap is real and about a fifth, rather than an artefact of the set.

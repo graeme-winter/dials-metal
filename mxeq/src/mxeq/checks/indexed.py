@@ -164,6 +164,25 @@ def check(
         pa = has_prediction(a, m.index_a)
         pb = has_prediction(b, m.index_b)
         both = pa & pb
+
+        # The residual each side achieves over the reflections BOTH predicted.
+        # Each pipeline quotes its own rmsd over its own surviving set -- DIALS
+        # refined 1800 images of insulin on 61679 of 78618 reflections and this
+        # package on 71454 -- and two numbers averaged over different sets do
+        # not compare with each other. This is the pair that does.
+        if both.sum() >= 10:
+            shared = report.section("residual over the reflections both predicted")
+            shared.scalar("n_common", int(both.sum()))
+            for table, index, label in ((a, m.index_a, "A"), (b, m.index_b, "B")):
+                offset = (
+                    table["xyzcal.px"][index][both]
+                    - table["xyzobs.px.value"][index][both]
+                )
+                shared.summary(
+                    f"|xyzcal - xyzobs| px {label}",
+                    describe(np.linalg.norm(offset[:, :2], axis=1)),
+                )
+
         section = report.section("predicted position offset, A minus B")
         section.scalar("n_predicted_by_both", int(both.sum()))
         section.scalar("n_predicted_by_a_only", int((pa & ~pb).sum()))

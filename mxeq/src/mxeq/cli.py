@@ -48,6 +48,28 @@ def _guess(table: refl.ReflectionTable) -> str:
     return "strong"
 
 
+def _sniff(path):
+    """Is this a reflection table or an experiment list? None if neither.
+
+    By the first byte, which is enough and does not require reading either
+    format. A msgpack reflection table begins 0x93, the header for a
+    three-element array; an experiment list is JSON and begins with whitespace
+    or a brace.
+    """
+    try:
+        with open(path, "rb") as handle:
+            first = handle.read(1)
+    except OSError:
+        return None
+    if not first:
+        return None
+    if first[0] == 0x93:
+        return "refl"
+    if first[0] in b"{ \t\r\n":
+        return "expt"
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     # Reports are long by design and `mxeq check ... | head` is the normal way
     # to read one. Python's default SIGPIPE handling turns that into a
@@ -115,6 +137,50 @@ def main(argv: list[str] | None = None) -> int:
         for name, type_name in sorted(table.opaque.items()):
             print(f"  {name:<34} {type_name}  (not decoded)")
         return 0
+
+    # Which kind of file each boundary wants, checked before anything tries to
+    # parse one as the other. `check refined` compares experiment lists and the
+    # rest compare reflection tables, and passing the wrong pair used to fail
+    # inside a UTF-8 decoder with the offending byte's position -- a message
+    # that says nothing about what went wrong or what to do.
+    # `check refined` compares models, and models live in .expt. But comparing
+    # two refined pipelines usually means asking how their residuals compare,
+    # and that lives in the .refl -- so a pair of reflection tables is accepted
+    # and routed to the comparison that answers it, rather than refused on a
+    # technicality.
+    kinds = {_sniff(args.a), _sniff(args.b)}
+    if args.boundary == "refined" and kinds == {"refl"}:
+        print(
+            "mxeq: comparing reflections, since both files are tables; "
+            "pass the .expt files to compare the models instead",
+            file=sys.stderr,
+        )
+        args.boundary = "indexed"
+
+    for path in (args.a, args.b):
+        kind = _sniff(path)
+        wanted = "expt" if args.boundary == "refined" else "refl"
+        if kind is not None and kind != wanted:
+            print(
+                f"mxeq: {path} looks like a{'n' if kind == 'expt' else ''} "
+                f"{'experiment list (.expt)' if kind == 'expt' else 'reflection table (.refl)'}, "
+                f"and 'check {args.boundary}' compares "
+                f"{'experiment lists' if wanted == 'expt' else 'reflection tables'}.",
+                file=sys.stderr,
+            )
+            if wanted == "expt":
+                print(
+                    "       'check refined' compares the models -- cell, "
+                    "orientation, detector -- so it wants the .expt files.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"       'check {args.boundary}' compares reflections, so "
+                    "it wants the .refl files; the .expt goes in -e.",
+                    file=sys.stderr,
+                )
+            return 2
 
     boundary = args.boundary
     experiments_a = _load_expt(args.expt)
