@@ -269,17 +269,22 @@ void write(std::ostringstream &os, const Value &v, int indent, int depth) {
         os << "NaN";
       } else if (std::isinf(d)) {
         os << (d > 0 ? "Infinity" : "-Infinity");
-      } else if (d == static_cast<double>(static_cast<long long>(d)) &&
-                 std::abs(d) < 1e15) {
-        // Integers written without a decimal point, matching what DIALS does
-        // for image ranges and panel sizes.
+      } else if (v.is_integral() && std::abs(d) < 1e15) {
+        // Written without a decimal point only when the caller built it from
+        // an integer type. Deciding by whether the value happens to be whole
+        // would turn an oscillation that starts at zero into `0`, and dxtbx
+        // reads the type of an array from its first element.
         os << static_cast<long long>(d);
       } else {
         // Seventeen significant digits recovers any double exactly, which is
-        // what keeps a geometry from drifting when it passes through.
+        // what keeps a geometry from drifting when it passes through. A whole
+        // value must still carry a decimal point, or it reads back as an
+        // integer.
         char buffer[40];
         std::snprintf(buffer, sizeof(buffer), "%.17g", d);
-        os << buffer;
+        std::string text(buffer);
+        if (text.find_first_of(".eEnN") == std::string::npos) text += ".0";
+        os << text;
       }
       break;
     }

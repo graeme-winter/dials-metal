@@ -41,9 +41,29 @@ class Value {
 
   Value() = default;
   Value(bool b) : type_(Type::Bool), bool_(b) {}
+  // Whether a number was written as an integer or as a float is not a
+  // formatting detail here: dxtbx inspects the type of the first element of
+  // some arrays and refuses the file if it is not what it expects. A scan's
+  // oscillation array whose first value happens to be zero, written as `0`
+  // rather than `0.0`, fails dials.refine with
+  //
+  //     DXTBX_ASSERT(obj_type == "float") failure
+  //
+  // and nothing in this package could have caught it, because it round-trips
+  // through this reader perfectly. So the distinction is carried on the value
+  // rather than guessed from its magnitude at the point of writing.
   Value(double d) : type_(Type::Number), number_(d) {}
-  Value(int i) : type_(Type::Number), number_(i) {}
-  Value(long i) : type_(Type::Number), number_(static_cast<double>(i)) {}
+  Value(int i) : type_(Type::Number), number_(i), integral_(true) {}
+  Value(long i)
+      : type_(Type::Number), number_(static_cast<double>(i)), integral_(true) {}
+  Value(long long i)
+      : type_(Type::Number), number_(static_cast<double>(i)), integral_(true) {}
+  Value(std::size_t i)
+      : type_(Type::Number), number_(static_cast<double>(i)), integral_(true) {}
+
+  //: True when this number was built from an integer type and should be
+  //: written without a decimal point.
+  bool is_integral() const { return type_ == Type::Number && integral_; }
   Value(const char *s) : type_(Type::String), string_(s) {}
   Value(std::string s) : type_(Type::String), string_(std::move(s)) {}
   Value(Array a) : type_(Type::Array), array_(std::move(a)) {}
@@ -89,6 +109,7 @@ class Value {
   Type type_ = Type::Null;
   bool bool_ = false;
   double number_ = 0.0;
+  bool integral_ = false;
   std::string string_;
   Array array_;
   Object object_;
