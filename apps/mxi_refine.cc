@@ -114,6 +114,11 @@ int main(int argc, char **argv) {
                   c.b, c.c, c.alpha, c.beta, c.gamma, c.volume());
     }
 
+    // s1, rlp and entering follow the refined model, as they do in DIALS.
+    // xyzobs.mm deliberately does not: it is what the spot finder measured
+    // through the model as imported, and recomputing it here would silently
+    // change the observations refinement was just fitted to.
+    add_reciprocal_columns(experiments, reflections);
     update_predictions(experiments, reflections);
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);

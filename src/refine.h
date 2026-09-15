@@ -154,4 +154,34 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
 // result can be compared against DIALS' own predictions.
 void update_predictions(const ExperimentList &experiments, Table &reflections);
 
+//: Add the columns dials.index produces alongside the Miller indices, which
+//: are what dials.refine and dials.integrate then expect to find.
+//:
+//: `xyzobs.mm.value` above all: DIALS measures its refinement residual in
+//: millimetres and radians, so this is the observation it minimises against,
+//: and without it dials.refine stops at
+//:
+//:     The supplied reflection table does not have the required data column:
+//:     xyzobs.mm.value
+//:
+//: **Written once, at indexing, and never recomputed.** It is derived from the
+//: detector model, so refining the detector makes it stale -- and DIALS does
+//: not recompute it either, which is why it must never be used as a join key
+//: between two processing runs. Recomputing it here would be a difference from
+//: DIALS dressed up as a correction.
+void add_observed_columns(const ExperimentList &experiments, Table &reflections);
+
+//: s1, rlp, entering and imageset_id, which DIALS recomputes from the CURRENT
+//: model rather than freezing at import.
+//:
+//: The split is not arbitrary and was measured, not assumed. Computing
+//: xyzobs.mm from the model as imported reproduces DIALS bit for bit, while
+//: computing it from the refined model does not; s1 and rlp are the other way
+//: round. dials.index leaves the millimetre centroids exactly as
+//: dials.find_spots wrote them and calls map_centroids_to_reciprocal_space
+//: after refining, so the two groups of columns describe the same observations
+//: through different models. Anything joining or comparing them has to know
+//: which.
+void add_reciprocal_columns(const ExperimentList &experiments, Table &reflections);
+
 }  // namespace mxi

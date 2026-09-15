@@ -631,6 +631,112 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
   return out;
 }
 
+void add_observed_columns(const ExperimentList &experiments, Table &reflections) {
+  if (!reflections.has("xyzobs.px.value")) return;
+  const Column &xyz = reflections.at("xyzobs.px.value");
+  const bool has_variance = reflections.has("xyzobs.px.variance");
+  const bool has_id = reflections.has("id");
+  const bool has_panel = reflections.has("panel");
+
+  Column &mm = reflections.real_column("xyzobs.mm.value", "vec3<double>", 3);
+  Column &mm_variance =
+      reflections.real_column("xyzobs.mm.variance", "vec3<double>", 3);
+  for (std::size_t i = 0; i < reflections.nrows; ++i) {
+    const std::size_t id =
+        has_id ? static_cast<std::size_t>(
+                     std::max<std::int64_t>(0, reflections.at("id").integer(i)))
+               : 0;
+    if (id >= experiments.size()) continue;
+    const Experiment &e = experiments[id];
+    const std::size_t panel =
+        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i)) : 0;
+    if (panel >= e.detector.size()) continue;
+    const Panel &p = e.detector[panel];
+
+    const double px_fast = xyz.real(i, 0);
+    const double px_slow = xyz.real(i, 1);
+    const double z = xyz.real(i, 2);
+
+    // Millimetres through the parallax-corrected mapping, not a division by
+    // the pixel size: on a real Eiger the two differ in the fourth digit, and
+    // DIALS uses the corrected one.
+    const auto position = p.px_to_mm(px_fast, px_slow);
+    const double phi = e.scan.phi_from_z(z);
+    mm.reals[i * 3 + 0] = position.first;
+    mm.reals[i * 3 + 1] = position.second;
+    mm.reals[i * 3 + 2] = phi;
+
+    if (has_variance) {
+      // The same factors, squared. A variance in pixels becomes one in
+      // millimetres and a variance in images becomes one in radians.
+      const Column &v = reflections.at("xyzobs.px.variance");
+      const double width = Scan::radians(e.scan.osc_width);
+      mm_variance.reals[i * 3 + 0] = v.real(i, 0) * p.pixel_size[0] * p.pixel_size[0];
+      mm_variance.reals[i * 3 + 1] = v.real(i, 1) * p.pixel_size[1] * p.pixel_size[1];
+      mm_variance.reals[i * 3 + 2] = v.real(i, 2) * width * width;
+    }
+
+  }
+}
+
+void add_reciprocal_columns(const ExperimentList &experiments,
+                            Table &reflections) {
+  if (!reflections.has("xyzobs.px.value")) return;
+  const Column &xyz = reflections.at("xyzobs.px.value");
+  const bool has_id = reflections.has("id");
+  const bool has_panel = reflections.has("panel");
+
+  Column &s1_column = reflections.real_column("s1", "vec3<double>", 3);
+  Column &rlp_column = reflections.real_column("rlp", "vec3<double>", 3);
+  Column &entering = reflections.int_column("entering", "bool", 1);
+  Column &imageset = reflections.int_column("imageset_id", "int", 1);
+
+  for (std::size_t i = 0; i < reflections.nrows; ++i) {
+    const std::size_t id =
+        has_id ? static_cast<std::size_t>(
+                     std::max<std::int64_t>(0, reflections.at("id").integer(i)))
+               : 0;
+    if (id >= experiments.size()) continue;
+    const Experiment &e = experiments[id];
+    const std::size_t panel =
+        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i)) : 0;
+    if (panel >= e.detector.size()) continue;
+    const Panel &p = e.detector[panel];
+
+    const double px_fast = xyz.real(i, 0);
+    const double px_slow = xyz.real(i, 1);
+    const double z = xyz.real(i, 2);
+    const auto position = p.px_to_mm(px_fast, px_slow);
+
+    // The scattering vector the observation implies, of the same length as the
+    // incident beam because the scattering is elastic.
+    const Vec3 lab = p.lab_coord_mm(position.first, position.second);
+    const double length = lab.norm();
+    if (!(length > 0.0)) continue;
+    const Vec3 s0 = e.beam.s0();
+    const Vec3 s1 = lab * (s0.norm() / length);
+    for (std::size_t k = 0; k < 3; ++k) s1_column.reals[i * 3 + k] = s1[k];
+
+    // And the reciprocal lattice point it came from, rotated back into the
+    // crystal's frame at the start of the scan.
+    const Vec3 rlp = reciprocal_lattice_point(e, panel, px_fast, px_slow, z);
+    for (std::size_t k = 0; k < 3; ++k) rlp_column.reals[i * 3 + k] = rlp[k];
+
+    // Entering or exiting the Ewald sphere. Part of a reflection's identity,
+    // not a detail: the same Miller index can be recorded both ways in one
+    // scan, and a join on the index alone would merge them.
+    //
+    // The sign is GREATER than zero, the opposite of the test as usually
+    // written, because s0 here points from the source towards the sample and
+    // dxtbx's beam direction points the other way -- the same convention
+    // difference that once cost 2.1 inverse Angstroms of residual. Determined
+    // against DIALS' own flags rather than reasoned about: 13760 of 13766
+    // agreed, the rest having a triple product within rounding of zero.
+    entering.ints[i] = s1.dot(e.goniometer.lab_axis().cross(s0)) > 0.0 ? 1 : 0;
+    imageset.ints[i] = static_cast<std::int64_t>(id);
+  }
+}
+
 void update_predictions(const ExperimentList &experiments, Table &reflections) {
   if (!reflections.has("miller_index")) return;
   const Column &miller = reflections.at("miller_index");
@@ -639,6 +745,7 @@ void update_predictions(const ExperimentList &experiments, Table &reflections) {
   const bool has_panel = reflections.has("panel");
 
   Column &cal = reflections.real_column("xyzcal.px", "vec3<double>", 3);
+  Column &cal_mm = reflections.real_column("xyzcal.mm", "vec3<double>", 3);
   for (std::size_t i = 0; i < reflections.nrows; ++i) {
     const int h = static_cast<int>(miller.integer(i, 0));
     const int k = static_cast<int>(miller.integer(i, 1));
@@ -658,6 +765,13 @@ void update_predictions(const ExperimentList &experiments, Table &reflections) {
     cal.reals[i * 3 + 0] = xyz.real(i, 0) - r.dx;
     cal.reals[i * 3 + 1] = xyz.real(i, 1) - r.dy;
     cal.reals[i * 3 + 2] = xyz.real(i, 2) - r.dz;
+    // The same prediction in the units DIALS refines in.
+    const Panel &p = experiments[id].detector[panel];
+    const auto mm = p.px_to_mm(cal.reals[i * 3 + 0], cal.reals[i * 3 + 1]);
+    cal_mm.reals[i * 3 + 0] = mm.first;
+    cal_mm.reals[i * 3 + 1] = mm.second;
+    cal_mm.reals[i * 3 + 2] =
+        experiments[id].scan.phi_from_z(cal.reals[i * 3 + 2]);
   }
 }
 

@@ -15,6 +15,7 @@
 #include "args.h"
 #include "expt.h"
 #include "index.h"
+#include "refine.h"
 #include "refl.h"
 
 using namespace mxi;
@@ -87,6 +88,14 @@ int main(int argc, char **argv) {
       }
     }
 
+    // Before indexing, because these are observations expressed through the
+    // detector model and dials.find_spots writes them from the model as
+    // imported. Computing them from the model indexing has just refined would
+    // be a difference from DIALS dressed up as a correction -- and DIALS never
+    // recomputes them either, which is exactly why xyzobs.mm.value must not be
+    // used as a join key between two runs.
+    add_observed_columns(experiments, reflections);
+
     const IndexResult result = index(experiments, reflections, options);
     if (result.n_indexed == 0) {
       std::fprintf(stderr,
@@ -102,6 +111,8 @@ int main(int argc, char **argv) {
     std::printf("cell %.4f %.4f %.4f  %.3f %.3f %.3f   volume %.1f\n", cell.a,
                 cell.b, cell.c, cell.alpha, cell.beta, cell.gamma, cell.volume());
 
+    add_reciprocal_columns(experiments, reflections);
+    update_predictions(experiments, reflections);
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);
     std::printf("wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
