@@ -562,3 +562,70 @@ TEST(the_cutoff_keeps_the_reflections_far_from_the_rotation_axis) {
                static_cast<long long>(below),
                "exactly the low-volume reflections are the ones dropped");
 }
+
+TEST(the_cell_and_the_detector_distance_are_degenerate_in_position) {
+  // Scaling the cell and the detector distance together leaves the positions
+  // on the detector almost unchanged. Measured here, against a truth that fits
+  // exactly, both moved by two tenths of a per cent:
+  //
+  //     distance and cell together     0.062  0.072  0.318
+  //     distance alone                 0.778  1.100  0.000
+  //     cell alone                     0.836  1.152  0.318
+  //
+  // Twelve times smaller in position when they move together, which is the
+  // degenerate direction. The rotation angle is NOT degenerate -- it sees the
+  // cell and not the distance -- which is why a static refinement pins the
+  // pair and a scan-varying one, with a hundred and sixty crystal parameters
+  // free to absorb the angular residual by drifting the orientation, does not.
+  //
+  // On 1800 images of insulin at eighteen control points the distance drifted
+  // 0.27 mm and the cell volume fell 0.59 per cent, for five thousandths of a
+  // pixel. Holding the detector where the static pass put it kept the volume
+  // within 0.04 per cent of what dials.refine reports.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 3.0);
+  const Column &xyz = t.at("xyzobs.px.value");
+  const Column &miller = t.at("miller_index");
+
+  const auto rmsd = [&](double distance_scale, double cell_scale) {
+    Experiment scaled = truth;
+    const Vec3 normal =
+        truth.detector[0].fast.cross(truth.detector[0].slow).normalized();
+    const double distance = truth.detector[0].origin.dot(normal);
+    scaled.detector.panels[0].origin =
+        truth.detector[0].origin + normal * (distance * (distance_scale - 1.0));
+    scaled.crystal->A = truth.crystal->A * (1.0 / cell_scale);
+
+    double sx = 0.0, sz = 0.0;
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < t.nrows; ++i) {
+      const Residual r = centroid_residual(
+          scaled, 0, static_cast<int>(miller.integer(i, 0)),
+          static_cast<int>(miller.integer(i, 1)),
+          static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
+          xyz.real(i, 2));
+      if (!r.valid) continue;
+      sx += r.dx * r.dx;
+      sz += r.dz * r.dz;
+      ++n;
+    }
+    check::is_true(n > 1000, "enough reflections");
+    return std::make_pair(std::sqrt(sx / static_cast<double>(n)),
+                          std::sqrt(sz / static_cast<double>(n)));
+  };
+
+  const auto exact = rmsd(1.0, 1.0);
+  check::close(exact.first, 0.0, 1e-9, "the truth fits exactly");
+
+  const auto together = rmsd(1.002, 1.002);
+  const auto distance_only = rmsd(1.002, 1.0);
+
+  check::is_true(together.first < 0.2 * distance_only.first,
+                 "moving both together costs far less in position");
+  // And the rotation angle does not join in: it responds to the cell and not
+  // to the distance, which is what stops the pair drifting in a static fit.
+  check::close(distance_only.second, 0.0, 1e-9,
+               "the distance alone does not move the rotation angle");
+  check::is_true(together.second > 0.1,
+                 "but the cell does, so the angle breaks the degeneracy");
+}

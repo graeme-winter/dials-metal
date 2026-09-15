@@ -28,6 +28,8 @@ void usage() {
       "  --unit-weights    ignore the centroid variances\n"
       "  --strong-only     build the model from the stronger half only\n"
       "  --analytic        analytical derivatives, not finite differences\n"
+      "  --detector-in-scan-varying  keep refining the detector during the\n"
+      "                    scan-varying pass; it is degenerate with the cell\n"
       "  --min-volume V    drop reflections whose rotation angle is not\n"
       "                    determined by the data; 0 keeps them all (0.05)\n"
       "  --z-weight W      scale the weight on the rotation-angle residual\n"
@@ -43,7 +45,7 @@ int main(int argc, char **argv) {
       "--no-crystal",   "--no-detector",  "--beam",         "--separate",
       "--macrocycles",  "--outlier-sigma", "--output-expt", "--output-refl",
       "--conditional-depth", "--scan-varying", "--unit-weights",
-      "--strong-only",  "--z-weight",  "--analytic", "--min-volume"};
+      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying"};
   const std::set<std::string> takes_value = {
       "--macrocycles", "--outlier-sigma", "--output-expt", "--output-refl",
       "--scan-varying", "--z-weight", "--min-volume"};
@@ -100,6 +102,25 @@ int main(int argc, char **argv) {
       std::printf("static: rmsd %.4f %.4f %.4f -> now %d control points\n",
                   result.rmsd_x, result.rmsd_y, result.rmsd_z, scan_points);
       options.scan_points = static_cast<std::size_t>(scan_points);
+      // The detector is held where the static pass put it.
+      //
+      // A scan-varying crystal and a refinable detector distance are
+      // degenerate: the cell scales with the distance, and a crystal free at
+      // every control point can pay for a smaller residual by moving the
+      // detector. Measured on 1800 images of insulin, eighteen control points:
+      // the distance drifts 0.27 mm and the cell volume falls 0.59 per cent,
+      // for five thousandths of a pixel. Holding the detector keeps the volume
+      // within 0.04 per cent of what DIALS reports and costs 0.005 px.
+      //
+      // There is nothing scan-varying about a detector in any case. It does
+      // not move during a sweep, so letting it move while the crystal is free
+      // only gives crystal drift somewhere else to go.
+      if (!args.has("--detector-in-scan-varying")) {
+        options.detector = false;
+        std::printf(
+            "holding the detector for the scan-varying pass; "
+            "--detector-in-scan-varying to refine it too\n");
+      }
       result = refine(experiments, reflections, options);
     }
     if (result.n_used == 0) {

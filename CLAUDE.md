@@ -610,6 +610,46 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## Hold the detector during the scan-varying pass
+
+A scan-varying crystal and a refinable detector distance are degenerate in
+position. Measured on a truth that fits exactly, both scaled by two tenths of a
+per cent:
+
+    distance and cell together     0.062  0.072  0.318
+    distance alone                 0.778  1.100  0.000
+    cell alone                     0.836  1.152  0.318
+
+Twelve times smaller in position when they move together. The rotation angle is
+*not* degenerate -- it sees the cell and not the distance -- which is why a
+static refinement pins the pair, and why a scan-varying one does not: a hundred
+and sixty crystal parameters can absorb the angular residual by drifting the
+orientation, leaving the cell and the distance free to slide together.
+
+On 1800 images of insulin, eighteen control points:
+
+    --beam                       distance 169.977  V 236088   rmsd 0.309 0.295 0.320
+    --beam --scan-varying 18     distance 169.705  V 234704   rmsd 0.233 0.218 0.193
+    ... detector held            distance 170.010  V 236014   rmsd 0.231 0.234 0.192
+    dials.refine                                   V 236092   rmsd 0.206 0.208 0.203
+
+The distance drifted 0.27 mm and the volume fell 0.59 per cent, for five
+thousandths of a pixel. Holding the detector brings the cell to within 0.013 per
+cent of DIALS' edges and 0.03 per cent of its volume.
+
+**The static pass has already placed the detector**, which is what makes
+holding it safe rather than a constraint on a quantity nobody has determined. A
+detector does not move during a sweep, so there is nothing scan-varying about
+it; letting it move while the crystal is free only gives crystal drift
+somewhere else to go. `--detector-in-scan-varying` restores the old behaviour.
+
+A first attempt to test this refined a static truth with the detector free and
+with it held, and asserted that holding it kept the cell closer. It does not,
+and should not: with exact data and a detector starting in the wrong place,
+refining it recovers the truth exactly and holding it forces the error into the
+cell. The degeneracy is invisible there because there is a unique exact answer.
+The test now measures the degenerate direction itself.
+
 ## The rotation angle has to be determined before it is worth fitting
 
 Waterman eqn (40) divides by the volume of the parallelepiped formed by the
