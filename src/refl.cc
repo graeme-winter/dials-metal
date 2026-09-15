@@ -376,7 +376,14 @@ Table read_reflections(const std::string &path) {
   for (const Pending &p : pending) {
     auto info = type_table().find(p.type);
     if (info == type_table().end()) {
-      table.dropped_.push_back(p.name + " (" + p.type + ")");
+      // Not decoded, but kept: the bytes are correct for this table and will
+      // still be correct when it is written back, so long as no rows have been
+      // removed. That is checked at write time.
+      Table::Opaque keep;
+      keep.type = p.type;
+      keep.bytes.assign(reinterpret_cast<const char *>(p.data), p.bytes);
+      keep.rows = p.declared ? p.declared : table.nrows;
+      table.set_opaque(p.name, std::move(keep));
       continue;
     }
     if (p.declared && p.declared != table.nrows) {
@@ -433,8 +440,28 @@ void write_reflections(const std::string &path, const Table &table) {
   put_uint(out, table.nrows);
 
   const std::vector<std::string> names = table.names();
+  // Opaque columns are written back only while they still describe this table.
+  // A shoebox whose row count no longer matches is exactly the silent
+  // corruption that dropping them was meant to avoid.
+  std::vector<std::string> opaque_names;
+  for (const auto &entry : table.opaque()) {
+    if (entry.second.rows != table.nrows) {
+      // Refused rather than dropped. Dropping a shoebox is what produced a
+      // 20 MB table out of an 84 MB one and an integration that would not
+      // start; doing it silently a second time, for a better reason, would be
+      // no better. Whoever changed the row count has to say what should happen
+      // to a column this package cannot subset.
+      throw ReflError(
+          "column '" + entry.first + "' of type '" + entry.second.type +
+          "' was read with " + std::to_string(entry.second.rows) +
+          " rows and the table now has " + std::to_string(table.nrows) +
+          "; this package cannot subset that type, so it cannot be written "
+          "back. Remove it deliberately if that is what you want.");
+    }
+    opaque_names.push_back(entry.first);
+  }
   put_text(out, "data");
-  put_map_header(out, names.size());
+  put_map_header(out, names.size() + opaque_names.size());
   for (const std::string &name : names) {
     const Column &c = table.at(name);
     auto info = type_table().find(c.type);
@@ -458,6 +485,16 @@ void write_reflections(const std::string &path, const Table &table) {
       for (std::size_t i = 0; i < count; ++i) append_double_le(blob, c.reals[i]);
     }
     put_blob(out, blob);
+  }
+
+  for (const std::string &name : opaque_names) {
+    const Table::Opaque &keep = table.opaque().at(name);
+    put_text(out, name);
+    put(out, 0x92);
+    put_text(out, keep.type);
+    put(out, 0x92);
+    put_uint(out, table.nrows);
+    put_blob(out, keep.bytes);
   }
 
   std::ofstream file(path, std::ios::binary);

@@ -610,6 +610,30 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## What we cannot decode is not ours to drop
+
+Shoeboxes were read as opaque bytes and thrown away on write. The argument was
+that nothing here can subset a shoebox and one that silently stopped matching
+its table would be worse than its absence. The argument is sound; the
+conclusion was not.
+
+Indexing and refinement do not remove rows. They add columns and set flags, so
+the bytes stay correct, and dropping them turned an 84 MB table into a 20 MB
+one that `dials.integrate` refuses outright:
+
+    Error: shoebox data missing from reflection table
+
+They are now kept and written back verbatim -- 13604086 bytes in, the same
+sha256 out, through `mxi_index` and `mxi_refine` both.
+
+The condition the original argument was right about is checked rather than
+assumed: an opaque column whose row count no longer matches the table cannot be
+written, and that **throws** rather than dropping it. Doing it silently a second
+time, for a better reason, would be no better than the first time.
+
+Third instance of the same pattern in this file, after the `.expt` blocks and
+the flags: **a format is not only the parts of it you understand.**
+
 ## dials.* asks the flags, not the Miller indices
 
 The `flags` column is a bitmask and every DIALS tool filters on it. Indexing

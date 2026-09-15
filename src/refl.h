@@ -15,9 +15,21 @@
 // vec3<double> 24, int6 24, cctbx::miller::index<> 12.
 //
 // Columns of a type this does not understand -- a shoebox, most notably -- are
-// read as opaque bytes and are droppable. They are not carried through on
-// write, because nothing here can subset one correctly and a shoebox column
-// that silently stops matching its table would be worse than its absence.
+// kept as their raw bytes and written back unchanged.
+//
+// They used to be dropped, on the argument that nothing here can subset a
+// shoebox and one that silently stopped matching its table would be worse than
+// its absence. The argument is sound and the conclusion was not: indexing and
+// refinement do not remove rows, they add columns and set flags, so the bytes
+// are still correct and dropping them turned an 84 MB table into a 20 MB one
+// that dials.integrate refuses with "shoebox data missing from reflection
+// table".
+//
+// The condition is therefore checked rather than assumed. An opaque column is
+// written back only if the table still has the row count it was read with, and
+// writing one that does not throws rather than dropping it: a shoebox that no
+// longer matches its table is the thing the original argument was right about,
+// and doing it silently a second time for a better reason would be no better.
 
 #pragma once
 
@@ -86,6 +98,17 @@ class Table {
   std::vector<std::string> names() const;
   const std::vector<std::string> &dropped() const { return dropped_; }
 
+  //: A column whose type this package does not decode, kept verbatim.
+  struct Opaque {
+    std::string type;
+    std::string bytes;
+    std::size_t rows = 0;
+  };
+  const std::map<std::string, Opaque> &opaque() const { return opaque_; }
+  void set_opaque(const std::string &name, Opaque value) {
+    opaque_[name] = std::move(value);
+  }
+
   Column &real_column(const std::string &name, const std::string &type,
                       std::size_t width);
   // NOTE: these REPLACE an existing column of the same name with a zeroed one.
@@ -111,6 +134,7 @@ class Table {
  private:
   std::map<std::string, Column> columns_;
   std::vector<std::string> dropped_;
+  std::map<std::string, Opaque> opaque_;
   friend Table read_reflections(const std::string &);
 };
 

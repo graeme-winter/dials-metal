@@ -492,3 +492,67 @@ TEST(refinement_records_which_reflections_it_used_and_which_it_threw_out) {
   check::equal(twice.integer(1), flag::kStrong | flag::kIndexed | flag::kUsedInRefinement,
                "and the outlier bit too, before the new verdict");
 }
+
+// --------------------------------------------------------------------------
+// columns we cannot decode
+// --------------------------------------------------------------------------
+
+#include <cstdio>
+
+TEST(a_column_we_cannot_decode_survives_a_read_and_a_write_byte_for_byte) {
+  // Shoeboxes were being dropped, on the argument that nothing here can subset
+  // one. The argument is sound and the conclusion was not: indexing and
+  // refinement add columns and set flags, they do not remove rows, so the
+  // bytes stay correct. Dropping them turned an 84 MB table into a 20 MB one
+  // and dials.integrate refused it with "shoebox data missing from reflection
+  // table".
+  Table t;
+  t.nrows = 3;
+  Column &value = t.real_column("xyzobs.px.value", "vec3<double>", 3);
+  for (std::size_t i = 0; i < 9; ++i) value.reals[i] = static_cast<double>(i);
+
+  Table::Opaque shoebox;
+  shoebox.type = "Shoebox<>";
+  shoebox.bytes = std::string("\x01\x02\xff\x00\x7f", 5);
+  shoebox.rows = 3;
+  t.set_opaque("shoebox", shoebox);
+
+  const std::string path = "test_opaque.refl";
+  write_reflections(path, t);
+  const Table back = read_reflections(path);
+  std::remove(path.c_str());
+
+  check::equal(static_cast<long long>(back.opaque().count("shoebox")), 1,
+               "the column is still there");
+  const Table::Opaque &kept = back.opaque().at("shoebox");
+  check::is_true(kept.type == "Shoebox<>", "with its type");
+  check::is_true(kept.bytes == shoebox.bytes, "and its bytes unchanged");
+  check::equal(static_cast<long long>(back.nrows), 3, "and the table intact");
+  check::is_true(back.has("xyzobs.px.value"), "alongside the decoded columns");
+}
+
+TEST(writing_an_opaque_column_that_no_longer_fits_is_refused) {
+  // The case the original argument was right about. Refused rather than
+  // dropped: doing it silently a second time, for a better reason, would be no
+  // better than the first time.
+  Table t;
+  t.nrows = 3;
+  t.real_column("xyzobs.px.value", "vec3<double>", 3);
+  Table::Opaque shoebox;
+  shoebox.type = "Shoebox<>";
+  shoebox.bytes = "abcde";
+  shoebox.rows = 5;  // read from a table of five rows
+  t.set_opaque("shoebox", shoebox);
+
+  bool threw = false;
+  try {
+    write_reflections("test_opaque_bad.refl", t);
+  } catch (const ReflError &e) {
+    threw = true;
+    const std::string what = e.what();
+    check::is_true(what.find("shoebox") != std::string::npos, "names the column");
+    check::is_true(what.find("cannot subset") != std::string::npos, "says why");
+  }
+  std::remove("test_opaque_bad.refl");
+  check::is_true(threw, "must refuse");
+}
