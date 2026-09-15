@@ -239,8 +239,19 @@ class Parser {
       }
     }
     if (at_ == start) fail("expected a value");
+    const std::string token = text_.substr(start, at_ - start);
     try {
-      return Value(std::stod(text_.substr(start, at_ - start)));
+      const double d = std::stod(token);
+      // Whether the document wrote this with a decimal point is kept, so that
+      // a value read here and written back out again comes out the same way.
+      // Without it, carrying an unmodelled block through turns an experiment's
+      // "imageset": 0 into "imageset": 0.0, and dxtbx indexes its model lists
+      // with it.
+      const bool integral = token.find_first_of(".eE") == std::string::npos;
+      if (integral && std::abs(d) < 9.0e15) {
+        return Value(static_cast<long long>(d));
+      }
+      return Value(d);
     } catch (const std::exception &) {
       at_ = start;
       fail("malformed number");

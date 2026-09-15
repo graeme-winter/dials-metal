@@ -175,6 +175,7 @@ ExperimentList experiments_from_json(const json::Value &document) {
   }
 
   ExperimentList list;
+  list.source = document;
   for (const json::Value &e : document["experiment"].as_array()) {
     Experiment x;
     x.identifier = e["identifier"].as_string();
@@ -245,7 +246,8 @@ json::Value experiments_to_json(const ExperimentList &list) {
   std::vector<json::Value> beams, detectors, goniometers, scans, crystals;
   json::Array experiments;
 
-  for (const Experiment &e : list) {
+  for (std::size_t i = 0; i < list.size(); ++i) {
+    const Experiment &e = list[i];
     json::Object x;
     x["__id__"] = json::Value("Experiment");
     x["identifier"] = json::Value(e.identifier);
@@ -325,13 +327,33 @@ json::Value experiments_to_json(const ExperimentList &list) {
       x["crystal"] = json::Value(
           static_cast<long>(intern(crystals, json::Value(std::move(crystal)))));
     } else {
-      x["crystal"] = json::Value(-1L);
+      // Absent models are null, which is what dxtbx writes and what its lookup
+      // expects. An index of -1 is read as an index, and reaches for the last
+      // element of a list that may well be empty.
+      x["crystal"] = json::Value();
     }
-    x["imageset"] = json::Value(-1L);
+
+    // Carry through this experiment's references to models this package does
+    // not have: the imageset above all, since it is the only link from the
+    // file to the images.
+    if (list.source.is_object() && list.source["experiment"].is_array()) {
+      const json::Array &original = list.source["experiment"].as_array();
+      if (original.size() == list.size() && original[i].is_object()) {
+        for (const auto &member : original[i].as_object()) {
+          if (!x.count(member.first)) x[member.first] = member.second;
+        }
+      }
+    }
     experiments.push_back(json::Value(std::move(x)));
   }
 
   json::Object out;
+  // Start from the document this was read from, so that everything not
+  // modelled here -- imageset, profile, scaling_model, history -- survives
+  // unchanged. The models below then replace their own entries.
+  if (list.source.is_object()) {
+    for (const auto &member : list.source.as_object()) out[member.first] = member.second;
+  }
   out["__id__"] = json::Value("ExperimentList");
   out["experiment"] = json::Value(std::move(experiments));
   const auto pool = [](std::vector<json::Value> &v) {
@@ -342,7 +364,10 @@ json::Value experiments_to_json(const ExperimentList &list) {
   out["goniometer"] = pool(goniometers);
   out["scan"] = pool(scans);
   out["crystal"] = pool(crystals);
-  out["imageset"] = json::Value(json::Array{});
+  // `imageset` is deliberately NOT written here: whatever the source had is
+  // already in `out`, and a list built in memory has none, in which case the
+  // experiments reference it as null.
+  if (!out.count("imageset")) out["imageset"] = json::Value(json::Array{});
   return json::Value(std::move(out));
 }
 

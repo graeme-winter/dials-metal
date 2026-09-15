@@ -24,6 +24,7 @@
 
 #include "geometry.h"
 #include "json.h"
+#include "json.h"
 
 namespace mxi {
 
@@ -34,6 +35,25 @@ class ExptError : public std::runtime_error {
 
 struct ExperimentList {
   std::vector<Experiment> experiments;
+
+  //: The document this was read from, kept whole.
+  //:
+  //: Writing an experiment list means writing back everything that was in it,
+  //: not only the parts this package understands. An `imageset` block says
+  //: where the images are and is the only link from the file to the data;
+  //: dropping it makes the output unusable, and dropping it while still
+  //: writing the experiment's reference to it makes dxtbx index an empty list
+  //: and fail with
+  //:
+  //:     IndexError: list index out of range
+  //:
+  //: `profile`, `scaling_model` and `history` are in the same position: not
+  //: modelled here, nobody's business to discard.
+  //:
+  //: So the whole document is kept and written back with the models this
+  //: package does understand replaced. Empty for an experiment list built in
+  //: memory rather than read from a file.
+  json::Value source;
 
   std::size_t size() const { return experiments.size(); }
   bool empty() const { return experiments.empty(); }
