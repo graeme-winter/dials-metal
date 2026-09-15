@@ -610,6 +610,38 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## dials.* asks the flags, not the Miller indices
+
+The `flags` column is a bitmask and every DIALS tool filters on it. Indexing
+here set correct Miller indices and left the flags alone, so the output
+processed perfectly and was then invisible to every selection downstream --
+which is a failure mode worth naming, because nothing errored.
+
+`mxi_index` now sets `indexed` (1 << 2) and `mxi_refine` sets
+`used_in_refinement` (1 << 3), both cleared as well as set so that the flag and
+the Miller index cannot disagree. An indexed insulin row now carries 36, strong
+| indexed, which is what a real DIALS indexed.refl carries; after refinement
+the fitted ones carry 44.
+
+**`Table::int_column` REPLACES a column with a zeroed one.** That is right for
+a derived column recomputed in full -- leaving stale predictions in the rows a
+pass skips would be worse than clearing them -- and wrong for any column that
+must be read before it is written. Setting the indexed bit that way threw away
+the strong bit dials.find_spots had set, and nothing failed until something
+filtered on it. `modify_int_column` returns the existing column;
+`flags` is the one place that needs it.
+
+`RefineResult::rows_used` reports which rows the fit actually used, after
+outlier rejection and after the ill-conditioned ones were dropped, because
+which reflections a residual was averaged over is not a detail and this is
+where DIALS records it.
+
+Not yet set: the bit a real DIALS file carries on refinement outliers. A
+DIALS-written indexed.refl showed 131108 on badly-fitting rows, which is
+131072 | 36, so bit 17 marks them -- but the reference file has since been
+overwritten and guessing which named flag that is would be a convention taken
+on trust rather than from data. It needs a fresh DIALS file to settle.
+
 ## Hold the detector during the scan-varying pass
 
 A scan-varying crystal and a refinable detector distance are degenerate in

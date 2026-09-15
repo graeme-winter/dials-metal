@@ -387,3 +387,73 @@ TEST(entering_is_a_property_of_the_geometry_not_a_placeholder) {
   check::is_true(yes > 0 && yes < t.nrows,
                  "both entering and exiting must occur");
 }
+
+// --------------------------------------------------------------------------
+// the flags column, which is how DIALS asks what a reflection is
+// --------------------------------------------------------------------------
+
+TEST(indexing_sets_the_indexed_bit_and_keeps_the_strong_one) {
+  // dials.* filters on the flags, not on the Miller indices. A table with
+  // correct indices and empty flags processes perfectly and is then invisible
+  // to every selection downstream, which is how this went unnoticed.
+  Table t;
+  t.nrows = 4;
+  Column &miller = t.int_column("miller_index", "cctbx::miller::index<>", 3);
+  Column &flags = t.int_column("flags", "std::size_t", 1);
+  for (std::size_t i = 0; i < t.nrows; ++i) flags.ints[i] = flag::kStrong;
+  const int indices[4][3] = {{1, 2, 3}, {0, 0, 0}, {-4, 5, 0}, {0, 0, 0}};
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    for (std::size_t k = 0; k < 3; ++k) miller.ints[i * 3 + k] = indices[i][k];
+  }
+
+  set_indexed_flags(t);
+  const Column &after = t.at("flags");
+  // 36 is strong | indexed, which is what a real DIALS indexed.refl carries.
+  check::equal(after.integer(0), flag::kStrong | flag::kIndexed, "indexed row");
+  check::equal(after.integer(1), flag::kStrong, "unindexed row keeps strong");
+  check::equal(after.integer(2), flag::kStrong | flag::kIndexed, "negative indices count");
+  check::equal(after.integer(3), flag::kStrong, "and the last one too");
+}
+
+TEST(setting_a_flag_does_not_destroy_the_column) {
+  // int_column REPLACES a column with a zeroed one, which is right for a
+  // derived column recomputed in full and wrong for one that must be read
+  // before it is written. Setting the indexed bit that way silently threw away
+  // the strong bit dials.find_spots had set, and nothing failed until
+  // something downstream filtered on it.
+  Table t;
+  t.nrows = 2;
+  Column &flags = t.int_column("flags", "std::size_t", 1);
+  flags.ints[0] = flag::kStrong;
+  flags.ints[1] = flag::kStrong | flag::kObserved;
+
+  Column &again = t.modify_int_column("flags", "std::size_t", 1);
+  check::equal(again.ints[0], flag::kStrong, "the value survives");
+  check::equal(again.ints[1], flag::kStrong | flag::kObserved, "all bits do");
+
+  // And the destructive one really is destructive, so the distinction is real
+  // rather than two names for the same thing.
+  Column &replaced = t.int_column("flags", "std::size_t", 1);
+  check::equal(replaced.ints[0], 0, "int_column clears");
+}
+
+TEST(an_index_removed_on_a_later_pass_clears_its_flag) {
+  // The bit is cleared as well as set. A reflection indexed on one macrocycle
+  // and dropped on the next must stop claiming to be indexed, or the flag and
+  // the Miller index disagree and the two ways of asking give different
+  // answers.
+  Table t;
+  t.nrows = 1;
+  Column &miller = t.int_column("miller_index", "cctbx::miller::index<>", 3);
+  Column &flags = t.int_column("flags", "std::size_t", 1);
+  miller.ints[0] = 1;
+  flags.ints[0] = flag::kStrong;
+  set_indexed_flags(t);
+  check::equal(t.at("flags").integer(0), flag::kStrong | flag::kIndexed, "set");
+
+  for (std::size_t k = 0; k < 3; ++k) {
+    t.int_column("miller_index", "cctbx::miller::index<>", 3);
+  }
+  set_indexed_flags(t);
+  check::equal(t.at("flags").integer(0), flag::kStrong, "and cleared again");
+}
