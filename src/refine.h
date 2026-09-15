@@ -90,6 +90,20 @@ struct RefineOptions {
   //: little, which is itself worth being able to demonstrate rather than
   //: assume.
   bool unit_weights = false;
+  //: Discard reflections whose rotation angle is not determined by the data.
+  //:
+  //: The denominator of Waterman eqn (40) is the volume of the parallelepiped
+  //: formed by the rotation axis, the reciprocal lattice vector and the beam.
+  //: It goes to zero for reflections near the rotation axis, where the angle
+  //: at which they diffract is arbitrarily sensitive to the model -- and the
+  //: Lorentz factor has the same asymptote, so their observed angular
+  //: centroids are poorly determined as well. Keeping them puts noise into the
+  //: rotation-angle residual that no model can fit.
+  //:
+  //: DIALS discards below 0.05 by default and this did not, which is most of
+  //: why its rotation-angle residual was worse.
+  double min_volume = 0.05;
+
   //: Build the model from reflections at or above the median strength.
   //:
   //: Weak, marginally indexed reflections bias a refinement and cannot be
@@ -105,6 +119,11 @@ struct RefineOptions {
 };
 
 struct RefineResult {
+  //: Reflections dropped because their rotation angle is not determined by the
+  //: data. Reported because it changes which reflections the residual is
+  //: averaged over, and a residual quoted over a different set is not
+  //: comparable with anything.
+  std::size_t n_ill_conditioned = 0;
   std::size_t n_used = 0;
   std::size_t n_rejected = 0;
   //: RMS of observed minus calculated, in pixels, pixels and images.

@@ -72,7 +72,8 @@ struct TargetRow {
 
 std::vector<TargetRow> gather(const ExperimentList &experiments,
                                 const Table &reflections,
-                                const RefineOptions &options) {
+                                const RefineOptions &options,
+                                std::size_t *ill_conditioned = nullptr) {
   std::vector<TargetRow> out;
   if (!reflections.has("miller_index")) return out;
   const Column &miller = reflections.at("miller_index");
@@ -129,6 +130,19 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
       }
     }
     o.weight[2] *= options.z_weight;
+
+    // The rotation angle has to be determined by the data before it is worth
+    // fitting. Measured on the geometry as it stands, not on the refined one:
+    // the volume moves very little under refinement, and recomputing it each
+    // macrocycle would let the set of reflections churn.
+    if (options.min_volume > 0.0 && o.experiment < experiments.size()) {
+      const PredictionState state =
+          prediction_state(experiments[o.experiment], o.panel, o.h, o.k, o.l, o.z);
+      if (!state.valid || std::abs(state.volume) < options.min_volume) {
+        if (ill_conditioned != nullptr) ++*ill_conditioned;
+        continue;
+      }
+    }
     out.push_back(o);
   }
   return out;
@@ -359,7 +373,9 @@ double robust_spread(std::vector<double> values) {
 RefineResult refine(ExperimentList &experiments, const Table &reflections,
                     const RefineOptions &options) {
   RefineResult result;
-  std::vector<TargetRow> observations = gather(experiments, reflections, options);
+  std::size_t ill_conditioned = 0;
+  std::vector<TargetRow> observations =
+      gather(experiments, reflections, options, &ill_conditioned);
   if (observations.size() < 20) return result;
 
   Layout layout;
@@ -541,6 +557,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
     if (e.crystal && e.crystal->scan_varying()) e.crystal->A = e.crystal->A_at(0.5);
   }
 
+  result.n_ill_conditioned = ill_conditioned;
+
   double sx = 0, sy = 0, sz = 0;
   std::size_t count = 0;
   for (std::size_t i = 0; i < observations.size(); ++i) {
@@ -563,7 +581,9 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
                                      const Table &reflections,
                                      const RefineOptions &options) {
   JacobianComparison out;
-  std::vector<TargetRow> observations = gather(experiments, reflections, options);
+  std::size_t ill_conditioned = 0;
+  std::vector<TargetRow> observations =
+      gather(experiments, reflections, options, &ill_conditioned);
   if (observations.empty()) return out;
 
   Layout layout;

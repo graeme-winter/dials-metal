@@ -610,6 +610,30 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## The rotation angle has to be determined before it is worth fitting
+
+Waterman eqn (40) divides by the volume of the parallelepiped formed by the
+rotation axis, the reciprocal lattice vector and the beam. Near the rotation
+axis it goes to zero: the angle at which such a reflection diffracts is
+arbitrarily sensitive to the model, and the Lorentz factor has the same
+asymptote, so its observed angular centroid is poorly determined too. Fitting
+them puts noise into the rotation-angle residual that no model can remove.
+
+DIALS discards below 0.05 by default. This did not, and the cost shows in the
+rotation-angle residual first:
+
+    insulin, 30 degrees, static     0.310 0.290 0.245  ->  0.274 0.254 0.220
+    l-cysteine, 170 deg, sv 9       0.168 0.212 0.133  ->  0.161 0.194 0.124
+
+The fraction removed depends on the geometry, not only on the cutoff: 2.4 per
+cent of indexed insulin over thirty degrees, 0.1 per cent of l-cysteine, whose
+small cell puts every reflection far from the axis.
+
+**A residual averaged over a different set of reflections compares with
+nothing**, so `mxi_refine` now says how many it dropped and how many it
+averaged over. dials.refine applies the same cutoff and reports over what is
+left, which is part of why its numbers looked better than they were.
+
 ## Which model each observed column was computed through
 
 `dials.refine` stops without `xyzobs.mm.value`, and reasonably: DIALS measures

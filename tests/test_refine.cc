@@ -11,6 +11,7 @@
 
 #include "../src/expt.h"
 #include "../src/predict.h"
+#include "../src/derivatives.h"
 #include "../src/refine.h"
 #include "../src/refl.h"
 #include "check.h"
@@ -489,4 +490,75 @@ TEST(a_scan_varying_model_agrees_except_where_the_angle_is_ill_conditioned) {
   // which is what marks it as a property of those reflections rather than of
   // the amount of drift.
   check::is_true(bad < 0.08, "the ill-conditioned tail must stay small");
+}
+
+TEST(reflections_with_an_undetermined_rotation_angle_are_dropped) {
+  // Waterman eqn (40) divides by the volume of the parallelepiped formed by
+  // the rotation axis, the reciprocal lattice vector and the beam. Near the
+  // rotation axis it goes to zero: the angle at which such a reflection
+  // diffracts is arbitrarily sensitive to the model, and the Lorentz factor
+  // has the same asymptote so its observed angular centroid is poor as well.
+  // Fitting them puts noise into the rotation-angle residual that no model can
+  // remove, which is why DIALS discards below 0.05 and why this now does.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 3.0);
+
+  const auto run = [&](double cutoff) {
+    ExperimentList list;
+    list.experiments.push_back(truth);
+    RefineOptions options;
+    options.min_volume = cutoff;
+    options.outlier_sigma = 0.0;
+    options.macrocycles = 1;
+    return refine(list, t, options);
+  };
+
+  const RefineResult all = run(0.0);
+  const RefineResult cut = run(0.05);
+  check::equal(static_cast<long long>(all.n_ill_conditioned), 0,
+               "nothing dropped without a cutoff");
+  check::is_true(cut.n_ill_conditioned > 0, "the cutoff drops something");
+  check::is_true(cut.n_used < all.n_used, "and so fits fewer reflections");
+  // The count is reported because the residual is averaged over what is left,
+  // and a residual over a different set compares with nothing.
+  check::equal(static_cast<long long>(all.n_used - cut.n_used),
+               static_cast<long long>(cut.n_ill_conditioned),
+               "the difference is exactly what was dropped");
+}
+
+TEST(the_cutoff_keeps_the_reflections_far_from_the_rotation_axis) {
+  // It must remove a specific population, not simply the first few. Every
+  // reflection kept has to have a volume above the cutoff and every one
+  // dropped below it -- otherwise the filter is measuring something else.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 3.0);
+  const Column &xyz = t.at("xyzobs.px.value");
+  const Column &miller = t.at("miller_index");
+
+  std::size_t below = 0, above = 0;
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    const PredictionState s = prediction_state(
+        truth, 0, static_cast<int>(miller.integer(i, 0)),
+        static_cast<int>(miller.integer(i, 1)),
+        static_cast<int>(miller.integer(i, 2)), xyz.real(i, 2));
+    if (!s.valid) continue;
+    if (std::abs(s.volume) < 0.05) {
+      ++below;
+    } else {
+      ++above;
+    }
+  }
+  check::is_true(below > 0, "the synthetic data contains such reflections");
+  check::is_true(above > below * 4, "and they are the minority");
+
+  ExperimentList list;
+  list.experiments.push_back(truth);
+  RefineOptions options;
+  options.min_volume = 0.05;
+  options.outlier_sigma = 0.0;
+  options.macrocycles = 1;
+  const RefineResult result = refine(list, t, options);
+  check::equal(static_cast<long long>(result.n_ill_conditioned),
+               static_cast<long long>(below),
+               "exactly the low-volume reflections are the ones dropped");
 }
