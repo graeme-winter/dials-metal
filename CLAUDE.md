@@ -610,6 +610,33 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## `0` is not `0.0`, and dxtbx knows the difference
+
+`dials.refine` refused an `indexed.expt` written here:
+
+    DXTBX_ASSERT(obj_type == "float") failure      dxtbx scan.cc:80
+
+A scan starting at zero degrees has an oscillation array beginning 0.0, and the
+JSON writer collapsed any whole-valued double to an integer, so the file said
+`[0, 0.1, 0.2, ...]`. dxtbx reads the type of an array from its first element
+and requires float.
+
+The fix is not to write every number with a decimal point -- `image_range` of
+`[1.0, 300.0]` would be just as wrong. Whether a number is a count or a
+measurement is known at the point it is constructed and nowhere else, so
+`json::Value` now carries it: built from `int`, `long`, `long long` or
+`std::size_t` it writes without a point, built from `double` it writes with one.
+
+**Nothing here could have caught this, and that is the recurring lesson.** The
+document round-tripped through this reader perfectly, because this reader parses
+`0` and `0.0` into the same double. A round-trip test cannot detect a wrong
+convention; only a file written or read by something else can. That is now four
+times: the `.refl` container shape, the geometry conventions, the scan
+oscillation form, and this.
+
+`tests/test_expt_format.cc` therefore asserts on characters rather than values,
+and was checked by reverting the fix -- three of its tests fail without it.
+
 ## Relative precision belongs to the arithmetic, not to the answer
 
 This file once claimed that float32 would leave about four digits in a
