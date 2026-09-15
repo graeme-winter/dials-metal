@@ -204,10 +204,18 @@ def check(
     if "xyzcal.px" in a and "xyzcal.px" in b:
         from .common import report_axis_offsets
 
-        report_axis_offsets(
-            report.section("predicted position offset, A minus B"),
-            a["xyzcal.px"][ia],
-            b["xyzcal.px"][ib],
-        )
+        # Only where both sides predicted something. A reflection with no
+        # prediction carries xyzcal.px of exactly zero, the corner of the
+        # detector, and differencing real predictions against that corner
+        # reports an offset of hundreds of pixels that means nothing.
+        from ..refl import has_prediction
+
+        both = has_prediction(a, ia) & has_prediction(b, ib)
+        section = report.section("predicted position offset, A minus B")
+        section.scalar("n_predicted_by_both", int(both.sum()))
+        if both.sum() >= 10:
+            report_axis_offsets(
+                section, a["xyzcal.px"][ia][both], b["xyzcal.px"][ib][both]
+            )
 
     return report

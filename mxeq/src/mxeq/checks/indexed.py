@@ -129,9 +129,9 @@ def check(
         # xyzcal.px of exactly zero, which is the corner of the detector, so
         # including those rows reported an rmsd of 755 px on a dataset whose
         # real value is a third of one.
-        predicted = np.any(table["xyzcal.px"][index] != 0, axis=1) & np.any(
-            table["miller_index"][index] != 0, axis=1
-        )
+        from ..refl import has_prediction
+
+        predicted = has_prediction(table, index)
         if predicted.sum() < 10:
             continue
         residual = (
@@ -149,10 +149,35 @@ def check(
         )
 
     if "xyzcal.px" in a and "xyzcal.px" in b:
-        report_axis_offsets(
-            report.section("predicted position offset, A minus B"),
-            a["xyzcal.px"][m.index_a],
-            b["xyzcal.px"][m.index_b],
-        )
+        # Only where BOTH sides actually predicted something. An unindexed
+        # reflection carries xyzcal.px of exactly zero, which is the corner of
+        # the detector, so comparing every matched row differences real
+        # predictions against that corner and reports a median of 1.5e-320 --
+        # a denormal, the signature of a column that was never written -- with
+        # a mean of -25 px and a first percentile of -1576.
+        #
+        # The numbers were not wrong so much as meaningless, and they looked
+        # like a catastrophic disagreement between two pipelines that in fact
+        # agree. Predicted where nothing was predicted is not a disagreement.
+        from ..refl import has_prediction
+
+        pa = has_prediction(a, m.index_a)
+        pb = has_prediction(b, m.index_b)
+        both = pa & pb
+        section = report.section("predicted position offset, A minus B")
+        section.scalar("n_predicted_by_both", int(both.sum()))
+        section.scalar("n_predicted_by_a_only", int((pa & ~pb).sum()))
+        section.scalar("n_predicted_by_b_only", int((pb & ~pa).sum()))
+        if both.sum() >= 10:
+            report_axis_offsets(
+                section,
+                a["xyzcal.px"][m.index_a][both],
+                b["xyzcal.px"][m.index_b][both],
+            )
+        else:
+            report.warn(
+                "fewer than ten reflections were predicted by both, so there "
+                "is nothing to compare"
+            )
 
     return report

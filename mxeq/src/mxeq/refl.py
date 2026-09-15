@@ -358,3 +358,39 @@ def structure(raw: bytes, max_items: int = 40) -> list[str]:
     except Exception as exc:  # noqa: BLE001 - never let the escape hatch fail
         lines.append(f"... description stopped: {type(exc).__name__}: {exc}")
     return lines
+
+
+def has_prediction(table, rows=None):
+    """Which rows carry a real predicted position.
+
+    Not ``xyzcal.px != 0``. A reflection that was never predicted has the
+    column allocated and never written, and what is in it is whatever was in
+    the memory: on a real DIALS indexed.refl those rows read
+
+        xyzcal.px = [1.5e-320, 5.2e-310, 0.0]
+
+    which are denormals, and which compare unequal to zero. Differencing real
+    predictions against them reported offsets of fifteen hundred pixels and a
+    median of 1.5e-320 -- a number whose only meaning is that it came from
+    memory nobody wrote.
+
+    A prediction exists where the reflection is indexed. That is the question
+    actually being asked, and it does not depend on what uninitialised memory
+    happened to hold.
+    """
+    predicted = np.any(table["miller_index"] != 0, axis=1)
+    if "xyzcal.px" in table:
+        values = np.abs(table["xyzcal.px"])
+        # Two ways a row can carry no prediction, and both occur in the wild.
+        # Left as written by whoever allocated the column: exactly zero, which
+        # is what this package writes and what a failed prediction leaves
+        # behind. Or never written at all: whatever was in the memory, which on
+        # a real DIALS file reads as denormals around 1e-320.
+        #
+        # A genuine prediction at exactly the detector origin is possible in
+        # principle and is not worth the ambiguity; it is one pixel out of four
+        # million and it is not on the detector face in any real geometry.
+        written = np.any(values != 0, axis=1)
+        sane = ~np.any((values > 0) & (values < 1e-30), axis=1)
+        predicted = predicted & written & sane
+    return predicted if rows is None else predicted[rows]
