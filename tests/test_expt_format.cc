@@ -556,3 +556,87 @@ TEST(writing_an_opaque_column_that_no_longer_fits_is_refused) {
   std::remove("test_opaque_bad.refl");
   check::is_true(threw, "must refuse");
 }
+
+// --------------------------------------------------------------------------
+// scan points
+// --------------------------------------------------------------------------
+
+TEST(a_scan_varying_model_is_written_at_every_image_boundary) {
+  // DIALS samples A at scan POINTS, which are the boundaries: one at the start
+  // of the scan and one at the end of every image, so N + 1 for N images.
+  // Writing N is what a per-image reading of the name suggests, and
+  // dials.export asks for the point after the last image and fails with
+  //
+  //     DXTBX_ASSERT(index < A_at_scan_points_.size()) failure
+  ExperimentList list = one_experiment(0.0);
+  list[0].crystal->A_points.assign(4, list[0].crystal->A);
+  list[0].crystal->A_points[3] = list[0].crystal->A * 1.0002;
+
+  const json::Value written = experiments_to_json(list);
+  const json::Value &points = written["crystal"].as_array()[0]["A_at_scan_points"];
+  check::is_true(points.is_array(), "the samples are written");
+  const std::int64_t images = list[0].scan.num_images();
+  check::equal(static_cast<long long>(points.as_array().size()),
+               static_cast<long long>(images + 1),
+               "one per image boundary, not one per image");
+
+  // The first and last must be the ends of the scan, not the ends of the
+  // control point range, which is what a clamped spline makes them.
+  const Mat3 first = list[0].crystal->A_at(0.0);
+  const Mat3 last = list[0].crystal->A_at(1.0);
+  check::close(points.as_array().front().numbers()[0], first.m[0], 1e-12, "starts at t=0");
+  check::close(points.as_array().back().numbers()[0], last.m[0], 1e-12, "ends at t=1");
+}
+
+TEST(samples_read_from_a_file_are_written_back_unchanged) {
+  // `A_points` does double duty: the control points a refinement produces, and
+  // the per-image samples a file carries. They are not the same thing --
+  // re-evaluating the spline over samples smooths them again, measured at 4e-5
+  // relative on a real 1801-point model, which is 0.003 Angstrom on a 67
+  // Angstrom cell and compounds on every read and write.
+  //
+  // Reading and writing somebody else's model must not change it.
+  ExperimentList list = one_experiment(0.0);
+  list[0].crystal->A_points.assign(5, list[0].crystal->A);
+  list[0].crystal->A_points[2] = list[0].crystal->A * 1.001;
+
+  // Once through, producing samples.
+  const ExperimentList once = experiments_from_json(experiments_to_json(list));
+  check::is_true(once[0].crystal->A_points_are_samples,
+                 "a model read from a document is samples, not control points");
+  const std::size_t n = once[0].crystal->A_points.size();
+  check::equal(static_cast<long long>(n),
+               static_cast<long long>(list[0].scan.num_images() + 1), "count");
+
+  // And again, which must be a no-op.
+  const ExperimentList twice = experiments_from_json(experiments_to_json(once));
+  check::equal(static_cast<long long>(twice[0].crystal->A_points.size()),
+               static_cast<long long>(n), "the count does not drift");
+  double worst = 0.0;
+  for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t k = 0; k < 9; ++k) {
+      worst = std::fmax(worst, std::abs(once[0].crystal->A_points[i].m[k] -
+                                        twice[0].crystal->A_points[i].m[k]));
+    }
+  }
+  check::close(worst, 0.0, 0.0, "and neither do the values");
+}
+
+TEST(writing_a_scan_varying_model_keeps_the_experiment) {
+  // A regression that the suite had no fixture to catch: the branch that
+  // writes samples verbatim was first written with an early `continue`, which
+  // skipped the code that interns the crystal and appends the experiment. The
+  // file came out with no experiments at all and every test still passed,
+  // because none of them wrote a scan-varying model.
+  ExperimentList list = one_experiment(0.0);
+  list[0].crystal->A_points.assign(4, list[0].crystal->A);
+  const ExperimentList back = experiments_from_json(experiments_to_json(list));
+  check::equal(static_cast<long long>(back.size()), 1, "the experiment survives");
+  check::is_true(back[0].crystal.has_value(), "and so does its crystal");
+  check::is_true(back[0].crystal->scan_varying(), "still scan-varying");
+
+  // Twice over, since the second pass takes the other branch.
+  const ExperimentList again = experiments_from_json(experiments_to_json(back));
+  check::equal(static_cast<long long>(again.size()), 1, "on the sample path too");
+  check::is_true(again[0].crystal.has_value(), "with its crystal");
+}

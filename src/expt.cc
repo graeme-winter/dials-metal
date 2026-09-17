@@ -134,7 +134,10 @@ Crystal read_crystal(const json::Value &v) {
       for (std::size_t k = 0; k < 9; ++k) m.m[k] = flat[k];
       c.A_points.push_back(m);
     }
-    if (!c.A_points.empty()) c.A = c.A_points[c.A_points.size() / 2];
+    if (!c.A_points.empty()) {
+      c.A = c.A_points[c.A_points.size() / 2];
+      c.A_points_are_samples = true;
+    }
   }
   return c;
 }
@@ -307,20 +310,39 @@ json::Value experiments_to_json(const ExperimentList &list) {
       crystal["real_space_c"] = to_json(e.crystal->real_c());
       crystal["space_group_hall_symbol"] = json::Value(e.crystal->space_group_hall);
       if (e.crystal->scan_varying()) {
-        // DIALS stores A per image, not per control point, so the control
-        // points are expanded here. That is lossy in the parameterisation --
-        // a reader cannot recover how many control points there were -- and
-        // lossless in the model, which is what anything downstream uses.
+        // DIALS stores A at scan POINTS, which are the image boundaries: one
+        // at the start of the scan, one at the end of every image, so N + 1 of
+        // them for N images. Writing N is what a per-image reading of the name
+        // suggests and it is wrong -- dials.export asks for the point after
+        // the last image and gets
+        //
+        //     DXTBX_ASSERT(index < A_at_scan_points_.size()) failure
+        //
+        // The control points of the spline are expanded here into those
+        // samples. Lossy in the parameterisation, since a reader cannot
+        // recover how many control points there were, and lossless in the
+        // model, which is what anything downstream uses.
+        const std::int64_t images = e.scan.num_images();
         json::Array points;
-        for (std::int64_t i = 0; i < e.scan.num_images(); ++i) {
-          const double t = e.scan.num_images() > 0
-                               ? static_cast<double>(i) /
-                                     static_cast<double>(e.scan.num_images())
-                               : 0.0;
-          const Mat3 A = e.crystal->A_at(t);
+        const auto emit = [&points](const Mat3 &A) {
           json::Array flat;
           for (std::size_t k = 0; k < 9; ++k) flat.push_back(json::Value(A.m[k]));
           points.push_back(json::Value(std::move(flat)));
+        };
+        if (e.crystal->A_points_are_samples) {
+          // Samples that came from a file go back out untouched, whatever
+          // their count. They are the evaluated model already, and putting
+          // them through the spline again would quietly alter it.
+          for (const Mat3 &A : e.crystal->A_points) emit(A);
+        } else {
+          for (std::int64_t i = 0; i <= images; ++i) {
+            // t reaches exactly one at the last point, which is the end of the
+            // scan rather than the start of an image that does not exist.
+            const double t = images > 0 ? static_cast<double>(i) /
+                                              static_cast<double>(images)
+                                        : 0.0;
+            emit(e.crystal->A_at(t));
+          }
         }
         crystal["A_at_scan_points"] = json::Value(std::move(points));
       }

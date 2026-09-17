@@ -280,6 +280,21 @@ struct Crystal {
   // observation. Both are smooth and local; they are not the same model.
   std::vector<Mat3> A_points;
 
+  //: Whether `A_points` are samples read from a file rather than the control
+  //: points of this package's spline.
+  //:
+  //: The two are not the same thing and the member does double duty. A
+  //: refinement produces a handful of control points, of which the spline is a
+  //: smooth function; a file carries one sample per scan point, which is that
+  //: function already evaluated. Re-evaluating the spline over samples smooths
+  //: them again -- measured at 4e-5 relative on a real 1801-point model, which
+  //: is 0.003 Angstrom on a 67 Angstrom cell, and it compounds every time the
+  //: file is read and written.
+  //:
+  //: So samples are written back exactly as they arrived. Reading and writing
+  //: somebody else's model must not change it.
+  bool A_points_are_samples = false;
+
   bool scan_varying() const { return A_points.size() > 1; }
   // `t` runs from zero at the start of the scan to one at the end.
   Mat3 A_at(double t) const;

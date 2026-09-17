@@ -610,6 +610,26 @@ misspelling is how a run comes to use settings nobody chose -- `--strong-ponly`
 would otherwise have been dropped and the refinement would have used every
 reflection while the operator believed otherwise.
 
+## Scan points are boundaries, so there are N + 1 of them
+
+DIALS samples A at the start of the scan and at the end of every image: 1801
+samples for 1800 images. This wrote 1800, which is what a per-image reading of
+the name suggests, and dials.export asked for the point after the last image:
+
+    DXTBX_ASSERT(index < A_at_scan_points_.size()) failure
+
+**And `A_points` was doing double duty.** A refinement produces a handful of
+spline control points; a file carries the evaluated samples. Re-evaluating the
+spline over samples smooths them again -- 4e-5 relative on a real 1801-point
+model, 0.003 Angstrom on a 67 Angstrom cell, compounding on every read and
+write. Samples now carry a flag and go back out untouched. Reading and writing
+somebody else's model must not change it.
+
+The first version of that branch used an early `continue`, which skipped the
+code that interns the crystal and appends the experiment: the file came out
+with no experiments at all. **Every test passed**, because not one of them wrote
+a scan-varying model. There are now three that do.
+
 ## What we cannot decode is not ours to drop
 
 Shoeboxes were read as opaque bytes and thrown away on write. The argument was
