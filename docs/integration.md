@@ -149,6 +149,55 @@ exclude by `zeta`, by resolution, or by a minimum count); whether it weights by
 counts or by counts minus background; and whether its mask has already been
 narrowed from the spot finder's.
 
+## sigma_M: implemented, and a factor of three from DIALS
+
+    mxi_profile refined.expt refined.refl
+
+Kabsch section 3.1: maximise the likelihood of the observed offsets under
+`R(Delta, sigma_M/zeta)`, the fraction of a reflection's intensity recorded on
+an image whose centre is `Delta` from its Bragg angle.
+
+**One sample per image, not one per reflection.** With one per reflection the
+offset is bounded by half an oscillation width by construction, the likelihood
+is maximised by driving sigma to zero, and the estimate is meaningless -- which
+is what the first attempt produced, 0.00006 degrees. A mosaic crystal puts a
+spot on images well away from its Bragg angle, and that spread is the entire
+signal.
+
+Two rejections, both from the paper rather than invented:
+
+* `|zeta| >= 0.05`. A reflection near the rotation axis has a modelled range of
+  `sigma_M/|zeta|`, which diverges; such samples carry no information and would
+  decide the answer. Measured on synthetic data: without the cut they pull the
+  estimate DOWN by a third, not up, because they make every sigma look equally
+  bad and flatten the likelihood.
+* Kabsch step (vii), rejecting a spot whose observed centroid is far from its
+  predicted angle. Without it the estimate is 0.506 rather than 0.293. The
+  paper says "deviates too much" without a number; measured, the answer is flat
+  at 0.293309 for any cut between one and ten images, so within that plateau it
+  is not a knob.
+
+On the 1800-image insulin, 283242 samples from 77153 spots:
+
+    ours              0.293309 degrees
+    dials.integrate   0.097667 degrees      a factor of 3.003
+
+**Unexplained, like the 4.2 per cent on sigma_D.** The factor is close enough
+to `n_sigma = 3` to be suspicious, and that is a coincidence worth testing
+rather than a conclusion. What has been ruled out: it is not the zeta
+correction, since dropping zeta entirely gives 0.309 rather than 0.098 and the
+median zeta over the samples used is 0.64, not a third.
+
+The estimator itself is checked against planted values rather than against
+DIALS: samples drawn from the model with a known sigma come back within five
+per cent at 0.05, 0.1 and 0.3 degrees, and the density is verified to integrate
+to one over Delta, without which the product of these is not a likelihood at
+all.
+
+One trap on the way, the same one as twice before: rows with no prediction
+carry uninitialised `xyzcal` -- denormals, not zeros -- and feeding them to the
+likelihood gave 1.94 degrees. `has_prediction` now exists on the C++ side too.
+
 ## Order of work
 
 1. `sigma_D` and `sigma_M` from the indexed strong spots, using the shoebox

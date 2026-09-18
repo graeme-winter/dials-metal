@@ -64,6 +64,7 @@ constexpr std::int64_t kCentroidOutlier = 1 << 17;
 }  // namespace flag
 
 
+
 class ReflError : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;
@@ -140,5 +141,14 @@ class Table {
 
 Table read_reflections(const std::string &path);
 void write_reflections(const std::string &path, const Table &table);
+
+//: Whether row `i` carries a real predicted position.
+//:
+//: Not xyzcal != 0. A row that was never predicted has the column allocated
+//: and never written, and holds whatever was in the memory -- on a real DIALS
+//: file, denormals around 1e-320, which compare unequal to zero. Feeding those
+//: to the reflecting-range likelihood put the estimate out by a factor of
+//: four.
+bool has_prediction(const Table &table, std::size_t row);
 
 }  // namespace mxi

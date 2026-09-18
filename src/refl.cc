@@ -293,6 +293,22 @@ Column &Table::int_column(const std::string &name, const std::string &type,
   return columns_[name];
 }
 
+bool has_prediction(const Table &table, std::size_t row) {
+  if (!table.has("miller_index") || !table.has("xyzcal.px")) return false;
+  const Column &miller = table.at("miller_index");
+  if (!miller.integer(row, 0) && !miller.integer(row, 1) && !miller.integer(row, 2)) {
+    return false;
+  }
+  const Column &cal = table.at("xyzcal.px");
+  bool written = false;
+  for (std::size_t k = 0; k < 3; ++k) {
+    const double v = std::abs(cal.real(row, k));
+    if (v > 0.0 && v < 1e-30) return false;  // never written
+    if (v != 0.0) written = true;
+  }
+  return written;
+}
+
 Column &Table::modify_int_column(const std::string &name,
                                  const std::string &type, std::size_t width) {
   auto it = columns_.find(name);

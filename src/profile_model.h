@@ -49,6 +49,41 @@ struct ProfileModel {
 bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &s1,
                            double *variance);
 
+//: One contribution to the reflecting-range estimate: a reflection seen on one
+//: image, the angular gap between its Bragg maximum and that image's centre,
+//: and its zeta.
+//:
+//: One per IMAGE, not one per reflection. With one per reflection the gap is
+//: bounded by half an oscillation width by construction, the likelihood is
+//: maximised by driving sigma to zero, and the estimate is meaningless. A
+//: mosaic crystal puts a spot on images well away from its Bragg angle, and
+//: that spread is the entire signal.
+struct RangeSample {
+  //: Radians between the Bragg maximum and the centre of the image.
+  double delta = 0.0;
+  //: |m2 . e1|, which corrects for the path length through the Ewald sphere.
+  double zeta = 0.0;
+};
+
+//: The fraction of a reflection's intensity recorded on an image whose centre
+//: is `delta` away, for a reflecting range of `sigma` and the given zeta.
+//: Kabsch section 2.4, as a density in delta.
+double recorded_fraction(double delta, double zeta, double sigma,
+                         double oscillation);
+
+//: Gather one sample per image a reflection was seen on, from the frames of
+//: its shoebox that carry foreground counts.
+std::vector<RangeSample> range_samples(const Experiment &e, const Shoebox &box,
+                                       double phi_calculated, double zeta);
+
+//: sigma_M by maximum likelihood over those samples. Kabsch section 3.1.
+//:
+//: Samples with |zeta| below `min_zeta` are dropped: their reflecting range is
+//: sigma_M / |zeta|, which diverges, and they carry no information about
+//: sigma_M while dominating the likelihood.
+double reflecting_range(const std::vector<RangeSample> &samples, double oscillation,
+                        double min_zeta = 0.05);
+
 //: sigma_D as the root mean of those variances, over the reflections given.
 //:
 //: Kabsch section 3.1: "determine the centroid and variance s^2 of the

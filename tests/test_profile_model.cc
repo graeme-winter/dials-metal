@@ -216,3 +216,109 @@ TEST(sigma_d_is_the_root_mean_of_the_variances_in_degrees) {
   check::equal(static_cast<long long>(used), 3, "all three used");
   check::close(sigma, Scan::degrees(std::sqrt(one)), 1e-15, "root mean, in degrees");
 }
+
+// --------------------------------------------------------------------------
+// the reflecting range
+// --------------------------------------------------------------------------
+
+TEST(the_recorded_fraction_is_a_density_in_delta) {
+  // It has to integrate to one over delta, or the product of these is not a
+  // likelihood and maximising it means nothing.
+  const double oscillation = Scan::radians(0.1);
+  const double sigma = Scan::radians(0.08);
+  double total = 0.0;
+  const double step = Scan::radians(0.002);
+  for (double delta = -Scan::radians(3.0); delta < Scan::radians(3.0); delta += step) {
+    total += recorded_fraction(delta, 0.7, sigma, oscillation) * step;
+  }
+  check::close(total, 1.0, 1e-6, "integrates to one");
+}
+
+TEST(a_planted_reflecting_range_comes_back) {
+  // The estimator checked against a known answer rather than against DIALS.
+  // Samples are drawn from the model itself by inverting its cumulative
+  // distribution, so the only question is whether the fit recovers what was
+  // put in.
+  const double oscillation = Scan::radians(0.1);
+  for (double planted_degrees : {0.05, 0.1, 0.3}) {
+    const double planted = Scan::radians(planted_degrees);
+    const double zeta = 0.8;
+    std::vector<RangeSample> samples;
+    // The density is a box of width `oscillation` convolved with a Gaussian of
+    // width sigma/zeta, so a draw is the sum of a uniform and a normal.
+    std::uint64_t state = 12345;
+    const auto uniform = [&state]() {
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      return static_cast<double>((state >> 11) & ((1ULL << 53) - 1)) /
+             static_cast<double>(1ULL << 53);
+    };
+    for (int i = 0; i < 20000; ++i) {
+      const double u1 = std::fmax(uniform(), 1e-12);
+      const double u2 = uniform();
+      const double normal = std::sqrt(-2.0 * std::log(u1)) *
+                            std::cos(2.0 * 3.14159265358979323846 * u2);
+      const double box = (uniform() - 0.5) * oscillation;
+      samples.push_back({box + normal * planted / zeta, zeta});
+    }
+    const double found = reflecting_range(samples, oscillation, 0.05);
+    check::close(found, planted_degrees, 0.05 * planted_degrees,
+                 "the planted range comes back within five per cent");
+  }
+}
+
+TEST(samples_near_the_rotation_axis_are_dropped) {
+  // Their reflecting range is sigma_M / |zeta|, which diverges as zeta goes to
+  // zero: they carry no information about sigma_M and would dominate the
+  // likelihood if kept.
+  const double oscillation = Scan::radians(0.1);
+  std::vector<RangeSample> samples;
+  for (int i = 0; i < 500; ++i) {
+    samples.push_back({Scan::radians(0.02 * ((i % 7) - 3)), 0.8});
+  }
+  const double clean = reflecting_range(samples, oscillation, 0.05);
+  // Add a hundred samples sitting on the axis, with wild offsets.
+  for (int i = 0; i < 100; ++i) {
+    samples.push_back({Scan::radians(5.0 * ((i % 3) - 1)), 0.001});
+  }
+  const double polluted = reflecting_range(samples, oscillation, 0.05);
+  check::close(polluted, clean, 1e-9, "the cut must remove them entirely");
+
+  // Without the cut they pull the answer DOWN, not up, which is the opposite
+  // of what was assumed when this test was written: a sample whose modelled
+  // range is sigma/0.001 makes every sigma look equally bad, the likelihood
+  // flattens, and the fit settles lower. Measured at 0.0109 against 0.0168.
+  // Either way it is wrong, and either way the point is that the cut decides
+  // the answer rather than trimming it.
+  const double without_cut = reflecting_range(samples, oscillation, 0.0);
+  check::is_true(without_cut < 0.8 * clean, "and without it they take over");
+}
+
+TEST(one_sample_per_image_not_one_per_reflection) {
+  // With one per reflection the gap is bounded by half an oscillation width by
+  // construction, and the likelihood is maximised by driving sigma to zero.
+  // This checks the gathering really does produce one per image with counts.
+  Experiment e = simple_experiment(200.0);
+  e.scan.osc_width = 0.1;
+  Shoebox box;
+  box.panel = 0;
+  box.bbox[0] = 500;
+  box.bbox[1] = 501;
+  box.bbox[2] = 500;
+  box.bbox[3] = 501;
+  box.bbox[4] = 10;
+  box.bbox[5] = 14;  // four images
+  const std::uint8_t on = shoebox_mask::kValid | shoebox_mask::kForeground;
+  box.data = {5.0f, 20.0f, 20.0f, 0.0f};  // the last image has nothing
+  box.mask = {on, on, on, on};
+  box.background = {0.0f, 0.0f, 0.0f, 0.0f};
+
+  const double phi = Scan::radians(1.2);
+  const std::vector<RangeSample> samples = range_samples(e, box, phi, 0.7);
+  check::equal(static_cast<long long>(samples.size()), 3,
+               "one per image that has counts, and no more");
+  // The images are consecutive, so the gaps step by exactly one oscillation.
+  check::close(samples[0].delta - samples[1].delta, Scan::radians(0.1), 1e-12,
+               "consecutive images are one oscillation apart");
+  check::close(samples[1].delta - samples[2].delta, Scan::radians(0.1), 1e-12,
+               "and so are the next two");
+}
