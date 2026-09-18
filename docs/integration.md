@@ -99,104 +99,54 @@ HDF5. What still needs the images is integration proper -- the shoeboxes of the
 *predicted* reflections, which are a superset of the strong ones and are not in
 any file this package has.
 
-## sigma_D: implemented, and 4.2 per cent from DIALS
-
-To reproduce:
-
-```sh
-mxi_profile refined.expt refined.refl
-```
-
-The table has to still have its shoeboxes -- the estimate is made from the
-pixels -- which `dials.find_spots` writes and which `mxi_index` and
-`mxi_refine` now preserve. A stripped table is refused by name rather than
-silently producing a number from nothing.
-
-`src/profile_model.h`. Kabsch section 3.1, as written: for each strong spot,
-the counts-weighted variance of the angles between its foreground pixels'
-diffracted-beam directions and its own `s1`, background subtracted first; then
-`sigma_D` is the root mean of those variances.
-
-On the 1800-image insulin, over all 78618 reflections:
-
-    ours              0.030355856 degrees
-    dials.integrate   0.031697888 degrees      -4.23 per cent
-
-**That difference is not explained and the two are not interchangeable until it
-is.** What has been ruled out by measurement rather than argument:
-
-    pixel centres at +0.0 instead of +0.5      +9.08 per cent   (wrong the other way)
-    dividing by w instead of (w - 1)           -4.63
-    variance about the centroid, not s1       -15.28
-    parallax-corrected pixel directions       -15.34
-    foreground mask instead of all valid       identical, since every valid
-                                               pixel in these boxes is foreground
-
-The parallax result is the interesting one. Undoing the correction moves the
-spread 15 per cent the wrong way, which says DIALS is not doing it -- and makes
-sense: the correction describes where a ray of a given direction is recorded,
-so applying its inverse to a pixel asks where the ray came from, which is a
-different question.
-
-Four per cent is small enough to be tempting to chase by turning knobs until
-the number matches. There are enough knobs in this recipe that a wrong
-estimator could be tuned onto the right answer, so the tests plant a known
-angular spread and check it comes back, rather than checking agreement with
-DIALS. Settling the remainder needs DIALS' own source, which is not here.
-
-Candidates worth testing when it is: which reflections DIALS selects (it may
-exclude by `zeta`, by resolution, or by a minimum count); whether it weights by
-counts or by counts minus background; and whether its mask has already been
-narrowed from the spot finder's.
-
-## sigma_M: implemented, and a factor of three from DIALS
+## sigma_D and sigma_M, against DIALS' own source
 
     mxi_profile refined.expt refined.refl
 
-Kabsch section 3.1: maximise the likelihood of the observed offsets under
-`R(Delta, sigma_M/zeta)`, the fraction of a reflection's intensity recorded on
-an image whose centre is `Delta` from its Bragg angle.
+With `calculator.py` to hand the recipe is no longer guesswork. Three things it
+settled, all of which had been wrong here:
 
-**One sample per image, not one per reflection.** With one per reflection the
-offset is bounded by half an oscillation width by construction, the likelihood
-is maximised by driving sigma to zero, and the estimate is meaningless -- which
-is what the first attempt produced, 0.00006 degrees. A mosaic crystal puts a
-spot on images well away from its Bragg angle, and that spread is the entire
-signal.
+**The reflections.** DIALS does not use every strong spot. It selects those
+flagged `used_in_refinement`, then cuts on `|zeta| >= 0.05`. On 1800 images of
+insulin that is 70425 of 78618, and it moves sigma_b from -4.2 per cent of the
+DIALS value to -2.9 and sigma_M from a factor of three to twenty per cent.
 
-Two rejections, both from the paper rather than invented:
+**zeta uses the CROSS product.** `e1 = s1 x s0`, normalised -- the axis about
+which the point would cross the Ewald sphere by the shortest route, Kabsch
+section 2.3 after Schutt & Winkler. This had `s1 - s0`, which is the reciprocal
+lattice vector and points somewhere else entirely. Correcting it moved sigma_M
+from +50 to +21 per cent.
 
-* `|zeta| >= 0.05`. A reflection near the rotation axis has a modelled range of
-  `sigma_M/|zeta|`, which diverges; such samples carry no information and would
-  decide the answer. Measured on synthetic data: without the cut they pull the
-  estimate DOWN by a third, not up, because they make every sigma look equally
-  bad and flatten the likelihood.
-* Kabsch step (vii), rejecting a spot whose observed centroid is far from its
-  predicted angle. Without it the estimate is 0.506 rather than 0.293. The
-  paper says "deviates too much" without a number; measured, the answer is flat
-  at 0.293309 for any cut between one and ten images, so within that plateau it
-  is not a knob.
+**Two places DIALS departs from Kabsch**, both followed here because standing
+in for `dials.integrate` is the point:
 
-On the 1800-image insulin, 283242 samples from 77153 spots:
+* the background is NOT subtracted before the angular spread is measured, where
+  Kabsch section 3.1 step (v) says to. DIALS' source carries a note saying so.
+  It costs nothing on a table out of `dials.find_spots`, where the background is
+  zero, and it would matter on one where it is not;
+* an image contributes to the reflecting range if the spot finder marked any
+  pixel on it as valid foreground, whatever the counts. Requiring counts as
+  well is a different criterion that happens to select the same images here.
 
-    ours              0.293309 degrees
-    dials.integrate   0.097667 degrees      a factor of 3.003
+DIALS' `R` is a partiality rather than a density -- it is not divided by the
+oscillation width as Kabsch writes it -- but that is a constant in the log and
+the argument of the maximum is identical.
 
-**Unexplained, like the 4.2 per cent on sigma_D.** The factor is close enough
-to `n_sigma = 3` to be suspicious, and that is a coincidence worth testing
-rather than a conclusion. What has been ruled out: it is not the zeta
-correction, since dropping zeta entirely gives 0.309 rather than 0.098 and the
-median zeta over the samples used is 0.64, not a third.
+Where this leaves it, on 1800 images of insulin:
 
-The estimator itself is checked against planted values rather than against
-DIALS: samples drawn from the model with a known sigma come back within five
-per cent at 0.05, 0.1 and 0.3 degrees, and the density is verified to integrate
-to one over Delta, without which the product of these is not a likelihood at
-all.
+    sigma_b   0.030786 here   0.031698 DIALS    -2.9 per cent
+    sigma_m   0.118552 here   0.097667 DIALS   +21.4 per cent
 
-One trap on the way, the same one as twice before: rows with no prediction
-carry uninitialised `xyzcal` -- denormals, not zeros -- and feeding them to the
-likelihood gave 1.94 degrees. `has_prediction` now exists on the C++ side too.
+Both still disagree, and the program says so with every answer. The remaining
+candidates are in code this has not read: `Shoebox::beam_vectors`, which
+decides exactly which lab coordinate a pixel maps to, and `compute_zeta`.
+Parallax is not among them -- applying it moves sigma_b to +24 per cent and
+inverting it to -14, so DIALS is doing neither.
+
+The estimators themselves are checked against planted values rather than
+against DIALS: a known angular spread comes back exactly, and samples drawn
+from the reflecting-range model with a known sigma come back within five per
+cent at 0.05, 0.1 and 0.3 degrees.
 
 ## Order of work
 

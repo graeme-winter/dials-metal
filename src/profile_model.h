@@ -76,6 +76,16 @@ double recorded_fraction(double delta, double zeta, double sigma,
 std::vector<RangeSample> range_samples(const Experiment &e, const Shoebox &box,
                                        double phi_calculated, double zeta);
 
+//: zeta = m2 . e1, with e1 the axis a reciprocal lattice point would cross the
+//: Ewald sphere about by the shortest route.
+//:
+//: e1 is the CROSS product of the diffracted and incident beams, s1 x s0,
+//: normalised -- perpendicular to both, as Kabsch section 2.3 defines it after
+//: Schutt & Winkler. Using the difference s1 - s0 instead, which is the
+//: reciprocal lattice vector and points somewhere else entirely, put sigma_M
+//: out by fifty per cent.
+double compute_zeta(const Experiment &e, const Vec3 &s1);
+
 //: sigma_M by maximum likelihood over those samples. Kabsch section 3.1.
 //:
 //: Samples with |zeta| below `min_zeta` are dropped: their reflecting range is

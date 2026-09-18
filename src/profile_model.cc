@@ -20,9 +20,13 @@ bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &
     for (std::int32_t y = 0; y < box.ny(); ++y) {
       for (std::int32_t x = 0; x < box.nx(); ++x) {
         const std::size_t at = box.at(x, y, z);
-        if ((box.mask[at] & shoebox_mask::kForeground) == 0) continue;
-        const double count = static_cast<double>(box.data[at]) -
-                             static_cast<double>(box.background[at]);
+        // Any pixel the spot finder marked, not only the foreground, and the
+        // background is NOT subtracted. Kabsch section 3.1 step (v) says to
+        // subtract it; DIALS does not, and carries a note saying so. Matching
+        // DIALS is the point here, and on a table out of dials.find_spots the
+        // background is zero in any case.
+        if (box.mask[at] == 0) continue;
+        const double count = static_cast<double>(box.data[at]);
         if (!(count > 0.0)) continue;
 
         // The direction of the ray that would have landed in the middle of
@@ -54,6 +58,14 @@ bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &
   return true;
 }
 
+double compute_zeta(const Experiment &e, const Vec3 &s1) {
+  const Vec3 axis = e.goniometer.lab_axis();
+  const Vec3 e1 = s1.cross(e.beam.s0());
+  const double length = e1.norm();
+  if (!(length > 0.0)) return 0.0;
+  return axis.dot(e1 / length);
+}
+
 double recorded_fraction(double delta, double zeta, double sigma,
                          double oscillation) {
   const double spread = sigma / std::fabs(zeta);
@@ -70,17 +82,19 @@ std::vector<RangeSample> range_samples(const Experiment &e, const Shoebox &box,
                                        double phi_calculated, double zeta) {
   std::vector<RangeSample> out;
   const double width = Scan::radians(e.scan.osc_width);
+  const std::uint8_t wanted = shoebox_mask::kValid | shoebox_mask::kForeground;
   for (std::int32_t z = 0; z < box.nz(); ++z) {
-    double counts = 0.0;
-    for (std::int32_t y = 0; y < box.ny(); ++y) {
-      for (std::int32_t x = 0; x < box.nx(); ++x) {
-        const std::size_t at = box.at(x, y, z);
-        if ((box.mask[at] & shoebox_mask::kForeground) == 0) continue;
-        counts += static_cast<double>(box.data[at]) -
-                  static_cast<double>(box.background[at]);
+    // An image counts if it holds any pixel the spot finder marked as valid
+    // foreground, whatever its value. Requiring positive counts as well is a
+    // different criterion; on these tables it selects the same images, but it
+    // is not what DIALS asks.
+    bool marked = false;
+    for (std::int32_t y = 0; y < box.ny() && !marked; ++y) {
+      for (std::int32_t x = 0; x < box.nx() && !marked; ++x) {
+        if (box.mask[box.at(x, y, z)] == wanted) marked = true;
       }
     }
-    if (!(counts > 0.0)) continue;
+    if (!marked) continue;
     // The centre of this image, in radians.
     const double image = static_cast<double>(box.bbox[4] + z) + 0.5;
     const double centre = Scan::radians(e.scan.osc_start) +

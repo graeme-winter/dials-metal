@@ -136,10 +136,15 @@ TEST(the_variance_is_weighted_by_the_counts) {
                  "and weight away from it widens it");
 }
 
-TEST(background_is_subtracted_before_the_spread_is_measured) {
-  // Kabsch section 3.1 says to subtract the background first. A flat pedestal
-  // under the peak would otherwise pull the spread towards the box edges,
-  // which is where most of the pixels are.
+TEST(the_background_is_not_subtracted_which_is_a_departure_from_kabsch) {
+  // Kabsch section 3.1 step (v) says to subtract the background before
+  // measuring the spread. DIALS does not, and carries a note in its own source
+  // saying so. This follows DIALS, because standing in for dials.integrate is
+  // the point, and the difference is recorded rather than quietly improved.
+  //
+  // It costs nothing on a table out of dials.find_spots, where the background
+  // is zero. It would matter on one where it is not, and a pedestal does widen
+  // the measured spread -- which is what this test now pins.
   const Experiment e = simple_experiment(200.0);
   Shoebox box;
   box.panel = 0;
@@ -162,7 +167,8 @@ TEST(background_is_subtracted_before_the_spread_is_measured) {
   box.background = {20.0f, 20.0f, 20.0f};
   double pedestal = 0.0;
   spot_angular_variance(e, box, s1, &pedestal);
-  check::close(pedestal, clean, 1e-20, "the pedestal must not widen the spot");
+  check::is_true(pedestal > clean,
+                 "with the background left in, a pedestal widens the spot");
 }
 
 TEST(a_spot_with_one_count_has_no_variance_and_is_skipped) {
@@ -308,14 +314,22 @@ TEST(one_sample_per_image_not_one_per_reflection) {
   box.bbox[4] = 10;
   box.bbox[5] = 14;  // four images
   const std::uint8_t on = shoebox_mask::kValid | shoebox_mask::kForeground;
-  box.data = {5.0f, 20.0f, 20.0f, 0.0f};  // the last image has nothing
+  // The criterion is the MASK, not the counts: an image counts if the spot
+  // finder marked any pixel on it as valid foreground, whatever its value.
+  // The last image here is marked but empty, and DIALS counts it.
+  box.data = {5.0f, 20.0f, 20.0f, 0.0f};
   box.mask = {on, on, on, on};
   box.background = {0.0f, 0.0f, 0.0f, 0.0f};
 
   const double phi = Scan::radians(1.2);
   const std::vector<RangeSample> samples = range_samples(e, box, phi, 0.7);
-  check::equal(static_cast<long long>(samples.size()), 3,
-               "one per image that has counts, and no more");
+  check::equal(static_cast<long long>(samples.size()), 4,
+               "one per marked image, counts or no counts");
+
+  // An image the spot finder did not mark at all is not a sample.
+  box.mask = {on, on, on, 0};
+  check::equal(static_cast<long long>(range_samples(e, box, phi, 0.7).size()), 3,
+               "an unmarked image is not one");
   // The images are consecutive, so the gaps step by exactly one oscillation.
   check::close(samples[0].delta - samples[1].delta, Scan::radians(0.1), 1e-12,
                "consecutive images are one oscillation apart");

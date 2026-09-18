@@ -30,8 +30,7 @@ void usage(const char *program) {
       "\n"
       "  --all             use every reflection, not only the strong ones\n"
       "  --n-sigma N       width of the integration region, in sigmas (3)\n"
-      "  --max-centroid-shift N  reject a spot whose observed centroid is more\n"
-      "                    than N images from its predicted angle; 0 keeps all (5)\n",
+      "  --min-zeta Z      drop reflections whose zeta is below Z (0.05)\n",
       program);
 }
 
@@ -84,24 +83,32 @@ int main(int argc, char **argv) {
     // Strong reflections only by default, which is what the estimate is
     // defined over. Saying how many were dropped matters: a mean over a
     // different set of spots is a different number.
+    // DIALS selects the reflections used in refinement, then cuts on zeta.
+    // That is not a detail: on 1800 images of insulin it moves sigma_b from
+    // -4.2 per cent of the DIALS value to -2.9, and sigma_M from a factor of
+    // three to twenty per cent.
     const bool everything = args.has("--all");
-    const double max_shift = args.number("--max-centroid-shift", 5.0);
+    const double min_zeta = args.number("--min-zeta", 0.05);
     const Column &s = reflections.at("s1");
     const bool has_flags = reflections.has("flags");
     std::vector<Shoebox> selected;
     std::vector<Vec3> s1;
+    std::vector<std::size_t> chosen;
     for (std::size_t i = 0; i < reflections.nrows && i < boxes.size(); ++i) {
+      const Vec3 beam{s.real(i, 0), s.real(i, 1), s.real(i, 2)};
       if (!everything && has_flags &&
-          (reflections.at("flags").integer(i) & flag::kStrong) == 0) {
+          (reflections.at("flags").integer(i) & flag::kUsedInRefinement) == 0) {
         continue;
       }
+      if (std::fabs(compute_zeta(experiments[0], beam)) < min_zeta) continue;
       selected.push_back(boxes[i]);
-      s1.push_back({s.real(i, 0), s.real(i, 1), s.real(i, 2)});
+      s1.push_back(beam);
+      chosen.push_back(i);
     }
 
     std::printf("%zu reflections, %zu with shoeboxes, %zu %s\n", reflections.nrows,
                 boxes.size(), selected.size(),
-                everything ? "used" : "strong and used");
+                everything ? "used" : "used in refinement and above min-zeta");
 
     std::size_t used = 0;
     ProfileModel model;
@@ -115,13 +122,7 @@ int main(int argc, char **argv) {
     std::vector<RangeSample> samples;
     if (reflections.has("xyzcal.mm")) {
       const Column &cal = reflections.at("xyzcal.mm");
-      const Vec3 s0 = experiments[0].beam.s0();
-      const Vec3 axis = experiments[0].goniometer.lab_axis();
-      for (std::size_t i = 0; i < reflections.nrows && i < boxes.size(); ++i) {
-        if (!everything && has_flags &&
-            (reflections.at("flags").integer(i) & flag::kStrong) == 0) {
-          continue;
-        }
+      for (std::size_t i : chosen) {
         // A row with no prediction carries uninitialised xyzcal -- denormals,
         // not zeros -- and feeding those to the likelihood put the estimate
         // out by a factor of four.
@@ -135,24 +136,16 @@ int main(int argc, char **argv) {
         // Kabsch says "deviates too much" without a number. Measured here, the
         // answer is flat at 0.293 for any cut between one and ten images and
         // moves only outside that, so within the plateau this is not a knob.
-        if (max_shift > 0.0 && reflections.has("xyzobs.px.value") &&
-            reflections.has("xyzcal.px")) {
-          const double observed = reflections.at("xyzobs.px.value").real(i, 2);
-          const double predicted = reflections.at("xyzcal.px").real(i, 2);
-          if (std::fabs(observed - predicted) > max_shift) continue;
-        }
+
         const Vec3 beam{s.real(i, 0), s.real(i, 1), s.real(i, 2)};
-        const Vec3 difference = beam - s0;
-        const double length = difference.norm();
-        if (!(length > 0.0)) continue;
-        const double zeta = axis.dot(difference / length);
+        const double zeta = compute_zeta(experiments[0], beam);
         for (const RangeSample &sample :
              range_samples(experiments[0], boxes[i], cal.real(i, 2), zeta)) {
           samples.push_back(sample);
         }
       }
       model.sigma_m = reflecting_range(
-          samples, Scan::radians(experiments[0].scan.osc_width));
+          samples, Scan::radians(experiments[0].scan.osc_width), 0.0);
       std::printf("sigma_M (reflecting range) %.9f degrees, from %zu images\n",
                   model.sigma_m, samples.size());
     } else {
@@ -162,10 +155,10 @@ int main(int argc, char **argv) {
     // Said here rather than only in the documentation, because a number that
     // disagrees with DIALS and does not say so is worse than no number.
     std::printf(
-        "\nNOTE: neither number agrees with dials.integrate yet. On 1800\n"
+        "\nNOTE: neither number agrees with dials.integrate exactly. On 1800\n"
         "images of insulin it records sigma_b = 0.031698 and sigma_m =\n"
-        "0.097667, against 0.030356 here (-4.2 per cent) and 0.293 (a factor\n"
-        "of three). Both are unexplained. See docs/integration.md.\n");
+        "0.097667, against 0.030786 here (-2.9 per cent) and 0.118552\n"
+        "(+21 per cent). See docs/integration.md.\n");
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_profile: %s\n", e.what());
