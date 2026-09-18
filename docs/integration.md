@@ -59,36 +59,52 @@ for everything numerical, and none of them are here:
 
 | | for |
 | --- | --- |
-| Kabsch (2010a), Acta Cryst. D66, 133–144 | `sigma_D` and `sigma_M` estimation; profile-fitted intensity and its error |
-| Kabsch (1988b), J. Appl. Cryst. 21, 916–924 | the local reciprocal-space coordinate system |
 | Parkhurst et al. (2016) | the Poisson GLM background |
 | Leslie (1999) | summation error estimates |
 
-Kabsch (2010a) is the one that blocks the most. Writing any of it from memory
-would be exactly the kind of convention guessed rather than read that has cost
-this project five separate format bugs.
+**Kabsch (2010a) is here now**, and it carries most of what was missing:
 
-**Pixels.** This is the first stage that needs them, and this container has
-none: no image data, no HDF5, and therefore no way to build the spot finder or
-read NXmx. Everything up to here worked on reflection tables alone.
+* §2.3, the `{e1, e2, e3}` frame and the mapping of a pixel to `(eps1, eps2,
+  eps3)`, with `zeta = m2 . e1` correcting for the path length through the
+  Ewald sphere;
+* §3.1, the reflection mask `|eps1| <= delta_D/2`, `|eps2| <= delta_D/2`,
+  `|eps3| <= delta_M/2`, and the estimators: `sigma_D^2` as the mean of the
+  per-spot variances of the intensity-weighted beam directions, and `sigma_M`
+  by maximising the likelihood of the observed offsets under `R(Delta,
+  sigma_M/zeta)`;
+* §3.3, the profile grid, the `f_3j` fractions that split a frame's counts
+  between grid planes, and the 5x5 subdivision of each pixel that DIALS
+  replaces with polygon clipping;
+* §3.4, the fitted intensity `I = sum (c - b) p / v / sum p^2 / v`, with
+  `v = b + I p` iterated from `v = b`, three cycles.
 
-That splits the work in two, and the split is useful rather than merely
-unfortunate:
+**Pixels: this package had them all along and was skipping them.** A
+`strong.refl` carries a `Shoebox<>` column -- 13.6 MB of it for insulin -- and
+the reader dropped it as an undecoded type. `src/shoebox.h` now decodes it. The
+layout was derived from a real `dials.find_spots` file and checked against all
+13766 of its records:
 
-* **Needs no pixels** -- profile parameter estimation from indexed strong
-  spots, bounding boxes, the foreground and background masks, the coordinate
-  transform, the polygon clipping. All testable here against synthetic
-  shoeboxes and known geometry.
-* **Needs pixels** -- shoebox extraction, background fitting, summation,
-  reference profiles, profile fitting. Developed against synthetic shoeboxes
-  here; only ever validated by running against real images elsewhere.
+    int32          panel
+    int32 x 6      bbox as x0, x1, y0, y1, z0, z1, half open
+    uint8          a flag, 2 in every record seen
+    float32 x N    data          N = (x1-x0)(y1-y0)(z1-z0)
+    uint8  x N     mask          0 and 5, which is Valid | Foreground
+    float32 x N    background    all zero out of dials.find_spots
+
+Every bounding box agrees with the table's own `bbox` column and the records
+consume the blob to the byte: 1467208 voxels holding 14163216 counts.
+
+So the profile model can be estimated here, on real data, with no images and no
+HDF5. What still needs the images is integration proper -- the shoeboxes of the
+*predicted* reflections, which are a superset of the strong ones and are not in
+any file this package has.
 
 ## Order of work
 
-1. `sigma_D` and `sigma_M` from the indexed strong spots. No pixels, and
-   directly checkable: `dials.integrate` writes them into the `profile` block
-   of its output experiment list, so a DIALS-written `integrated.expt` is the
-   oracle.
+1. `sigma_D` and `sigma_M` from the indexed strong spots, using the shoebox
+   pixels that are already in the file. Directly checkable: `dials.integrate`
+   writes both into the `profile` block of its output experiment list, so a
+   DIALS-written `integrated.expt` is the oracle.
 2. Bounding boxes from the profile model, and the foreground mask. Checkable
    against the `bbox` column DIALS already writes.
 3. The Kabsch coordinate transform and the polygon clipping, against synthetic

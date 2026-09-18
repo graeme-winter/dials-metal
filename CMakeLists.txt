@@ -24,6 +24,7 @@ add_library(mxi
   src/refine.cc
   src/args.cc
   src/derivatives.cc
+  src/shoebox.cc
 )
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
@@ -73,6 +74,7 @@ add_executable(mxi_tests
   tests/test_derivatives.cc
   tests/test_precision.cc
   tests/test_expt_format.cc
+  tests/test_shoebox.cc
 )
 target_link_libraries(mxi_tests PRIVATE mxi)
 target_compile_options(mxi_tests PRIVATE -Wall -Wextra)
