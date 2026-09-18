@@ -101,6 +101,17 @@ any file this package has.
 
 ## sigma_D: implemented, and 4.2 per cent from DIALS
 
+To reproduce:
+
+```sh
+mxi_profile refined.expt refined.refl
+```
+
+The table has to still have its shoeboxes -- the estimate is made from the
+pixels -- which `dials.find_spots` writes and which `mxi_index` and
+`mxi_refine` now preserve. A stripped table is refused by name rather than
+silently producing a number from nothing.
+
 `src/profile_model.h`. Kabsch section 3.1, as written: for each strong spot,
 the counts-weighted variance of the angles between its foreground pixels'
 diffracted-beam directions and its own `s1`, background subtracted first; then

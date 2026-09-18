@@ -42,6 +42,10 @@ add_executable(mxi_residuals apps/mxi_residuals.cc)
 target_link_libraries(mxi_residuals PRIVATE mxi)
 target_compile_options(mxi_residuals PRIVATE -Wall -Wextra)
 
+add_executable(mxi_profile apps/mxi_profile.cc)
+target_link_libraries(mxi_profile PRIVATE mxi)
+target_compile_options(mxi_profile PRIVATE -Wall -Wextra)
+
 # The spot finder, which needs HDF5 and the bitshuffle submodule. Both are
 # checked rather than required, so that a machine with neither still configures
 # and still builds and tests everything else -- the clean-clone check has caught
