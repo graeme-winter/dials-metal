@@ -99,6 +99,45 @@ HDF5. What still needs the images is integration proper -- the shoeboxes of the
 *predicted* reflections, which are a superset of the strong ones and are not in
 any file this package has.
 
+## sigma_D: implemented, and 4.2 per cent from DIALS
+
+`src/profile_model.h`. Kabsch section 3.1, as written: for each strong spot,
+the counts-weighted variance of the angles between its foreground pixels'
+diffracted-beam directions and its own `s1`, background subtracted first; then
+`sigma_D` is the root mean of those variances.
+
+On the 1800-image insulin, over all 78618 reflections:
+
+    ours              0.030355856 degrees
+    dials.integrate   0.031697888 degrees      -4.23 per cent
+
+**That difference is not explained and the two are not interchangeable until it
+is.** What has been ruled out by measurement rather than argument:
+
+    pixel centres at +0.0 instead of +0.5      +9.08 per cent   (wrong the other way)
+    dividing by w instead of (w - 1)           -4.63
+    variance about the centroid, not s1       -15.28
+    parallax-corrected pixel directions       -15.34
+    foreground mask instead of all valid       identical, since every valid
+                                               pixel in these boxes is foreground
+
+The parallax result is the interesting one. Undoing the correction moves the
+spread 15 per cent the wrong way, which says DIALS is not doing it -- and makes
+sense: the correction describes where a ray of a given direction is recorded,
+so applying its inverse to a pixel asks where the ray came from, which is a
+different question.
+
+Four per cent is small enough to be tempting to chase by turning knobs until
+the number matches. There are enough knobs in this recipe that a wrong
+estimator could be tuned onto the right answer, so the tests plant a known
+angular spread and check it comes back, rather than checking agreement with
+DIALS. Settling the remainder needs DIALS' own source, which is not here.
+
+Candidates worth testing when it is: which reflections DIALS selects (it may
+exclude by `zeta`, by resolution, or by a minimum count); whether it weights by
+counts or by counts minus background; and whether its mask has already been
+narrowed from the spot finder's.
+
 ## Order of work
 
 1. `sigma_D` and `sigma_M` from the indexed strong spots, using the shoebox
