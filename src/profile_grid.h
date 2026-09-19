@@ -67,4 +67,38 @@ ProfileGrid make_grid(int n, double sigma_d, double sigma_m, double half_width);
 void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
                  double phi_calculated, ProfileGrid *grid, int subdivisions = 5);
 
+//: Counts-weighted second moments of one spot's density in the Kabsch frame,
+//: about its own centroid there.
+//:
+//: About the centroid, not about zero: a spot whose predicted position is a
+//: little off would otherwise report that error as width, and the question
+//: here is the SHAPE.
+struct SpotMoments {
+  bool valid = false;
+  double width1 = 0.0, width2 = 0.0, width3 = 0.0;  //: degrees
+  double counts = 0.0;
+  //: Where it sits, for binning: distance from the beam centre in millimetres,
+  //: and the angle between the incident ray and the detector normal.
+  double radius_mm = 0.0;
+  double obliquity = 0.0;  //: radians
+  double path_mm = 0.0;    //: crystal to pixel
+};
+SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1,
+                         double phi_calculated);
+
+//: The width a sensor of this thickness and absorption adds to a spot, in
+//: degrees, for a ray striking at `obliquity` and recorded `path` away.
+//:
+//: A photon entering at an angle is absorbed at a random depth, exponentially
+//: distributed and cut off at the back of the sensor, and the charge is
+//: recorded where it lands rather than where the ray entered. Projected onto
+//: the face that is a smear of `tan(obliquity) * sigma_depth` along the plane
+//: containing the ray and the normal -- the RADIAL direction -- and none at
+//: all across it.
+//:
+//: So it belongs entirely to eps2 and not at all to eps1, which is what makes
+//: it testable: the two should differ by this much and by nothing else.
+double sensor_depth_width(double mu, double thickness, double obliquity,
+                          double path);
+
 }  // namespace mxi

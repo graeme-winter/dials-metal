@@ -226,6 +226,63 @@ reached, now visible.
 `sigma_D` cannot express: the model is isotropic on the detector face and the
 spots are not.
 
+## Is the anisotropy the sensor? Apparently not, and everything here is a pixel wide
+
+    mxi_grid refined.expt refined.refl --out grids.txt --map map.txt
+    python3 docs/plot_anisotropy.py map.txt anisotropy.png 0.0253
+
+`e2` lies in the scattering plane, radially on the detector, and `e1` across
+it. A photon absorbed at a random depth in the sensor is recorded further out
+than where its ray entered, so that smear is radial: it belongs to `eps2`
+alone. That makes it testable -- the excess `w2^2 - w1^2` should equal the
+predicted smear squared and grow with obliquity as absorption says.
+
+It does not. Over 61047 spots with more than fifty counts, binned by obliquity:
+
+    obliquity     w2^2 - w1^2     predicted^2     ratio
+     2 - 11 deg     8.3e-05         4.2e-05        1.98
+    14 - 17         1.6e-04         1.1e-04        1.36
+    19 - 20         1.5e-04         1.7e-04        0.93
+    24 - 31         1.6e-04         2.5e-04        0.64
+
+The measured excess is flat at about 1.5e-4 while the prediction rises eight
+fold. At low obliquity there is twice as much anisotropy as the sensor can
+account for, and at high obliquity two thirds as much. **Whatever it is, it is
+not the depth of absorption**: that effect is real and is in there, but it has
+the wrong shape.
+
+The map of `w2/w1` across the detector face says the same thing more plainly:
+it is not radial. A sensor effect on a flat detector must be, since it depends
+only on the angle at which the ray strikes. This has large smooth patches that
+do not centre on the beam.
+
+**And the measurement sits at the sampling limit.** One pixel subtends 0.0253
+degrees at 170 mm. The measured second moments are
+
+    width1, tangential   median 0.69 pixels
+    width2, radial       median 0.84 pixels
+    sigma_b                     1.22 pixels
+    a single lit pixel          0.29 pixels
+
+So a spot is about two pixels across and its second moment is within a factor
+of three of what a single lit pixel would give on its own. At that scale a
+second moment is not a shape: it depends on where the spot centre falls within
+a pixel, and the shoebox mask truncates it. An apparent anisotropy correlated
+with position could be produced by that alone, and the non-radial map is as
+consistent with a sampling artefact as with anything physical.
+
+That caveat applies backwards as well. The earlier statement that `eps1` and
+`eps2` differ by half again, and that the profile falls to a tenth of its peak
+at 1.2 sigma, are both measurements made below the pixel scale. They are
+evidence that the model is too wide, which is corroborated independently by the
+captured fractions and by DIALS' own number; they are NOT evidence about the
+shape of the underlying spot, which this data cannot resolve.
+
+Two things worth doing before modelling any of it: repeat this on data with
+finer sampling, where the spot is several pixels across; and test the sampling
+hypothesis directly by measuring the width against the sub-pixel position of
+the spot centre, which should show nothing if the widths are real.
+
 ## Order of work
 
 1. `sigma_D` and `sigma_M` from the indexed strong spots, using the shoebox

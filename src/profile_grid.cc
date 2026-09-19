@@ -115,4 +115,93 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
   }
 }
 
+SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1,
+                         double phi_calculated) {
+  SpotMoments out;
+  if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+    return out;
+  }
+  const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
+  const KabschFrame frame = kabsch_frame(e, s1);
+  if (!frame.valid) return out;
+  const double width = Scan::radians(e.scan.osc_width);
+
+  // Two passes: the centroid, then the spread about it.
+  double sum = 0.0, m1 = 0.0, m2 = 0.0, m3 = 0.0;
+  double s11 = 0.0, s22 = 0.0, s33 = 0.0;
+  for (int pass = 0; pass < 2; ++pass) {
+    for (std::int32_t z = 0; z < box.nz(); ++z) {
+      const double image = static_cast<double>(box.bbox[4] + z) + 0.5;
+      const double phi = Scan::radians(e.scan.osc_start) +
+                         (image - static_cast<double>(e.scan.z_offset)) * width;
+      for (std::int32_t y = 0; y < box.ny(); ++y) {
+        for (std::int32_t x = 0; x < box.nx(); ++x) {
+          const std::size_t at = box.at(x, y, z);
+          if (box.mask[at] == 0) continue;
+          const double count = static_cast<double>(box.data[at]) -
+                               static_cast<double>(box.background[at]);
+          if (!(count > 0.0)) continue;
+          const Epsilon eps = epsilon_of(
+              e, frame, p, static_cast<double>(box.bbox[0] + x) + 0.5,
+              static_cast<double>(box.bbox[2] + y) + 0.5, phi, phi_calculated);
+          if (pass == 0) {
+            sum += count;
+            m1 += count * eps.e1;
+            m2 += count * eps.e2;
+            m3 += count * eps.e3;
+          } else {
+            s11 += count * (eps.e1 - m1) * (eps.e1 - m1);
+            s22 += count * (eps.e2 - m2) * (eps.e2 - m2);
+            s33 += count * (eps.e3 - m3) * (eps.e3 - m3);
+          }
+        }
+      }
+    }
+    if (pass == 0) {
+      if (!(sum > 1.0)) return out;
+      m1 /= sum;
+      m2 /= sum;
+      m3 /= sum;
+    }
+  }
+  out.valid = true;
+  out.counts = sum;
+  out.width1 = std::sqrt(s11 / sum);
+  out.width2 = std::sqrt(s22 / sum);
+  out.width3 = std::sqrt(s33 / sum);
+
+  // Where the spot sits, from its predicted direction rather than its pixels.
+  const Vec3 normal = p.fast.cross(p.slow).normalized();
+  const Vec3 direction = s1 / s1.norm();
+  out.obliquity = std::acos(std::fmin(1.0, std::fabs(direction.dot(normal))));
+  const double along = p.origin.dot(normal) / direction.dot(normal);
+  const Vec3 hit = direction * along;
+  out.path_mm = hit.norm();
+  // Distance from where the beam itself strikes.
+  const Vec3 beam = e.beam.s0() * (-1.0 / e.beam.s0().norm());
+  const double beam_along = p.origin.dot(normal) / beam.dot(normal);
+  out.radius_mm = (hit - beam * beam_along).norm();
+  return out;
+}
+
+double sensor_depth_width(double mu, double thickness, double obliquity,
+                          double path) {
+  if (!(mu > 0.0) || !(thickness > 0.0) || !(path > 0.0)) return 0.0;
+  // Depth of absorption: exponential, cut off at the back of the sensor.
+  const double transmitted = std::exp(-mu * thickness);
+  const double survive = 1.0 - transmitted;
+  if (!(survive > 0.0)) return 0.0;
+  const double mean =
+      1.0 / mu - thickness * transmitted / survive;
+  const double second =
+      (2.0 / (mu * mu) * survive -
+       (thickness * thickness + 2.0 * thickness / mu) * transmitted) /
+      survive;
+  const double variance = std::fmax(0.0, second - mean * mean);
+  const double sigma_depth = std::sqrt(variance);
+  // Projected onto the face it is tan(obliquity) * sigma_depth; seen from the
+  // crystal that subtends sin(obliquity) * sigma_depth / path.
+  return Scan::degrees(std::sin(obliquity) * sigma_depth / path);
+}
+
 }  // namespace mxi

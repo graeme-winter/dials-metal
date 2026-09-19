@@ -45,7 +45,7 @@ void usage(const char *program) {
 int main(int argc, char **argv) {
   const std::set<std::string> known = {"--out",      "--n",        "--half-width",
                                        "--neighbours", "--spots",  "--subdivisions",
-                                       "--sigma-b",  "--sigma-m"};
+                                       "--sigma-b",  "--sigma-m", "--map"};
   const Arguments args = parse_arguments(argc, argv, known, known);
   if (args.help) {
     usage(argv[0]);
@@ -196,6 +196,41 @@ int main(int argc, char **argv) {
     }
     std::fclose(out);
     std::printf("wrote %s\n", path.c_str());
+
+    // The anisotropy against position, and the sensor smear that may explain
+    // it. eps2 lies in the scattering plane -- radially on the detector --
+    // and eps1 across it, so a smear from the depth at which a photon is
+    // absorbed belongs entirely to eps2. If that is what the difference is, it
+    // must grow with obliquity in the way the absorption predicts.
+    const std::string map_path = args.value("--map", "");
+    if (!map_path.empty()) {
+      std::FILE *m = std::fopen(map_path.c_str(), "w");
+      if (m == nullptr) {
+        std::fprintf(stderr, "mxi_grid: cannot write %s\n", map_path.c_str());
+        return 1;
+      }
+      const Panel &p0 = e.detector[0];
+      std::fprintf(m,
+                   "# x_mm y_mm radius_mm obliquity_deg width1 width2 width3 "
+                   "counts predicted_smear\n");
+      const Vec3 normal = p0.fast.cross(p0.slow).normalized();
+      for (std::size_t i : chosen) {
+        const SpotMoments mom = spot_moments(
+            e, boxes[i], {s.real(i, 0), s.real(i, 1), s.real(i, 2)},
+            cal.real(i, 2));
+        if (!mom.valid) continue;
+        const double predicted =
+            sensor_depth_width(p0.mu, p0.thickness, mom.obliquity, mom.path_mm);
+        std::fprintf(m, "%.3f %.3f %.4f %.5f %.6f %.6f %.6f %.6g %.6f\n",
+                     obs.real(i, 0) * p0.pixel_size[0],
+                     obs.real(i, 1) * p0.pixel_size[1], mom.radius_mm,
+                     Scan::degrees(mom.obliquity), mom.width1, mom.width2,
+                     mom.width3, mom.counts, predicted);
+      }
+      std::fclose(m);
+      (void)normal;
+      std::printf("wrote %s\n", map_path.c_str());
+    }
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_grid: %s\n", e.what());
