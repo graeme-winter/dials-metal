@@ -336,3 +336,117 @@ TEST(one_sample_per_image_not_one_per_reflection) {
   check::close(samples[1].delta - samples[2].delta, Scan::radians(0.1), 1e-12,
                "and so are the next two");
 }
+
+// --------------------------------------------------------------------------
+// the captured fraction
+// --------------------------------------------------------------------------
+
+TEST(the_kabsch_frame_is_orthonormal_and_e1_is_perpendicular_to_both_beams) {
+  // e1 = s1 x s0 is the axis about which the point would cross the Ewald
+  // sphere by the shortest route, so it is perpendicular to both beams. Using
+  // the difference s1 - s0 instead, which is what this did, gives a vector
+  // that is not, and put sigma_M out by fifty per cent.
+  const Experiment e = simple_experiment(200.0);
+  const Vec3 s1 = ray_through(e, 620.0, 540.0) * (1.0 / e.beam.wavelength);
+  const KabschFrame f = kabsch_frame(e, s1);
+  check::is_true(f.valid, "a frame exists");
+  check::close(f.e1.norm(), 1.0, 1e-12, "e1 is a unit vector");
+  check::close(f.e2.norm(), 1.0, 1e-12, "e2 is a unit vector");
+  check::close(f.e3.norm(), 1.0, 1e-12, "e3 is a unit vector");
+  check::close(f.e1.dot(s1), 0.0, 1e-12, "e1 is perpendicular to s1");
+  check::close(f.e1.dot(e.beam.s0()), 0.0, 1e-12, "and to s0");
+  check::close(f.e1.dot(f.e2), 0.0, 1e-12, "e1 and e2 are orthogonal");
+}
+
+TEST(a_pixel_on_the_beam_sits_at_the_origin_of_the_frame) {
+  const Experiment e = simple_experiment(200.0);
+  const Vec3 s1 = ray_through(e, 620.5, 540.5) * (1.0 / e.beam.wavelength);
+  const KabschFrame f = kabsch_frame(e, s1);
+  const Epsilon eps =
+      epsilon_of(e, f, e.detector[0], 620.5, 540.5, Scan::radians(1.0),
+                 Scan::radians(1.0));
+  check::close(eps.e1, 0.0, 1e-12, "eps1 is zero at the reflection");
+  check::close(eps.e2, 0.0, 1e-12, "eps2 too");
+  check::close(eps.e3, 0.0, 1e-12, "and eps3 when the image is at the angle");
+}
+
+TEST(eps3_is_the_rotation_offset_scaled_by_zeta) {
+  // Not the offset itself. The scaling is what makes a reflection near the
+  // rotation axis, which sweeps through the sphere slowly, comparable with one
+  // far from it.
+  const Experiment e = simple_experiment(200.0);
+  const Vec3 s1 = ray_through(e, 620.0, 540.0) * (1.0 / e.beam.wavelength);
+  const KabschFrame f = kabsch_frame(e, s1);
+  const double phi = Scan::radians(1.0);
+  const double offset = Scan::radians(0.03);
+  const Epsilon eps = epsilon_of(e, f, e.detector[0], 620.0, 540.0, phi + offset, phi);
+  check::close(eps.e3, Scan::degrees(f.zeta * offset), 1e-12, "zeta times the offset");
+  check::is_true(std::abs(f.zeta) < 1.0, "and zeta is less than one here");
+}
+
+TEST(the_captured_fraction_counts_what_is_inside) {
+  // Two images, one inside a sigma and one outside, so the answer is known
+  // without any distributional argument: a half at one sigma and all of it at
+  // two.
+  Experiment e = simple_experiment(200.0);
+  e.scan.osc_width = 0.05;
+  const Vec3 s1 = ray_through(e, 620.5, 540.5) * (1.0 / e.beam.wavelength);
+  const KabschFrame f = kabsch_frame(e, s1);
+
+  Shoebox box;
+  box.panel = 0;
+  box.bbox[0] = 620;
+  box.bbox[1] = 621;
+  box.bbox[2] = 540;
+  box.bbox[3] = 541;
+  box.bbox[4] = 20;
+  box.bbox[5] = 22;
+  const std::uint8_t on = shoebox_mask::kValid | shoebox_mask::kForeground;
+  box.data = {10.0f, 10.0f};
+  box.mask = {on, on};
+  box.background = {0.0f, 0.0f};
+
+  // Put the Bragg angle at the centre of the first image, so the second is one
+  // oscillation away.
+  const double width = Scan::radians(e.scan.osc_width);
+  const double phi = Scan::radians(e.scan.osc_start) + 20.5 * width;
+  const double step = Scan::degrees(std::abs(f.zeta) * width);
+
+  // A sigma_M just over the step puts both inside; just under puts one in.
+  const double generous = 1e6;  // sigma_D large enough that the detector never cuts
+  const Capture wide = capture_fractions(e, {box}, {s1}, {phi}, generous, step * 1.01);
+  check::close(wide.rotation[0], 1.0, 1e-12, "both images inside one sigma");
+
+  const Capture narrow = capture_fractions(e, {box}, {s1}, {phi}, generous, step * 0.99);
+  check::close(narrow.rotation[0], 0.5, 1e-12, "only the nearer one");
+  check::close(narrow.rotation[1], 1.0, 1e-12, "and both by two sigma");
+}
+
+TEST(the_detector_and_rotation_directions_are_reported_apart) {
+  // Which sigma is wrong cannot be read off the combined number: a spot too
+  // concentrated on the detector and too spread in rotation would look
+  // correct. This checks a cut in one direction does not move the other.
+  Experiment e = simple_experiment(200.0);
+  e.scan.osc_width = 0.05;
+  const Vec3 s1 = ray_through(e, 620.5, 540.5) * (1.0 / e.beam.wavelength);
+  Shoebox box;
+  box.panel = 0;
+  box.bbox[0] = 619;
+  box.bbox[1] = 622;
+  box.bbox[2] = 540;
+  box.bbox[3] = 541;
+  box.bbox[4] = 20;
+  box.bbox[5] = 21;
+  const std::uint8_t on = shoebox_mask::kValid | shoebox_mask::kForeground;
+  box.data = {10.0f, 10.0f, 10.0f};
+  box.mask = {on, on, on};
+  box.background = {0.0f, 0.0f, 0.0f};
+  const double phi = Scan::radians(e.scan.osc_start) + 20.5 * Scan::radians(0.05);
+
+  // Rotation wide open, detector tight: the rotation fraction must stay one.
+  const Capture c = capture_fractions(e, {box}, {s1}, {phi}, 1e-6, 1e6);
+  check::close(c.rotation[0], 1.0, 1e-12, "the rotation direction is untouched");
+  check::is_true(c.detector[0] < 1.0, "while the detector direction cuts");
+  check::close(c.fraction[0], c.detector[0], 1e-12,
+               "and the combined figure follows the one that cuts");
+}

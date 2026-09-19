@@ -148,6 +148,48 @@ against DIALS: a known angular spread comes back exactly, and samples drawn
 from the reflecting-range model with a known sigma come back within five per
 cent at 0.05, 0.1 and 0.3 degrees.
 
+## Is the model any good? Ask the data, not DIALS
+
+The Gaussian is supposed to hold essentially all of a spot's density by three
+sigma. So measure it: over the flagged shoeboxes, what fraction of the counts
+lies within n sigma, for n from one to four, in the detector directions and the
+rotation direction separately.
+
+    mxi_profile --compare --compare-sigma-b 0.031698 --compare-sigma-m 0.097667 \
+                refined.expt refined.refl
+
+On 1800 images of insulin, 70425 spots. A one-dimensional Gaussian holds
+0.6827, 0.9545, 0.9973; two independent directions hold the square of that,
+0.466, 0.911, 0.995.
+
+                          1       2       3       4
+    ours     detector  0.7578  0.9768  0.9990  1.0000
+    ours     rotation  0.8653  0.9848  0.9988  0.9999
+    DIALS    detector  0.7726  0.9801  0.9993  1.0000
+    DIALS    rotation  0.8017  0.9668  0.9952  0.9995
+
+**Both models hold by three sigma**, which is the first thing the test was for
+and both pass: 0.999 against an expected 0.995 on the detector, 0.999 and 0.995
+in rotation.
+
+**The rotation direction says DIALS is right and we are not.** A correct sigma
+would hold 0.6827 at one sigma. DIALS holds 0.8017 and this holds 0.8653 -- both
+too concentrated, meaning both sigmas are larger than a Gaussian fitted to the
+core, and ours is the further out. That is the same +21 per cent seen against
+DIALS' number, now confirmed against the data rather than against DIALS.
+
+**The detector direction says ours is marginally better**, 0.7578 against
+0.7726 where 0.466 is expected, which matches being 2.9 per cent smaller.
+
+Two things this does not say. The expected fractions assume the spot really is
+Gaussian, and 0.76 where 0.47 is expected is far too large to be a small
+sigma error: the real profile is much more peaked than a Gaussian, which is
+why profile fitting uses learned reference profiles rather than the analytic
+form. And the shoeboxes are the spot finder's, cut at its threshold, so the
+density outside the box is not in the denominator at all and every fraction
+here is an overestimate. Neither affects the comparison between the two sets of
+sigmas, which is over identical pixels.
+
 ## Order of work
 
 1. `sigma_D` and `sigma_M` from the indexed strong spots, using the shoebox

@@ -94,6 +94,64 @@ double compute_zeta(const Experiment &e, const Vec3 &s1);
 double reflecting_range(const std::vector<RangeSample> &samples, double oscillation,
                         double min_zeta = 0.05);
 
+// --------------------------------------------------------------------------
+// The per-reflection frame, and what fraction of a spot it captures
+// --------------------------------------------------------------------------
+
+//: Kabsch section 2.3. The frame in which every reflection looks the same,
+//: whatever its path through the Ewald sphere and however obliquely it struck
+//: the detector.
+//:
+//:     e1 = s1 x s0,  normalised    the axis of the shortest crossing
+//:     e2 = s1 x e1,  normalised
+//:     e3 = s1 + s0,  normalised
+struct KabschFrame {
+  bool valid = false;
+  Vec3 e1, e2, e3;
+  Vec3 s1;
+  double zeta = 0.0;
+};
+KabschFrame kabsch_frame(const Experiment &e, const Vec3 &s1);
+
+//: Where a pixel sits in that frame, in DEGREES, as Kabsch writes it.
+//:
+//: eps1 and eps2 are the angular offsets on the Ewald sphere, so they are
+//: compared against sigma_D; eps3 is the rotation offset scaled by zeta, and
+//: is compared against sigma_M.
+struct Epsilon {
+  double e1 = 0.0, e2 = 0.0, e3 = 0.0;
+};
+Epsilon epsilon_of(const Experiment &e, const KabschFrame &frame, const Panel &p,
+                   double px_fast, double px_slow, double phi_image,
+                   double phi_calculated);
+
+//: What fraction of a spot's counts lie within `n` sigma, for n = 1 .. 4.
+//:
+//: The test this exists for: a Gaussian taken to three sigma holds essentially
+//: all of its density. If one sigma already holds it, the sigmas are too
+//: large; if three sigma holds only part of it, they are too small. It
+//: measures the model against the data, and needs no agreement with anyone.
+struct Capture {
+  //: Fraction of counts inside n sigma in every direction at once, indexed 0
+  //: to 3 for n = 1 to 4.
+  double fraction[4] = {0.0, 0.0, 0.0, 0.0};
+  //: The two directions separately, which is what says WHICH sigma is wrong.
+  //: `detector` cuts on eps1 and eps2 against sigma_D and ignores eps3;
+  //: `rotation` cuts on eps3 against sigma_M and ignores the other two.
+  double detector[4] = {0.0, 0.0, 0.0, 0.0};
+  double rotation[4] = {0.0, 0.0, 0.0, 0.0};
+  //: Counts inside the shoebox at all. The boxes a spot finder writes are
+  //: small, so at three or four sigma the box truncates the spot before the
+  //: model does, and a fraction near one may mean the box ran out rather than
+  //: the model succeeded. Reported so that cannot be mistaken.
+  double counts = 0.0;
+  std::size_t n_spots = 0;
+};
+Capture capture_fractions(const Experiment &e, const std::vector<Shoebox> &boxes,
+                          const std::vector<Vec3> &s1,
+                          const std::vector<double> &phi_calculated,
+                          double sigma_d, double sigma_m);
+
 //: sigma_D as the root mean of those variances, over the reflections given.
 //:
 //: Kabsch section 3.1: "determine the centroid and variance s^2 of the
