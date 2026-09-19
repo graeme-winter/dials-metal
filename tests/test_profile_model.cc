@@ -450,3 +450,117 @@ TEST(the_detector_and_rotation_directions_are_reported_apart) {
   check::close(c.fraction[0], c.detector[0], 1e-12,
                "and the combined figure follows the one that cuts");
 }
+
+// --------------------------------------------------------------------------
+// the Kabsch-space grid
+// --------------------------------------------------------------------------
+
+#include "../src/profile_grid.h"
+
+TEST(a_spot_on_its_own_beam_lands_in_the_middle_of_the_grid) {
+  Experiment e = simple_experiment(200.0);
+  e.scan.osc_width = 0.05;
+  const Vec3 s1 = ray_through(e, 620.5, 540.5) * (1.0 / e.beam.wavelength);
+
+  Shoebox box;
+  box.panel = 0;
+  box.bbox[0] = 620;
+  box.bbox[1] = 621;
+  box.bbox[2] = 540;
+  box.bbox[3] = 541;
+  box.bbox[4] = 20;
+  box.bbox[5] = 21;
+  box.data = {100.0f};
+  box.mask = {shoebox_mask::kValid | shoebox_mask::kForeground};
+  box.background = {0.0f};
+
+  // The Bragg angle at the centre of that image, so eps3 is zero there too.
+  const double phi =
+      Scan::radians(e.scan.osc_start) + 20.5 * Scan::radians(e.scan.osc_width);
+  ProfileGrid grid = make_grid(4, 0.03, 0.12, 3.0);
+  add_to_grid(e, box, s1, phi, &grid, 5);
+
+  const int middle = grid.n;
+  double inside = 0.0;
+  for (double v : grid.value) inside += v;
+  check::is_true(inside > 0.0, "something landed");
+  // The middle cell must hold the most.
+  double best = 0.0;
+  std::size_t best_at = 0;
+  for (std::size_t i = 0; i < grid.value.size(); ++i) {
+    if (grid.value[i] > best) {
+      best = grid.value[i];
+      best_at = i;
+    }
+  }
+  check::equal(static_cast<long long>(best_at),
+               static_cast<long long>(grid.at(middle, middle, middle)),
+               "and the middle cell holds the most of it");
+}
+
+TEST(the_transform_conserves_counts) {
+  // Whatever the subdivision, the counts put in must come out: the
+  // subdivisions share a pixel's signal between them, they do not multiply it.
+  // A transform that quietly gained or lost intensity would make every profile
+  // wrong in a way that looked like a shape.
+  Experiment e = simple_experiment(200.0);
+  e.scan.osc_width = 0.05;
+  const Vec3 s1 = ray_through(e, 620.5, 540.5) * (1.0 / e.beam.wavelength);
+  Shoebox box;
+  box.panel = 0;
+  box.bbox[0] = 619;
+  box.bbox[1] = 622;
+  box.bbox[2] = 539;
+  box.bbox[3] = 542;
+  box.bbox[4] = 20;
+  box.bbox[5] = 22;
+  const std::uint8_t on = shoebox_mask::kValid | shoebox_mask::kForeground;
+  const std::size_t n = box.size();
+  for (std::size_t i = 0; i < n; ++i) {
+    box.data.push_back(static_cast<float>(10 + (i % 5)));
+    box.mask.push_back(on);
+    box.background.push_back(0.0f);
+  }
+  double total = 0.0;
+  for (float v : box.data) total += v;
+  const double phi =
+      Scan::radians(e.scan.osc_start) + 21.0 * Scan::radians(e.scan.osc_width);
+
+  for (int subdivisions : {1, 3, 5}) {
+    ProfileGrid grid = make_grid(6, 0.03, 0.12, 4.0);
+    add_to_grid(e, box, s1, phi, &grid, subdivisions);
+    check::close(grid.counts_added, total, 1e-9 * total,
+                 "the counts offered are the counts in the box");
+    double landed = 0.0;
+    for (double v : grid.value) landed += v;
+    check::close(landed + grid.counts_outside, total, 1e-6 * total,
+                 "and what landed plus what fell outside is all of it");
+  }
+}
+
+TEST(a_grid_normalises_to_one) {
+  Experiment e = simple_experiment(200.0);
+  e.scan.osc_width = 0.05;
+  const Vec3 s1 = ray_through(e, 620.5, 540.5) * (1.0 / e.beam.wavelength);
+  Shoebox box;
+  box.panel = 0;
+  box.bbox[0] = 620;
+  box.bbox[1] = 622;
+  box.bbox[2] = 540;
+  box.bbox[3] = 542;
+  box.bbox[4] = 20;
+  box.bbox[5] = 21;
+  const std::uint8_t on = shoebox_mask::kValid | shoebox_mask::kForeground;
+  box.data = {7.0f, 3.0f, 2.0f, 9.0f};
+  box.mask = {on, on, on, on};
+  box.background = {0.0f, 0.0f, 0.0f, 0.0f};
+  const double phi =
+      Scan::radians(e.scan.osc_start) + 20.5 * Scan::radians(e.scan.osc_width);
+
+  ProfileGrid grid = make_grid(4, 0.03, 0.12, 3.0);
+  add_to_grid(e, box, s1, phi, &grid, 5);
+  grid.normalise();
+  double total = 0.0;
+  for (double v : grid.value) total += v;
+  check::close(total, 1.0, 1e-12, "so grids of different sizes compare");
+}

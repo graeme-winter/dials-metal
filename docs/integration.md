@@ -190,6 +190,42 @@ density outside the box is not in the denominator at all and every fraction
 here is an overestimate. Neither affects the comparison between the two sets of
 sigmas, which is over identical pixels.
 
+## Looking at the spots
+
+    mxi_grid  refined.expt refined.refl --out grids.txt --n 5 --neighbours 300
+    python3   docs/plot_grid.py grids.txt kabsch.png
+
+Each strong spot's density on a grid in `(eps1, eps2, eps3)`, beside the
+average of the spots nearest it on the detector, beside the average of all of
+them. A single spot is a handful of pixels across and its grid is coarse and
+noisy; the reference is what says whether a feature belongs to the spot or to
+the sampling.
+
+Two departures from Kabsch section 3.3, both because this measures the data
+rather than applies the model. A pixel is subdivided in the detector plane and
+its counts shared between the subdivisions, five ways per axis as Kabsch does,
+because the data are badly undersampled and assigning a whole pixel to one grid
+point turns the result into a staircase -- `--subdivisions 1` shows that. And
+along `e3` an image's counts are shared between grid planes by the plain
+geometric overlap of its angular range with theirs, NOT by the Gaussian weights
+of Kabsch's `f_3j`: placing the counts with the model would beg the question
+the picture is asked to answer.
+
+The picture as a number. The average profile falls to a tenth of its peak at
+
+    eps1   1.20 sigma_b        a Gaussian falls to a tenth at 2.146 sigma
+    eps2   1.80 sigma_b
+    eps3   1.20 sigma_m
+
+So the spots are far narrower than the model that is supposed to describe
+them, in every direction, and `eps3` worst -- which is the same conclusion the
+captured-fraction test reached and the same one the comparison with DIALS
+reached, now visible.
+
+`eps1` and `eps2` differ from each other by half again, which a single
+`sigma_D` cannot express: the model is isotropic on the detector face and the
+spots are not.
+
 ## Order of work
 
 1. `sigma_D` and `sigma_M` from the indexed strong spots, using the shoebox

@@ -26,6 +26,7 @@ add_library(mxi
   src/derivatives.cc
   src/shoebox.cc
   src/profile_model.cc
+  src/profile_grid.cc
 )
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
@@ -45,6 +46,10 @@ target_compile_options(mxi_residuals PRIVATE -Wall -Wextra)
 add_executable(mxi_profile apps/mxi_profile.cc)
 target_link_libraries(mxi_profile PRIVATE mxi)
 target_compile_options(mxi_profile PRIVATE -Wall -Wextra)
+
+add_executable(mxi_grid apps/mxi_grid.cc)
+target_link_libraries(mxi_grid PRIVATE mxi)
+target_compile_options(mxi_grid PRIVATE -Wall -Wextra)
 
 # The spot finder, which needs HDF5 and the bitshuffle submodule. Both are
 # checked rather than required, so that a machine with neither still configures
