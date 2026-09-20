@@ -1,9 +1,26 @@
 # The spot finder in this tree
 
-`spotfinder/` came in by `git subtree` with its history, and for a while sat
-beside this project rather than in it: its own repository-level files, its own
-JSON parser, its own reflection-table writer, and its tests invisible to the
-top-level `ctest`.
+It came in by `git subtree` with its history and sat beside this project rather
+than in it: its own repository-level files, its own project() and C++ standard,
+its own JSON parser, its own reflection-table writer, and its tests invisible to
+the top-level `ctest`.
+
+## Where it is now
+
+    src/spots/          its sources, beside src/ rather than under a project
+    tests/spots/        its tests, run by the same ctest
+    cmake/spots.cmake   its build, included by the top-level CMakeLists
+    third_party/        the bitshuffle submodule
+    vcpkg.json          at the root, checked against project() as before
+
+There is one `project()`, one C++ standard and one build type, all the
+parent's. The build is `include()`d rather than `add_subdirectory()`d, because
+a subdirectory that is not a project has no reason to be one.
+
+It is still guarded: the top-level decides whether HDF5 and the submodule are
+both present before including anything, because the spot finder's build calls
+`find_package(HDF5 REQUIRED)` and that would abort the whole configure rather
+than skip one part.
 
 ## What is shared now
 

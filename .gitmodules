@@ -6,5 +6,5 @@
 # have left the submodule silently uninitialised. That file has been removed; if
 # the subtree is ever split back out, it needs restoring.
 [submodule "spotfinder/third_party/bitshuffle"]
-	path = spotfinder/third_party/bitshuffle
+	path = third_party/bitshuffle
 	url = https://github.com/kiyo-masui/bitshuffle.git

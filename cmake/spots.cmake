@@ -1,11 +1,15 @@
-cmake_minimum_required(VERSION 3.16)
-project(dials-metal-spotfinder VERSION 0.1.0 LANGUAGES C CXX)  # C for bitshuffle and lz4
+# The spot finder, included from the top-level CMakeLists once it has decided
+# that HDF5 and the bitshuffle submodule are both present.
+#
+# This was a standalone project with its own cmake_minimum_required, project()
+# and language settings. Those are the parent's now: one project, one C++
+# standard, one build type. What is kept is the version check against
+# vcpkg.json, because vcpkg reads that file before CMake runs and the two would
+# otherwise drift -- "which build is this?" is the first question asked in an
+# incident, and a quietly wrong answer is worse than none.
 
-# The version lives in project() above and nowhere else. vcpkg.json has to carry
-# its own copy because vcpkg reads it before CMake runs, so the two are checked
-# against each other here rather than left to drift -- "which build is this?" is
-# the first question asked in an incident, and an answer that is quietly wrong is
-# worse than none.
+enable_language(C)  # bitshuffle and lz4
+
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json" spotfinder_manifest)
 string(REGEX MATCH "\"version-string\"[ \t]*:[ \t]*\"([^\"]+)\""
        spotfinder_manifest_version "${spotfinder_manifest}")
@@ -15,11 +19,6 @@ if(NOT CMAKE_MATCH_1 STREQUAL PROJECT_VERSION)
             "${PROJECT_VERSION}; make them agree")
 endif()
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
-endif()
 
 # Fast math on the device, for measuring what it costs and what it buys. Off,
 # because the whole claim the device backends make is that they agree with
@@ -140,10 +139,10 @@ if(SPOTFINDER_METAL)
         OUTPUT ${spotfinder_metal_air}
         COMMAND ${SPOTFINDER_XCRUN} -sdk macosx metal
                 -std=metal3.0 ${spotfinder_metal_math} -Wall -Werror
-                -c "${CMAKE_CURRENT_SOURCE_DIR}/src/dext_metal.metal"
+                -c "${CMAKE_CURRENT_SOURCE_DIR}/src/spots/dext_metal.metal"
                 -o ${spotfinder_metal_air}
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/dext_metal.metal"
-        COMMENT "Compiling src/dext_metal.metal")
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/spots/dext_metal.metal"
+        COMMENT "Compiling src/spots/dext_metal.metal")
 
     add_custom_command(
         OUTPUT ${spotfinder_metallib}
@@ -328,7 +327,7 @@ endif()
 # Where frames come from: an NXmx master file whose virtual dataset is unpacked
 # so its chunks can be read directly. HDF5 stays behind this library rather than
 # reaching the tool.
-add_library(spotfinder_series STATIC src/nxmx.cc)
+add_library(spotfinder_series STATIC src/spots/nxmx.cc)
 target_include_directories(spotfinder_series PUBLIC src)
 target_include_directories(spotfinder_series SYSTEM PRIVATE ${HDF5_C_INCLUDE_DIRS})
 target_link_libraries(spotfinder_series
@@ -337,27 +336,27 @@ target_compile_definitions(spotfinder_series PRIVATE
     $<$<BOOL:${SPOTFINDER_H5DREAD_CHUNK_TAKES_SIZE}>:SPOTFINDER_H5DREAD_CHUNK_TAKES_SIZE>)
 
 # bitshuffle+LZ4, plain LZ4 and uncompressed chunks.
-add_library(spotfinder_decompress STATIC src/decompress.cc)
+add_library(spotfinder_decompress STATIC src/spots/decompress.cc)
 target_include_directories(spotfinder_decompress PUBLIC src)
 target_link_libraries(spotfinder_decompress PRIVATE bitshuffle spotfinder_warnings)
 
 # The extended dispersion threshold, explicitly instantiated for 16 and 32 bit
 # pixels.
-add_library(spotfinder_dext STATIC src/dext.cc)
+add_library(spotfinder_dext STATIC src/spots/dext.cc)
 target_include_directories(spotfinder_dext PUBLIC src)
 target_link_libraries(spotfinder_dext PRIVATE spotfinder_warnings)
 
 # Ordering a device's signal pixels by index. Host code, shared by both device
 # backends, and its own library because it is worth testing on a machine with no
 # GPU at all -- which is where it was written and where its bug was found.
-add_library(spotfinder_signal_order STATIC src/signal_order.cc)
+add_library(spotfinder_signal_order STATIC src/spots/signal_order.cc)
 target_include_directories(spotfinder_signal_order PUBLIC src)
 target_link_libraries(spotfinder_signal_order PRIVATE spotfinder_warnings)
 
 # The backend-agnostic half of gpu::: which window each stage uses, whether to
 # profile, and the last frame's split. Plain C++ with no toolkit in it, so it
 # builds whether the backend is CUDA or Metal and is compiled once either way.
-add_library(spotfinder_dext_gpu STATIC src/dext_gpu.cc)
+add_library(spotfinder_dext_gpu STATIC src/spots/dext_gpu.cc)
 target_include_directories(spotfinder_dext_gpu PUBLIC src)
 target_link_libraries(spotfinder_dext_gpu PRIVATE spotfinder_warnings)
 
@@ -365,7 +364,7 @@ target_link_libraries(spotfinder_dext_gpu PRIVATE spotfinder_warnings)
 # its centroids and its filters. No Boost: the streaming flush renumbers
 # components as it compacts, and a union-find it owns is both smaller than
 # adjacency_list and the reason the whole sweep need not be held in memory.
-add_library(spotfinder_dials_spots STATIC src/dials_spots.cc)
+add_library(spotfinder_dials_spots STATIC src/spots/dials_spots.cc)
 target_include_directories(spotfinder_dials_spots PUBLIC src)
 target_link_libraries(spotfinder_dials_spots PRIVATE spotfinder_warnings)
 
@@ -373,7 +372,7 @@ target_link_libraries(spotfinder_dials_spots PRIVATE spotfinder_warnings)
 # so this needs neither DIALS nor a msgpack library; what it does need is the
 # column type names to be exactly right, since DIALS refuses a name it does not
 # know.
-add_library(spotfinder_refl STATIC src/refl.cc)
+add_library(spotfinder_refl STATIC src/spots/refl.cc)
 target_include_directories(spotfinder_refl PUBLIC src)
 target_link_libraries(spotfinder_refl
     PUBLIC spotfinder_dials_spots
@@ -383,18 +382,18 @@ target_link_libraries(spotfinder_refl
 # The experiment reader parses JSON with the shared parser rather than a second
 # copy of one. It does NOT use the shared experiment reader: that one refuses a
 # scan without an oscillation, and the spot finder does not need one.
-add_library(spotfinder_expt STATIC src/expt.cc)
+add_library(spotfinder_expt STATIC src/spots/expt.cc)
 target_include_directories(spotfinder_expt PUBLIC src)
 target_link_libraries(spotfinder_expt PRIVATE spotfinder_warnings)
 if(TARGET mxi)
   target_link_libraries(spotfinder_expt PRIVATE mxi)
 else()
   # Standalone: compile the one file it needs from the parent tree.
-  target_sources(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src/json.cc)
-  target_include_directories(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+  target_sources(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/json.cc)
+  target_include_directories(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
-add_executable(dials-metal-find-spots src/find_spots.cc)
+add_executable(dials-metal-find-spots src/spots/find_spots.cc)
 target_compile_definitions(dials-metal-find-spots PRIVATE
                            SPOTFINDER_VERSION="${PROJECT_VERSION}")
 target_link_libraries(dials-metal-find-spots
@@ -405,7 +404,7 @@ target_link_libraries(dials-metal-find-spots
 # The kernels go into the executable rather than a library of their own, so that
 # adding more .cu files is a one-line change here.
 if(SPOTFINDER_CUDA)
-    target_sources(dials-metal-find-spots PRIVATE src/dext_cuda.cu)
+    target_sources(dials-metal-find-spots PRIVATE src/spots/dext_cuda.cu)
     target_compile_definitions(dials-metal-find-spots PRIVATE
                                SPOTFINDER_CUDA SPOTFINDER_GPU
                                ${spotfinder_gpu_definitions})
@@ -421,15 +420,15 @@ if(SPOTFINDER_CUDA)
 endif()
 
 # Metal, unlike CUDA, goes into a library of its own rather than sources hung on
-# the executable, because tests/test_dext_gpu.cc has to link it too: a backend
+# the executable, because tests/spots/test_dext_gpu.cc has to link it too: a backend
 # only reachable through the tool cannot be diffed against the CPU without a
 # detector and a series.
 if(SPOTFINDER_METAL)
     add_library(spotfinder_dext_metal STATIC
-                src/dext_metal.cc ${spotfinder_metallib_cc})
+                src/spots/dext_metal.cc ${spotfinder_metallib_cc})
     target_include_directories(spotfinder_dext_metal PUBLIC src)
     # SYSTEM: metal-cpp is not clean under -Wall -Wextra and it is not ours to
-    # fix. The warnings that matter are the ones in src/.
+    # fix. The warnings that matter are the ones in src/spots/.
     target_include_directories(spotfinder_dext_metal SYSTEM PUBLIC
                                ${METAL_CPP_INCLUDE_DIR})
     target_link_libraries(spotfinder_dext_metal
@@ -450,14 +449,14 @@ if(SPOTFINDER_TESTS)
     # Not a regression: it pins the domain the 32-bit window sums are exact over,
     # and fails if a change to the kernel size or to the masking eats the
     # headroom.
-    add_executable(test_dext_squares tests/test_dext_squares.cc)
+    add_executable(test_dext_squares tests/spots/test_dext_squares.cc)
     target_link_libraries(test_dext_squares
         PRIVATE spotfinder_dext spotfinder_warnings)
     add_test(NAME dext_squares COMMAND test_dext_squares)
 
     # No GPU needed: the ordering is host code, and this is where its heap
     # overflow was caught.
-    add_executable(test_signal_order tests/test_signal_order.cc)
+    add_executable(test_signal_order tests/spots/test_signal_order.cc)
     target_link_libraries(test_signal_order
         PRIVATE spotfinder_signal_order spotfinder_warnings)
     add_test(NAME signal_order COMMAND test_signal_order)
@@ -466,7 +465,7 @@ if(SPOTFINDER_TESTS)
     # of them together over planted frames. None of these needs a GPU, a server
     # or a detector, which is deliberate -- they are the tests that say whether
     # what dials.index is handed means what it says.
-    add_executable(test_dials_spots tests/test_dials_spots.cc)
+    add_executable(test_dials_spots tests/spots/test_dials_spots.cc)
     target_link_libraries(test_dials_spots
         PRIVATE spotfinder_dials_spots spotfinder_warnings)
     add_test(NAME dials_spots COMMAND test_dials_spots)
@@ -475,29 +474,29 @@ if(SPOTFINDER_TESTS)
     # here because the grouping looks like the expensive stage -- it is the one
     # that cannot be spread over threads -- and at the density a real frame has
     # it is a tenth of a per cent of one. The numbers are in its header.
-    add_executable(bench_dials_spots tests/bench_dials_spots.cc)
+    add_executable(bench_dials_spots tests/spots/bench_dials_spots.cc)
     target_link_libraries(bench_dials_spots
         PRIVATE spotfinder_dials_spots spotfinder_warnings)
 
-    add_executable(test_refl tests/test_refl.cc)
+    add_executable(test_refl tests/spots/test_refl.cc)
     target_link_libraries(test_refl PRIVATE spotfinder_refl spotfinder_warnings)
     add_test(NAME refl COMMAND test_refl)
 
     # Holds the writer's output to what it produces today, so that replacing it
     # with the general writer in ../src/refl.cc can be shown to change nothing.
     # See docs/spotfinder.md: this must not be weakened to pass.
-    add_executable(test_refl_golden tests/test_refl_golden.cc)
+    add_executable(test_refl_golden tests/spots/test_refl_golden.cc)
     # spotfinder_refl links spotfinder_dials_spots PUBLIC, so naming it here
     # too puts the archive on the link line twice and ld warns about it.
     target_link_libraries(test_refl_golden
                           PRIVATE spotfinder_refl spotfinder_warnings)
     add_test(NAME refl_golden COMMAND test_refl_golden)
 
-    add_executable(test_expt tests/test_expt.cc)
+    add_executable(test_expt tests/spots/test_expt.cc)
     target_link_libraries(test_expt PRIVATE spotfinder_expt spotfinder_warnings)
     add_test(NAME expt COMMAND test_expt)
 
-    add_executable(test_dials_end_to_end tests/test_dials_end_to_end.cc)
+    add_executable(test_dials_end_to_end tests/spots/test_dials_end_to_end.cc)
     target_link_libraries(test_dials_end_to_end
         PRIVATE spotfinder_dext spotfinder_refl spotfinder_warnings)
     add_test(NAME dials_end_to_end COMMAND test_dials_end_to_end)
@@ -514,10 +513,10 @@ if(SPOTFINDER_TESTS)
             list(APPEND spotfinder_gpu_test_libs spotfinder_dext_metal)
             set(spotfinder_gpu_test_sources "")
         else()
-            set(spotfinder_gpu_test_sources src/dext_cuda.cu)
+            set(spotfinder_gpu_test_sources src/spots/dext_cuda.cu)
         endif()
 
-        add_executable(test_dext_gpu tests/test_dext_gpu.cc
+        add_executable(test_dext_gpu tests/spots/test_dext_gpu.cc
                        ${spotfinder_gpu_test_sources})
         target_include_directories(test_dext_gpu PRIVATE tests)
         target_link_libraries(test_dext_gpu PRIVATE ${spotfinder_gpu_test_libs})
@@ -530,7 +529,7 @@ if(SPOTFINDER_TESTS)
         # Which window is faster is a question about the hardware, so it is
         # answered by measurement. Not a ctest: it takes minutes and its output
         # is a number to read, not a pass or a fail.
-        add_executable(bench_dext_gpu tests/bench_dext_gpu.cc
+        add_executable(bench_dext_gpu tests/spots/bench_dext_gpu.cc
                        ${spotfinder_gpu_test_sources})
         target_include_directories(bench_dext_gpu PRIVATE tests)
         target_link_libraries(bench_dext_gpu

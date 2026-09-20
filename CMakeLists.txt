@@ -79,7 +79,7 @@ target_compile_options(mxi_grid PRIVATE -Wall -Wextra)
 enable_testing()
 
 find_package(HDF5 QUIET COMPONENTS C)
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/spotfinder/third_party/bitshuffle/LICENSE")
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/bitshuffle/LICENSE")
     message(STATUS
             "spotfinder: bitshuffle submodule not checked out, skipping. "
             "git submodule update --init --recursive")
@@ -87,7 +87,7 @@ elseif(NOT HDF5_FOUND)
     message(STATUS "spotfinder: HDF5 not found, skipping")
 else()
     message(STATUS "spotfinder: building")
-    add_subdirectory(spotfinder)
+    include(cmake/spots.cmake)
 endif()
 
 add_executable(mxi_tests

@@ -14,8 +14,9 @@ defaults off and the reason is written down.
 
 | | |
 | --- | --- |
-| `spotfinder/` | the Metal and CUDA spot finder; needs HDF5 |
 | `src/`, `apps/` | indexing, refinement, prediction, profile model |
+| `src/spots/` | the Metal and CUDA spot finder; needs HDF5 |
+| `tests/` | the C++ tests, `tests/spots/` for the spot finder's |
 | `python/` | everything Python: the checker, the plots, the fixtures |
 | `docs/` | notes on integration and on a device port |
 | `CLAUDE.md` | working notes: what was got wrong, and how it was found |

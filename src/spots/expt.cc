@@ -1,4 +1,4 @@
-// Reading an experiment list, over the JSON parser in ../../src.
+// Reading an experiment list, over the JSON parser beside it.
 //
 // This file used to carry its own parser -- four hundred lines duplicating
 // src/json.cc. Two parsers for one format is two places for a convention to be
@@ -18,7 +18,7 @@
 
 #include <stdexcept>
 
-#include "../../src/json.h"
+#include "../json.h"
 
 namespace expt {
 
