@@ -27,7 +27,7 @@ void usage() {
       "usage: mxi_index IMPORTED.expt STRONG.refl [options]\n"
       "  --d-min D        resolution limit (default: from the data)\n"
       "  --max-cell A     longest cell edge (default: from spot spacing)\n"
-      "  --grid N         FFT grid size, power of two (default: from d_min)\n"
+      "  --grid N         FFT grid size, power of two (default: from d_min)\n"      "  --timing         where the time went, by phase\n"
       "  --tolerance T    how far an index may fall from an integer (0.3)\n"
       "  --candidates N   basis vectors taken from the peak list (30)\n"
       "  --output-expt P  (default indexed.expt)\n"
@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "--d-min",       "--max-cell",    "--grid",          "--tolerance",
       "--candidates",  "--output-expt", "--output-refl",   "--quiet",
-      "--macrocycles", "--all-reflections"};
+      "--macrocycles", "--all-reflections", "--timing"};
   const std::set<std::string> takes_value = {
       "--d-min",      "--max-cell",    "--grid",        "--tolerance",
       "--candidates", "--output-expt", "--output-refl", "--macrocycles"};
@@ -117,6 +117,26 @@ int main(int argc, char **argv) {
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);
     std::printf("wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
+
+    if (args.has("--timing")) {
+      const IndexTiming &t = result.timing;
+      const auto line = [&](const char *name, double seconds) {
+        std::printf("  %-22s %7.3f s  %5.1f%%\n", name, seconds,
+                    t.total > 0.0 ? 100.0 * seconds / t.total : 0.0);
+      };
+      std::printf("\ntiming\n");
+      line("reciprocal points", t.reciprocal_points);
+      line("max cell", t.max_cell);
+      line("candidate vectors", t.candidate_vectors);
+      line("  the transform", t.fft);
+      line("  the peak search", t.peak_search);
+      line("  the rest of it",
+           t.candidate_vectors - t.fft - t.peak_search);
+      line("choose basis", t.choose_basis);
+      line("fit and reduce", t.fit_and_reduce);
+      line("macrocycles", t.macrocycles);
+      std::printf("  %-22s %7.3f s\n", "indexing total", t.total);
+    }
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_index: %s\n", e.what());

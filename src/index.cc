@@ -1,6 +1,7 @@
 #include "index.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <cstdio>
@@ -10,6 +11,25 @@
 #include "refine.h"
 
 namespace mxi {
+
+namespace {
+
+// Wall clock in seconds. Wall rather than CPU: the question is how long
+// someone waits, and a thread count that changes the answer is part of it.
+//: The last transform and peak search, in seconds. A file-scope pair rather
+//: than a return value because find_candidate_vectors is on a public header
+//: and its signature is not worth changing to answer one question about where
+//: four seconds go.
+double g_last_fft_seconds = 0.0;
+double g_last_peak_seconds = 0.0;
+
+double now_seconds() {
+  return std::chrono::duration<double>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+}  // namespace
 
 std::vector<Vec3> reciprocal_lattice_points(const ExperimentList &experiments,
                                             const Table &reflections) {
@@ -123,7 +143,9 @@ std::vector<Vec3> find_candidate_vectors(const std::vector<Vec3> &points,
   }
   if (used < 10) return {};
 
+  const double t_fft = now_seconds();
   fft3d(f, n, +1);
+  g_last_fft_seconds = now_seconds() - t_fft;
 
   // Peak search on the modulus. A grid point is a peak if it is at least as
   // large as all twenty-six of its neighbours; ties are broken by taking the
@@ -139,11 +161,13 @@ std::vector<Vec3> find_candidate_vectors(const std::vector<Vec3> &points,
   };
 
   std::vector<double> modulus(f.size());
+  const double t_peaks = now_seconds();
   for (std::size_t i = 0; i < f.size(); ++i) modulus[i] = std::abs(f[i]);
 
   const long ln = static_cast<long>(n);
   const auto at = [&](long i, long j, long k) -> double {
     const auto w = [&](long v) { return ((v % ln) + ln) % ln; };
+    g_last_peak_seconds = now_seconds() - t_peaks;
     return modulus[(static_cast<std::size_t>(w(i)) * n +
                     static_cast<std::size_t>(w(j))) * n +
                    static_cast<std::size_t>(w(k))];
@@ -207,7 +231,9 @@ std::vector<Vec3> find_candidate_vectors(const std::vector<Vec3> &points,
     out.push_back(p.position);
     if (out.size() >= options.n_candidates) break;
   }
+  g_last_peak_seconds = now_seconds() - t_peaks;
   return out;
+
 }
 
 // Count reflections whose fractional indices are all within `tolerance` of an
@@ -414,8 +440,11 @@ bool refit(const std::vector<Vec3> &points, double tolerance, Mat3 *A,
 IndexResult index(ExperimentList &experiments, Table &reflections,
                   const IndexOptions &options) {
   IndexResult result;
+  const double t_total = now_seconds();
+  const double t_points = now_seconds();
   const std::vector<Vec3> points =
       reciprocal_lattice_points(experiments, reflections);
+  result.timing.reciprocal_points = now_seconds() - t_points;
   result.n_total = points.size();
   if (points.size() < 10) return result;
 
@@ -433,9 +462,11 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
   }
   if (!(d_min > 0.0)) return result;
 
+  const double t_max_cell = now_seconds();
   double max_cell = options.max_cell;
   if (max_cell <= 0.0) max_cell = estimate_max_cell(points);
   if (!(max_cell > 0.0)) return result;
+  result.timing.max_cell = now_seconds() - t_max_cell;
 
   std::size_t grid = options.grid;
   if (grid == 0) {
@@ -452,8 +483,12 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
                 grid);
   }
 
+  const double t_candidates = now_seconds();
   result.candidates =
       find_candidate_vectors(points, options, d_min, max_cell, grid);
+  result.timing.candidate_vectors = now_seconds() - t_candidates;
+  result.timing.fft = g_last_fft_seconds;
+  result.timing.peak_search = g_last_peak_seconds;
   if (options.verbose) {
     std::printf("  %zu candidate basis vectors\n", result.candidates.size());
     for (std::size_t i = 0; i < std::min<std::size_t>(6, result.candidates.size()); ++i) {
@@ -461,11 +496,14 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
     }
   }
 
+  const double t_choose = now_seconds();
   std::size_t n_indexed = 0;
   if (!choose_basis(result.candidates, points, options.tolerance,
                     &result.crystal, &n_indexed)) {
     return result;
   }
+  result.timing.choose_basis = now_seconds() - t_choose;
+  const double t_fit = now_seconds();
 
   // Fit, reduce, fit again. The first fit pulls the transform's peak centroids
   // onto the data; reduction then changes basis, which is exact and needs no
@@ -558,6 +596,8 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
   // Macrocycles: refine on the strong reflections, then assign to all again
   // under the improved model. The reciprocal lattice points move when the
   // detector does, so they are recomputed every cycle rather than reused.
+  result.timing.fit_and_reduce = now_seconds() - t_fit;
+  const double t_cycles = now_seconds();
   for (int cycle = 0; cycle < options.macrocycles; ++cycle) {
     Table subset = reflections;
     std::size_t n_strong = reflections.nrows;
@@ -613,6 +653,8 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
   }
 
   for (Experiment &e : experiments) e.crystal = result.crystal;
+  result.timing.macrocycles = now_seconds() - t_cycles;
+  result.timing.total = now_seconds() - t_total;
   return result;
 }
 

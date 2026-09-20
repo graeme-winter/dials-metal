@@ -44,6 +44,21 @@
 
 namespace mxi {
 
+//: Where the time went, in seconds. Filled in whether or not anyone asks,
+//: because the cost of a clock is nothing beside what it settles: this was
+//: about to be ported to a device on the assumption that the FFT dominated.
+struct IndexTiming {
+  double reciprocal_points = 0.0;
+  double max_cell = 0.0;
+  double candidate_vectors = 0.0;  //: the whole of it
+  double fft = 0.0;                //: the transform alone
+  double peak_search = 0.0;        //: the modulus, the peaks, the sort
+  double choose_basis = 0.0;
+  double fit_and_reduce = 0.0;
+  double macrocycles = 0.0;  //: assignment and refinement together
+  double total = 0.0;
+};
+
 struct IndexOptions {
   // Zero means "work it out": d_min from the reflections' own resolution
   // range, max_cell from the nearest-neighbour spacing of the reciprocal
@@ -89,6 +104,7 @@ struct IndexResult {
   //: Reflections used to refine the model, as opposed to indexed by it.
   std::size_t n_refined_on = 0;
   int cycles_run = 0;
+  IndexTiming timing;
 };
 
 // Map every reflection into the crystal frame of its own experiment. The

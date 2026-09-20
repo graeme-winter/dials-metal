@@ -1,5 +1,71 @@
 # Computing the refinement target on a device
 
+## Where indexing's time actually goes
+
+Measured with `mxi_index --timing` on 78618 reflections of insulin, a 256^3
+grid, one core:
+
+    reciprocal points        0.008 s    0.1%
+    max cell                 0.059 s    0.4%
+    candidate vectors        6.676 s   50.2%
+      the transform          3.213 s   24.2%
+      the peak search        3.246 s   24.4%
+      the rest of it         0.217 s    1.6%
+    choose basis             4.097 s   30.8%
+    fit and reduce           0.013 s    0.1%
+    macrocycles              2.446 s   18.4%
+    indexing total          13.304 s
+
+**The FFT is a quarter of it.** The natural guess is that indexing is an FFT
+with some refinement around it, and porting those two to a device would buy
+
+    13.30 s -> 7.65 s, which is 1.74x
+
+even if both became free. The two phases that guess leaves out are the peak
+search, which is the same size as the transform, and choosing the basis, which
+is larger than either.
+
+What each is worth if it cost nothing:
+
+    without the transform     1.32x
+    without the peak search   1.32x
+    without choose basis      1.44x
+    without macrocycles       1.23x
+
+No single phase is worth more than a third. This is the ordinary shape of a
+program with no hot spot, and the ordinary consequence is that porting one
+thing disappoints.
+
+### What each phase is, as work
+
+* **The transform**, a 256^3 complex FFT: 16.7 million points. A device library
+  call -- cuFFT, or vDSP and MPS on Apple -- and milliseconds there. The one
+  phase where the device version is someone else's code.
+* **The peak search**: the modulus of 16.7 million voxels, then each compared
+  with its twenty-six neighbours, then a sort. One thread per voxel, no
+  communication, a reduction at the end. As good a fit for a device as exists.
+* **Choosing the basis**: every triple of thirty candidate vectors scored
+  against every reflection. Four thousand triples by seventy-eight thousand
+  reflections, each independent. The same shape as the peak search and,
+  measured here, the biggest single piece.
+* **The macrocycles**: assignment, which is a pass over the reflections, and
+  refinement, whose device port is designed in the rest of this document.
+
+### Threads before devices
+
+All of the above is one core. Three of the four phases are embarrassingly
+parallel on the host, and on a machine with eight of them the same work would
+take
+
+    13.30 s -> about 3 s
+
+for `std::thread` and no device, no library, no memory transfers and no second
+implementation to keep in step with the first. The device is worth doing after
+that, not instead of it, and the honest comparison for any device backend is
+against the threaded host version rather than against this one.
+
+
+
 An exploration, with the measurements that motivate it. Nothing here is
 implemented yet.
 
