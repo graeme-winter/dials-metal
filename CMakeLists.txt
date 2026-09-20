@@ -67,9 +67,17 @@ target_compile_options(mxi_grid PRIVATE -Wall -Wextra)
 # several real problems in this repository and it has to keep working on a
 # machine that cannot build the whole of it.
 #
-# It is added unmodified. Its own CMakeLists calls find_package(HDF5 REQUIRED),
-# which would abort the whole configure rather than skip one subdirectory, so
-# the decision is made here before the subdirectory is entered.
+# Its own CMakeLists calls find_package(HDF5 REQUIRED), which would abort the
+# whole configure rather than skip one subdirectory, so the decision is made
+# here before the subdirectory is entered.
+#
+# enable_testing() is called BEFORE it, not after: a subdirectory's add_test
+# calls are only registered with the top-level CTest if testing was enabled
+# before the subdirectory was entered. It sat after for a long time, which
+# meant `ctest` from the top ran this project's tests and silently none of the
+# spot finder's.
+enable_testing()
+
 find_package(HDF5 QUIET COMPONENTS C)
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/spotfinder/third_party/bitshuffle/LICENSE")
     message(STATUS
@@ -82,7 +90,6 @@ else()
     add_subdirectory(spotfinder)
 endif()
 
-enable_testing()
 add_executable(mxi_tests
   tests/main.cc
   tests/test_geometry.cc

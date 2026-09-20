@@ -380,9 +380,19 @@ target_link_libraries(spotfinder_refl
     PRIVATE spotfinder_warnings)
 
 # Reading the three facts a spot list needs out of what dials.import wrote.
+# The experiment reader parses JSON with the shared parser rather than a second
+# copy of one. It does NOT use the shared experiment reader: that one refuses a
+# scan without an oscillation, and the spot finder does not need one.
 add_library(spotfinder_expt STATIC src/expt.cc)
 target_include_directories(spotfinder_expt PUBLIC src)
 target_link_libraries(spotfinder_expt PRIVATE spotfinder_warnings)
+if(TARGET mxi)
+  target_link_libraries(spotfinder_expt PRIVATE mxi)
+else()
+  # Standalone: compile the one file it needs from the parent tree.
+  target_sources(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src/json.cc)
+  target_include_directories(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+endif()
 
 add_executable(dials-metal-find-spots src/find_spots.cc)
 target_compile_definitions(dials-metal-find-spots PRIVATE
