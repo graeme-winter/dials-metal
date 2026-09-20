@@ -189,6 +189,61 @@ is a check on the arithmetic rather than a result. The mask in `mxi_mask` is a
 different matter: it is built on the PREDICTED `s1`, which is what it must be,
 since the point of a mask is to say where the model expects the signal.
 
+## Rendering the model onto the pixels
+
+    mxi_forward refined.expt refined.refl --out forward.txt
+
+Every comparison before this one took a number from the data through a pixel
+grid that truncates and quantises it, and a number from the model in closed
+form. At widths below a pixel that difference is most of what was being
+measured, which is why every conclusion carried the same caveat.
+
+This renders instead. The model is integrated over the same pixels, the same
+images and inside the same mask as the observation, and both are reduced the
+same way, in pixels and images. Whatever the grid does to the data it does to
+the model. What is left is the model being wrong.
+
+The answer is that it is barely wrong at all, over 61047 spots:
+
+    sensor model            shift fast   shift slow   obs/model fast  slow    z
+    depth distribution        -0.008      -0.002          0.967     0.964   0.948
+    mean depth, no smear      -0.008      -0.002          0.979     0.987   0.946
+    no sensor                 -0.007      -0.051          0.984     1.004   0.946
+
+**The positions agree to a hundredth of a pixel** once the sensor is in.
+Leaving it out leaves a systematic 0.05 pixel shift in the slow direction and
+nothing in fast, which is the parallax displacement and is the size it should
+be.
+
+**The widths agree to within four per cent**, not the factors that every
+earlier measurement suggested. The captured-fraction test said one sigma held
+0.74 where a Gaussian holds 0.47; rendered onto the grid, the observed spot is
+3.3 per cent narrower than the model on the detector and 5 per cent narrower in
+rotation. Nearly all of that apparent disagreement was the comparison, not the
+model.
+
+Taken at face value it says `sigma_D` should be about 0.0265 rather than 0.0274
+and `sigma_M` about 0.113 rather than 0.119 -- small corrections in the same
+direction as everything else, and much smaller than they looked.
+
+### And the anisotropy is predicted
+
+    anisotropy slow / fast    observed 1.074
+                              model    1.092   with the depth distribution
+                              model    1.076   with the mean depth only
+                              model    1.062   with no sensor
+
+The model predicts an anisotropy of the same size as the observed one, and
+gets closer as more of the sensor goes in. So the elongation is geometry and
+absorption acting on an isotropic Gaussian, not a missing physical effect: the
+projection onto a flat detector and the depth at which a photon stops are
+enough to produce it.
+
+That is the answer to a question asked several ways in this document and
+answered wrongly twice. The cubic crystal does argue for isotropy, and the
+spots are consistent with an isotropic model -- once the model is compared with
+the data on the data's own terms.
+
 ## The anisotropy, remeasured
 
 With the pixel-to-millimetre conventions matched, over 61047 spots with more

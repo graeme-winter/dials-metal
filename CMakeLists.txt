@@ -28,6 +28,7 @@ add_library(mxi
   src/profile_model.cc
   src/profile_grid.cc
   src/mask.cc
+  src/forward.cc
 )
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
@@ -51,6 +52,10 @@ target_compile_options(mxi_profile PRIVATE -Wall -Wextra)
 add_executable(mxi_mask apps/mxi_mask.cc)
 target_link_libraries(mxi_mask PRIVATE mxi)
 target_compile_options(mxi_mask PRIVATE -Wall -Wextra)
+
+add_executable(mxi_forward apps/mxi_forward.cc)
+target_link_libraries(mxi_forward PRIVATE mxi)
+target_compile_options(mxi_forward PRIVATE -Wall -Wextra)
 
 add_executable(mxi_grid apps/mxi_grid.cc)
 target_link_libraries(mxi_grid PRIVATE mxi)
