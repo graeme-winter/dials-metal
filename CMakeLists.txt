@@ -66,7 +66,21 @@ if(MXI_FFTW)
                 "-DFFTW3_INCLUDE_DIR=<path to fftw3.h>. Configure without "
                 "-DMXI_FFTW=ON to use the built-in transform.")
     endif()
-    message(STATUS "FFT: FFTW (${MXI_FFTW_TARGET})")
+    # FFTW's own threading, if it was built with any. Two flavours exist and
+    # either will do: fftw3_threads is pthreads, fftw3_omp is OpenMP. Debian
+    # ships the second, Homebrew the first. Absent both, the transform runs on
+    # one thread and everything still works.
+    find_library(FFTW3_THREADS_LIBRARY NAMES fftw3_threads fftw3_omp
+                 HINTS ENV FFTW_ROOT ENV HOMEBREW_PREFIX
+                 PATHS /opt/homebrew /usr/local /opt/local
+                 PATH_SUFFIXES lib)
+    if(FFTW3_THREADS_LIBRARY)
+        message(STATUS "FFT: FFTW (${MXI_FFTW_TARGET}), threaded via "
+                       "${FFTW3_THREADS_LIBRARY}")
+    else()
+        message(STATUS "FFT: FFTW (${MXI_FFTW_TARGET}), single threaded -- "
+                       "no fftw3_threads or fftw3_omp found")
+    endif()
 else()
     message(STATUS "FFT: the built-in radix-2; -DMXI_FFTW=ON for FFTW")
 endif()
@@ -96,6 +110,13 @@ if(MXI_FFTW)
     # executable that links mxi, not only inside the archive.
     target_compile_definitions(mxi PUBLIC MXI_USE_FFTW)
     target_link_libraries(mxi PUBLIC ${MXI_FFTW_TARGET})
+    if(FFTW3_THREADS_LIBRARY)
+        # Before the main library on the link line, as FFTW asks.
+        target_link_libraries(mxi PUBLIC ${FFTW3_THREADS_LIBRARY})
+        target_compile_definitions(mxi PRIVATE MXI_FFTW_THREADS)
+        find_package(Threads REQUIRED)
+        target_link_libraries(mxi PUBLIC Threads::Threads)
+    endif()
 endif()
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)

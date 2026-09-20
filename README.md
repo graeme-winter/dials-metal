@@ -104,6 +104,10 @@ a library can be planned wrongly, normalised differently or linked against
 another precision, and none of that shows in a result that still looks like a
 lattice.
 
+`--fft-threads N` uses FFTW's own threading where FFTW was built with it: 0 is
+one per core, 1 none. The configure line says whether it found the threaded
+flavour.
+
 The Jacobian of the refinement target is the largest remaining phase of
 indexing -- 36 per cent of it on a fast machine -- and is built on one thread
 per reflection. `--jacobian-threads N` sets the count, 0 being one per core and

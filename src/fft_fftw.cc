@@ -18,6 +18,7 @@
 #include <complex>
 #include <cstddef>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include "fft.h"
@@ -46,6 +47,20 @@ void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
   fftw_plan plan;
   {
     const std::lock_guard<std::mutex> held(g_plan_lock);
+#ifdef MXI_FFTW_THREADS
+    // Once per process. fftw_init_threads returns zero on failure, in which
+    // case the transform still runs, on one thread: a transform that works
+    // slowly beats one that does not work.
+    static const bool threaded = fftw_init_threads() != 0;
+    if (threaded) {
+      std::size_t wanted = g_fft_threads;
+      if (wanted == 0) {
+        wanted = std::thread::hardware_concurrency();
+        if (wanted == 0) wanted = 1;
+      }
+      fftw_plan_with_nthreads(static_cast<int>(wanted));
+    }
+#endif
     // FFTW_ESTIMATE rather than FFTW_MEASURE: measuring writes to the array
     // and takes longer than the transform it is planning, for a grid used a
     // handful of times per run.

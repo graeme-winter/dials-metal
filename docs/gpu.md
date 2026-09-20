@@ -1,5 +1,32 @@
 # Computing the refinement target on a device
 
+## The transform, and the half of it that is not needed
+
+With analytical derivatives in use the transform is the largest phase of
+indexing, 42.5 per cent of a 1.069 second run. Two things are left in it.
+
+**FFTW's own threading**, which `--fft-threads` now turns on where FFTW was
+built with it. Debian ships `libfftw3_omp` and Homebrew `libfftw3_threads`;
+either will do and the build reports which it found, or says it found neither
+and runs on one thread.
+
+**A real-to-complex transform.** The grid is filled by adding 1.0 at each
+reciprocal lattice point and nothing else, so its imaginary part is zero
+everywhere. A complex-to-complex transform of real data does twice the
+arithmetic and holds twice the memory for an output that is Hermitian
+symmetric: `F(-k)` is the conjugate of `F(k)`, so half of the 16.7 million
+points computed are a reflection of the other half.
+
+`fftw_plan_dft_r2c_3d` computes the `n * n * (n/2 + 1)` that are independent.
+The obstacle is not the transform, it is the peak search, which walks the full
+cube and compares each point with its twenty-six neighbours. On the half grid
+some of those neighbours are the conjugates of points on the other side, and
+the wrapping that the search already does for periodicity would have to become
+a wrapping that also conjugates. That is a change to the part of this code
+where an error would be least visible -- a peak list that is subtly wrong still
+indexes, as the FFTW sign convention showed -- so it wants the agreement test
+extended to the peak list itself before it is attempted, not afterwards.
+
 ## Where refinement's time goes, measured
 
 With the transform handed to FFTW, the rounding instruction enabled and the

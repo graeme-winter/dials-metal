@@ -14,6 +14,7 @@
 
 #include "args.h"
 #include "expt.h"
+#include "fft.h"
 #include "index.h"
 #include "refine.h"
 #include "refl.h"
@@ -26,6 +27,8 @@ void usage() {
   std::printf(
       "usage: mxi_index IMPORTED.expt STRONG.refl [options]\n"
       "  --d-min D        resolution limit (default: from the data)\n"
+      "  --fft-threads N  threads for the transform, when FFTW was built with\n"
+      "                   threading; 0 is one per core (0)\n"
       "  --jacobian-threads N  threads for the analytical Jacobian; 0 is one\n"
       "                   per core (0)\n"
       "  --max-cell A     longest cell edge (default: from spot spacing)\n"
@@ -45,13 +48,14 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "--d-min",       "--max-cell",    "--grid",          "--tolerance",
       "--candidates",  "--output-expt", "--output-refl",   "--quiet",
-      "--macrocycles", "--all-reflections", "--timing", "--jacobian-threads"};
+      "--macrocycles", "--all-reflections", "--timing", "--jacobian-threads", "--fft-threads"};
   const std::set<std::string> takes_value = {
       "--d-min",      "--max-cell",    "--grid",        "--tolerance",
-      "--candidates", "--output-expt", "--output-refl", "--macrocycles", "--jacobian-threads"};
+      "--candidates", "--output-expt", "--output-refl", "--macrocycles", "--jacobian-threads", "--fft-threads"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   // 0 means one per core, 1 means none. Exposed because a threading change
   // that cannot be switched off cannot be measured against its absence.
+  g_fft_threads = static_cast<std::size_t>(args.number("--fft-threads", 0.0));
   g_jacobian_threads =
       static_cast<std::size_t>(args.number("--jacobian-threads", 0.0));
   if (args.help) {

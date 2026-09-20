@@ -5,6 +5,10 @@
 
 namespace mxi {
 
+// Defined here rather than in fft_fftw.cc so that it exists whichever
+// transform is compiled, and setting it is harmless when nothing reads it.
+std::size_t g_fft_threads = 0;
+
 std::size_t next_power_of_two(std::size_t n) {
   std::size_t p = 1;
   while (p < n) p <<= 1;
