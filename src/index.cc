@@ -169,7 +169,6 @@ std::vector<Vec3> find_candidate_vectors(const std::vector<Vec3> &points,
   const long ln = static_cast<long>(n);
   const auto at = [&](long i, long j, long k) -> double {
     const auto w = [&](long v) { return ((v % ln) + ln) % ln; };
-    g_last_peak_seconds = now_seconds() - t_peaks;
     return modulus[(static_cast<std::size_t>(w(i)) * n +
                     static_cast<std::size_t>(w(j))) * n +
                    static_cast<std::size_t>(w(k))];

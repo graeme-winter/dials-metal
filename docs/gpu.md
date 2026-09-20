@@ -16,6 +16,14 @@ grid, one core:
     macrocycles              2.446 s   18.4%
     indexing total          13.304 s
 
+**Both tables below were taken with a broken instrument** and the peak search
+figures in them are about four times too large: the timer's closing assignment
+had been placed inside the grid accessor, which the peak search calls some four
+hundred and fifty million times, so every call read the clock. Corrected, on
+the slower machine, the peak search is 0.598 s rather than 3.2 and the
+transform and the basis search dominate. The tables are kept because the
+reasoning built on them is instructive and because the correction is the point.
+
 On another machine, same code and the same number of reflections:
 
     candidate vectors        3.843 s   78.8%

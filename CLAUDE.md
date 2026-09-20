@@ -837,6 +837,26 @@ oscillation form, the number types, and the blocks dropped on write.
 `tests/test_expt_format.cc` therefore asserts on characters rather than values,
 and was checked by reverting the fix -- three of its tests fail without it.
 
+## An instrument that changes what it measures
+
+The phase timers in indexing were added with a regular expression that inserted
+the closing assignment before every `return` in the function. One of those
+returns was inside a lambda -- the accessor that reads a grid point -- which
+the peak search calls about four hundred and fifty million times. Every call
+read the clock.
+
+So the peak search was reported at three seconds when it takes seven hundred
+milliseconds, and the extra was the instrument. The number was then used to
+argue about what to optimise, and the answer would have been to parallelise the
+clock.
+
+This is the GPU benchmark bug again, which passed ordinary `std::vector` memory
+where the device wanted `gpu::host_alloc` and inflated every timing equally.
+Both times the measuring apparatus was wrong and the conclusion drawn from it
+was confident. **Check what an instrument costs before believing what it
+reports**, and be suspicious of any edit that places code by pattern rather
+than by position: a `return` inside a lambda is not the function's return.
+
 ## Render the model into a measurement; do not compare a measurement to a model
 
 Spots on this detector are two pixels across. Every comparison of the profile
