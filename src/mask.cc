@@ -115,9 +115,19 @@ bool build_shoebox(const Experiment &e, const Prediction &p,
         const Epsilon eps = epsilon_of(
             e, frame, panel, static_cast<double>(bbox[0] + x) + 0.5,
             static_cast<double>(bbox[2] + y) + 0.5, phi, p.phi);
-        const bool inside = std::fabs(eps.e1) <= options.n_sigma * options.sigma_d &&
-                            std::fabs(eps.e2) <= options.n_sigma * options.sigma_d &&
-                            std::fabs(eps.e3) <= options.n_sigma * options.sigma_m;
+        // In sigmas, which is the only scale on which the three directions
+        // are comparable: eps1 and eps2 are measured against sigma_D and eps3
+        // against sigma_M, and here they differ by a factor of four.
+        const double u1 = eps.e1 / options.sigma_d;
+        const double u2 = eps.e2 / options.sigma_d;
+        const double u3 = eps.e3 / options.sigma_m;
+        const bool inside =
+            options.shape == RegionShape::kEllipsoid
+                ? (u1 * u1 + u2 * u2 + u3 * u3) <=
+                      options.n_sigma * options.n_sigma
+                : (std::fabs(u1) <= options.n_sigma &&
+                   std::fabs(u2) <= options.n_sigma &&
+                   std::fabs(u3) <= options.n_sigma);
         // Every voxel is valid -- nothing here has read an image, so nothing
         // is known to be bad -- and each is either in the region or around it.
         box->mask[box->at(x, y, z)] =

@@ -165,3 +165,95 @@ TEST(a_reflection_near_the_rotation_axis_is_refused) {
   check::is_true(built > 0, "some were built");
   check::is_true(refused > 0, "and some refused");
 }
+
+TEST(the_ellipsoid_is_inside_the_box_and_is_pi_over_six_of_it) {
+  // The box is each coordinate separately within n sigma; the ellipsoid is the
+  // surface the Gaussian is constant on. The ellipsoid is inscribed in the
+  // box, so every voxel it marks the box marks too, and its volume is pi/6 of
+  // the box's -- a little over half.
+  //
+  // At the corner of the box all three coordinates are at n sigma at once, so
+  // a three-dimensional Gaussian is at exp(-3 n^2 / 2) there: 1.4e-6 of its
+  // peak at n = 3. There are eight such corners and they hold nothing.
+  const Experiment e = masking_experiment();
+  PredictOptions po;
+  po.d_min = 2.0;
+  const std::vector<Prediction> predictions = predict(e, po);
+
+  MaskOptions box_options = options_for();
+  MaskOptions ellipsoid_options = options_for();
+  ellipsoid_options.shape = RegionShape::kEllipsoid;
+
+  std::size_t in_box = 0, in_ellipsoid = 0, compared = 0;
+  for (const Prediction &p : predictions) {
+    Shoebox as_box, as_ellipsoid;
+    if (!build_shoebox(e, p, box_options, &as_box)) continue;
+    if (!build_shoebox(e, p, ellipsoid_options, &as_ellipsoid)) continue;
+    if (++compared > 300) break;
+
+    // Same bounding box either way: the ellipsoid is inscribed, so it does not
+    // need a smaller one and must not get a different one, or the two pictures
+    // would not be comparable.
+    for (int k = 0; k < 6; ++k) {
+      check::equal(static_cast<long long>(as_ellipsoid.bbox[k]),
+                   static_cast<long long>(as_box.bbox[k]), "same box");
+    }
+    for (std::size_t i = 0; i < as_box.mask.size(); ++i) {
+      const bool b = (as_box.mask[i] & shoebox_mask::kForeground) != 0;
+      const bool l = (as_ellipsoid.mask[i] & shoebox_mask::kForeground) != 0;
+      check::is_true(!l || b, "every ellipsoid voxel is a box voxel");
+      if (b) ++in_box;
+      if (l) ++in_ellipsoid;
+    }
+  }
+  check::is_true(compared > 100, "enough compared");
+  const double ratio = static_cast<double>(in_ellipsoid) /
+                       static_cast<double>(in_box);
+  // pi/6 = 0.5236. Measured at 0.546 on real insulin, the difference being
+  // that a voxel is in or out as a whole and the boxes are only a dozen
+  // pixels across.
+  check::close(ratio, 0.5236, 0.06, "and its share is pi over six");
+}
+
+TEST(the_region_is_an_ellipsoid_in_sigmas_not_in_degrees) {
+  // eps1 and eps2 are measured against sigma_D and eps3 against sigma_M, which
+  // differ by a factor of four here. An ellipsoid built in degrees rather than
+  // in sigmas would be a sphere in the wrong space: far too generous in the
+  // narrow direction and far too mean in the wide one.
+  const Experiment e = masking_experiment();
+  PredictOptions po;
+  po.d_min = 2.0;
+  const std::vector<Prediction> predictions = predict(e, po);
+  MaskOptions options = options_for();
+  options.shape = RegionShape::kEllipsoid;
+
+  for (const Prediction &p : predictions) {
+    Shoebox box;
+    if (!build_shoebox(e, p, options, &box)) continue;
+    const KabschFrame frame = kabsch_frame(e, p.s1);
+    const Panel &panel = e.detector[p.panel];
+    const double width = Scan::radians(e.scan.osc_width);
+    // Every marked voxel must satisfy the ellipsoid in sigmas.
+    for (std::int32_t z = 0; z < box.nz(); ++z) {
+      const double image = static_cast<double>(box.bbox[4] + z) + 0.5;
+      const double phi = Scan::radians(e.scan.osc_start) +
+                         (image - static_cast<double>(e.scan.z_offset)) * width;
+      for (std::int32_t y = 0; y < box.ny(); ++y) {
+        for (std::int32_t x = 0; x < box.nx(); ++x) {
+          if ((box.mask[box.at(x, y, z)] & shoebox_mask::kForeground) == 0) continue;
+          const Epsilon eps = epsilon_of(
+              e, frame, panel, static_cast<double>(box.bbox[0] + x) + 0.5,
+              static_cast<double>(box.bbox[2] + y) + 0.5, phi, p.phi);
+          const double u1 = eps.e1 / options.sigma_d;
+          const double u2 = eps.e2 / options.sigma_d;
+          const double u3 = eps.e3 / options.sigma_m;
+          check::is_true(u1 * u1 + u2 * u2 + u3 * u3 <=
+                             options.n_sigma * options.n_sigma + 1e-9,
+                         "inside the ellipsoid in sigmas");
+        }
+      }
+    }
+    return;  // one reflection is enough to pin the arithmetic
+  }
+  check::is_true(false, "no reflection was built");
+}

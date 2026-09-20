@@ -308,11 +308,39 @@ Angstrom is 129000 reflections and about a gigabyte of empty shoebox; the first
 attempt at this was killed by the machine. The boxes are also built and encoded
 one at a time rather than all held at once.
 
+### The region is a box, and the model is an ellipsoid
+
+`|eps1| <= n sigma_D` and `|eps2| <= n sigma_D` and `|eps3| <= n sigma_M` is
+what Kabsch section 3.1 writes for the mask, and what DIALS uses, so it is the
+default. But it is a BOX in Kabsch space, and the model is a three-dimensional
+Gaussian, whose surface of constant density is the ELLIPSOID
+
+    (eps1/sigma_D)^2 + (eps2/sigma_D)^2 + (eps3/sigma_M)^2 <= n^2
+
+These are not the same set and the difference is not small. At a corner of the
+box all three coordinates are at n sigma at once, so the Gaussian is at
+exp(-3n^2/2) there: 1.4e-6 of its peak at n = 3. There are eight such corners
+and they hold nothing at all.
+
+    volume          ellipsoid is pi/6 of the box, 0.5236
+    density held    0.9919 in the box, 0.9707 in the ellipsoid
+
+So the box buys two per cent more of the density with ninety per cent more
+volume, all of it in places the model says are empty. `--shape ellipsoid`
+draws the other one; on insulin it marks 23.9 per cent of the voxels where the
+box marks 43.7, a ratio of 0.546 against the 0.5236 expected, the difference
+being that a voxel is in or out as a whole and the boxes are only a dozen
+pixels across.
+
+Mapped onto the image the ellipsoid is not an ellipse: the transform from
+Kabsch space to pixels and images is not a similarity, and it varies across the
+detector with obliquity and with zeta. That distortion is the thing worth
+looking at, and it is what the box hides.
+
 What it shows on insulin, twenty images at 1.6 Angstrom: 1445 boxes, typically
-12 by 12 pixels by 8 images, of which 44 per cent of the voxels are inside the
-region. Those are big boxes for spots that are two pixels across, which is the
-same conclusion as everything else in this section, in the form most likely to
-be believed.
+12 by 12 pixels by 8 images. Those are big boxes for spots that are two pixels
+across, which is the same conclusion as everything else in this section, in the
+form most likely to be believed.
 
 ## Order of work
 

@@ -25,9 +25,32 @@
 
 namespace mxi {
 
+//: What "within n sigma" means for a three-dimensional Gaussian.
+enum class RegionShape {
+  //: |eps1| <= n sigma_D and |eps2| <= n sigma_D and |eps3| <= n sigma_M.
+  //: What Kabsch section 3.1 writes for the reflection mask, and what DIALS
+  //: uses, so it is the default.
+  kBox,
+  //: (eps1/sigma_D)^2 + (eps2/sigma_D)^2 + (eps3/sigma_M)^2 <= n^2. The
+  //: surface on which the model's density is actually constant.
+  kEllipsoid,
+};
+
 struct MaskOptions {
   //: How many sigmas the region spans, in each direction.
   double n_sigma = 3.0;
+  //: The box is a region in which each coordinate is separately within n
+  //: sigma; the ellipsoid is the one on which the Gaussian is constant. They
+  //: are not the same set, and the difference is not small: the ellipsoid is
+  //: pi/6 of the box, a little over half.
+  //:
+  //: At the corner of the box all three coordinates are at n sigma at once,
+  //: so a three-dimensional Gaussian is at exp(-3 n^2 / 2) there -- 1.4e-6 of
+  //: its peak at n = 3. That corner is pure background, and there are eight of
+  //: them. The box is the larger region and captures slightly more of the
+  //: density, 0.9919 against 0.9707, but it buys that with volume that holds
+  //: essentially nothing.
+  RegionShape shape = RegionShape::kBox;
   double sigma_d = 0.0;  //: degrees
   double sigma_m = 0.0;  //: degrees
   //: Reflections whose zeta is smaller than this are skipped: their region in

@@ -38,6 +38,10 @@ void usage(const char *program) {
       "  --n-sigma N       the region spans plus and minus N sigma (3)\n"
       "  --sigma-b B --sigma-m M   use these instead of estimating from REFL\n"
       "  --d-min D         resolution limit for prediction\n"
+      "  --shape box|ellipsoid   the box is Kabsch's mask, each coordinate\n"
+      "                    separately within n sigma; the ellipsoid is the\n"
+      "                    surface the Gaussian is actually constant on, and is\n"
+      "                    pi/6 of the box (box)\n"
       "  --min-zeta Z      skip reflections whose zeta is below Z (0.05)\n"
       "  --first-image N --last-image N   restrict to part of the scan; a whole\n"
       "                    sweep of shoeboxes does not fit in memory\n",
@@ -49,7 +53,8 @@ void usage(const char *program) {
 int main(int argc, char **argv) {
   const std::set<std::string> known = {"-o",         "--n-sigma",    "--sigma-b",
                                        "--sigma-m",  "--d-min",      "--min-zeta",
-                                       "--first-image", "--last-image"};
+                                       "--first-image", "--last-image",
+                                       "--shape"};
   const Arguments args = parse_arguments(argc, argv, known, known);
   if (args.help) {
     usage(argv[0]);
@@ -76,6 +81,12 @@ int main(int argc, char **argv) {
     MaskOptions options;
     options.n_sigma = args.number("--n-sigma", 3.0);
     options.min_zeta = args.number("--min-zeta", 0.05);
+    if (args.value("--shape", "box") == "ellipsoid") {
+      options.shape = RegionShape::kEllipsoid;
+    } else if (args.value("--shape", "box") != "box") {
+      std::fprintf(stderr, "mxi_mask: --shape is box or ellipsoid\n");
+      return 2;
+    }
     options.sigma_d = args.number("--sigma-b", 0.0);
     options.sigma_m = args.number("--sigma-m", 0.0);
 
@@ -128,8 +139,9 @@ int main(int argc, char **argv) {
       }
       std::printf("profile model from %zu spots\n", selected.size());
     }
-    std::printf("sigma_b %.6f  sigma_m %.6f  n_sigma %.1f\n", options.sigma_d,
-                options.sigma_m, options.n_sigma);
+    std::printf("sigma_b %.6f  sigma_m %.6f  n_sigma %.1f  shape %s\n",
+                options.sigma_d, options.sigma_m, options.n_sigma,
+                options.shape == RegionShape::kEllipsoid ? "ellipsoid" : "box");
     if (!(options.sigma_d > 0.0) || !(options.sigma_m > 0.0)) {
       std::fprintf(stderr, "mxi_mask: the profile model came out empty\n");
       return 1;
@@ -233,6 +245,26 @@ int main(int argc, char **argv) {
 
     const std::string path = args.value("-o", "masked.refl");
     write_reflections(path, out);
+    // How much of the box the region fills, and how much of the model's
+    // density it holds, so the two shapes can be compared on the numbers as
+    // well as by eye.
+    std::size_t foreground = 0, voxels = 0;
+    {
+      const std::vector<Shoebox> written = decode_shoeboxes(out);
+      for (const Shoebox &b : written) {
+        voxels += b.size();
+        for (std::uint8_t m : b.mask) {
+          if (m & shoebox_mask::kForeground) ++foreground;
+        }
+      }
+    }
+    std::printf("%zu of %zu voxels marked (%.1f%%)\n", foreground, voxels,
+                100.0 * static_cast<double>(foreground) /
+                    static_cast<double>(voxels));
+    std::printf(
+        "a three-dimensional Gaussian holds %.4f inside the box and %.4f\n"
+        "inside the ellipsoid at n = 3\n",
+        0.99187, 0.97071);
     std::printf("wrote %s\n", path.c_str());
     std::printf("\n  dials.image_viewer %s %s\n", args.positional[0].c_str(),
                 path.c_str());
