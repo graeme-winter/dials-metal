@@ -1,6 +1,7 @@
 #include "refine.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 
@@ -8,6 +9,22 @@
 #include "predict.h"
 
 namespace mxi {
+
+// Where refinement's time goes. File scope rather than a return value because
+// refine() is on a public header and its signature is not worth changing for
+// this. Placed by position, not by pattern: the last timer added by pattern
+// landed inside a lambda that runs four hundred and fifty million times.
+double g_jacobian_seconds = 0.0;
+double g_normal_seconds = 0.0;
+
+namespace {
+double now_seconds() {
+  return std::chrono::duration<double>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+}  // namespace
+
 
 Residual centroid_residual(const Experiment &e, std::size_t panel, int h, int k,
                            int l, double px_fast, double px_slow, double z) {
@@ -425,6 +442,7 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       // Numerical Jacobian: one forward difference per parameter. Central
       // differences would cost twice as much for an accuracy the Gauss-Newton
       // step does not need, since the step is recomputed every iteration.
+      const double t_jacobian = now_seconds();
       std::vector<std::vector<double>> jacobian(n);
       ExperimentList trial;
       if (options.analytic) {
@@ -448,6 +466,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       }
       }
 
+      g_jacobian_seconds += now_seconds() - t_jacobian;
+      const double t_normal = now_seconds();
       std::vector<double> normal(n * n, 0.0);
       std::vector<double> rhs(n, 0.0);
       for (std::size_t i = 0; i < observations.size(); ++i) {
@@ -472,6 +492,7 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       bool stepped = false;
       for (int attempt = 0; attempt < 8; ++attempt) {
         std::vector<double> damped = normal;
+      g_normal_seconds += now_seconds() - t_normal;
         for (std::size_t a = 0; a < n; ++a) damped[a * n + a] *= (1.0 + lambda);
         std::vector<double> solution = rhs;
         if (!solve_spd(damped.data(), solution.data(), n)) {

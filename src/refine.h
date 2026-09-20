@@ -227,4 +227,11 @@ void add_observed_columns(const ExperimentList &experiments, Table &reflections)
 //: which.
 void add_reciprocal_columns(const ExperimentList &experiments, Table &reflections);
 
+//: Seconds spent building the Jacobian and accumulating the normal equations,
+//: summed over every refinement since the process started. For deciding what
+//: to move to a device: the two have entirely different shapes, one being a
+//: pass over reflections and the other a reduction into a small matrix.
+extern double g_jacobian_seconds;
+extern double g_normal_seconds;
+
 }  // namespace mxi

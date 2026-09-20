@@ -1,5 +1,39 @@
 # Computing the refinement target on a device
 
+## Where refinement's time goes, measured
+
+With the transform handed to FFTW, the rounding instruction enabled and the
+clock out of the peak search, refinement is what is left. On a fast machine it
+is 47.7 per cent of indexing; measured here, split three ways:
+
+    macrocycles                 2.462 s   37.5%
+      copy and select           0.181 s    2.8%
+      refinement                2.239 s   34.1%
+      reassignment              0.035 s    0.5%
+        the jacobian            1.888 s   28.7%
+        the normal equations    0.111 s    1.7%
+
+**The Jacobian is 84 per cent of refinement**, which is what the rest of this
+document assumed and had not shown. The normal equations are five per cent, and
+the remaining eleven is residuals, outlier rejection and the solve.
+
+So the thing to move is the Jacobian, and it has the right shape: one thread
+per reflection and parameter, no communication, the analytical derivatives
+already written and already validated against finite differences.
+
+Two things about its current form that a port should not inherit:
+
+* it is allocated fresh every iteration -- ten vectors of 118797 doubles on
+  this data, 9.5 MB freed and reallocated per iteration -- where one buffer
+  reused across iterations would do, and on a device must;
+* it is parameter-major, a vector per parameter over all reflections. That is
+  the wrong way round for a device, where the reflection is the thread and the
+  parameters of one reflection want to be adjacent.
+
+Neither is worth changing on the host for its own sake without measuring what
+the allocation costs. Both are worth knowing before writing the device version,
+because the layout is the part that is expensive to change afterwards.
+
 ## Where indexing's time actually goes
 
 Measured with `mxi_index --timing` on 78618 reflections of insulin, a 256^3

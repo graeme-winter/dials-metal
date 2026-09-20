@@ -137,6 +137,11 @@ int main(int argc, char **argv) {
                   t.triples_scored, t.triples_skipped);
       line("fit and reduce", t.fit_and_reduce);
       line("macrocycles", t.macrocycles);
+      line("  copy and select", t.subset_copy);
+      line("  refinement", t.refine);
+      line("  reassignment", t.reassign);
+      line("    the jacobian", g_jacobian_seconds);
+      line("    the normal equations", g_normal_seconds);
       std::printf("  %-22s %7.3f s\n", "indexing total", t.total);
     }
     return 0;

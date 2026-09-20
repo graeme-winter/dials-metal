@@ -616,6 +616,7 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
   result.timing.fit_and_reduce = now_seconds() - t_fit;
   const double t_cycles = now_seconds();
   for (int cycle = 0; cycle < options.macrocycles; ++cycle) {
+    const double t_subset = now_seconds();
     Table subset = reflections;
     std::size_t n_strong = reflections.nrows;
     if (options.refine_on_strong) {
@@ -652,17 +653,23 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
       }
     }
 
+    result.timing.subset_copy += now_seconds() - t_subset;
+
+    const double t_refine = now_seconds();
     RefineOptions refinement;
     refinement.outlier_sigma = 3.0;
     refinement.macrocycles = 2;
     refinement.verbose = false;
     const RefineResult r = refine(experiments, subset, refinement);
+    result.timing.refine += now_seconds() - t_refine;
     if (r.n_used == 0) break;
     result.n_refined_on = n_strong;
     result.cycles_run = cycle + 1;
     if (experiments[0].crystal) result.crystal = *experiments[0].crystal;
 
+    const double t_reassign = now_seconds();
     assign(reciprocal_lattice_points(experiments, reflections));
+    result.timing.reassign += now_seconds() - t_reassign;
     if (options.verbose) {
       std::printf("  cycle %d: refined on %zu strong, indexed %zu, rmsd %.4f\n",
                   cycle + 1, n_strong, result.n_indexed, result.rmsd_index);

@@ -55,7 +55,10 @@ struct IndexTiming {
   double peak_search = 0.0;        //: the modulus, the peaks, the sort
   double choose_basis = 0.0;
   double fit_and_reduce = 0.0;
-  double macrocycles = 0.0;  //: assignment and refinement together
+  double macrocycles = 0.0;   //: all of the below together
+  double subset_copy = 0.0;   //: copying the table and picking the strong half
+  double refine = 0.0;        //: refinement proper
+  double reassign = 0.0;      //: indices reassigned from the refined model
   //: Triples of candidate vectors actually scored, and how many were skipped
   //: as too nearly degenerate. The cost of choosing a basis is this count
   //: times the number of reflections, and the count depends on the data: the
