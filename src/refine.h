@@ -234,6 +234,15 @@ void add_reciprocal_columns(const ExperimentList &experiments, Table &reflection
 //: Threads used to build the ANALYTICAL Jacobian: 0 for hardware_concurrency,
 //: 1 for none. It does nothing on the finite-difference path, which is the
 //: default and which builds its columns one residual evaluation at a time.
+//: Seconds in each part of refinement, summed since the process started.
+//: Globals for the same reason the Jacobian's are: refine() is on a public
+//: header and its signature is not worth changing to answer a question about
+//: where the time goes.
+extern double g_observations_seconds;  //: building the target rows
+extern double g_solve_seconds;         //: the damped solve and the step
+extern double g_outlier_seconds;       //: rejecting outliers between cycles
+extern double g_residual_seconds;      //: residuals outside the Jacobian
+
 extern std::size_t g_jacobian_threads;
 extern double g_jacobian_seconds;
 extern double g_normal_seconds;

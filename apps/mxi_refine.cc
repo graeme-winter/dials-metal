@@ -2,6 +2,7 @@
 //
 //   mxi_refine indexed.expt indexed.refl
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <set>
@@ -29,6 +30,7 @@ void usage() {
       "  --unit-weights    ignore the centroid variances\n"
       "  --strong-only     build the model from the stronger half only\n"
       "  --analytic        analytical derivatives, not finite differences\n"
+      "  --timing          where the time went, by phase\n"
       "  --detector-in-scan-varying  keep refining the detector during the\n"
       "                    scan-varying pass; it is degenerate with the cell\n"
       "  --min-volume V    drop reflections whose rotation angle is not\n"
@@ -41,12 +43,23 @@ void usage() {
 }
 }  // namespace
 
+namespace {
+double now_wall() {
+  return std::chrono::duration<double>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+}  // namespace
+
 int main(int argc, char **argv) {
+  const double t_start = now_wall();
+  double t_read = 0.0;
+  double t_write = 0.0;
   const std::set<std::string> known = {
       "--no-crystal",   "--no-detector",  "--beam",         "--separate",
       "--macrocycles",  "--outlier-sigma", "--output-expt", "--output-refl",
       "--conditional-depth", "--scan-varying", "--unit-weights",
-      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying", "--jacobian-threads"};
+      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying", "--jacobian-threads", "--timing"};
   const std::set<std::string> takes_value = {
       "--macrocycles", "--outlier-sigma", "--output-expt", "--output-refl",
       "--scan-varying", "--z-weight", "--min-volume", "--jacobian-threads"};
@@ -91,8 +104,10 @@ int main(int argc, char **argv) {
   const std::string out_refl = args.value("--output-refl", "refined.refl");
 
   try {
+    const double t_read_start = now_wall();
     ExperimentList experiments = read_experiments(args.positional[0]);
     Table reflections = read_reflections(args.positional[1]);
+    t_read = now_wall() - t_read_start;
     if (conditional_depth) {
       for (Experiment &e : experiments) {
         for (Panel &p : e.detector.panels) p.parallax_conditional = true;
@@ -157,9 +172,29 @@ int main(int argc, char **argv) {
     set_refinement_flags(result, reflections);
     add_reciprocal_columns(experiments, reflections);
     update_predictions(experiments, reflections);
+    const double t_write_start = now_wall();
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);
+    t_write = now_wall() - t_write_start;
     std::printf("wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
+
+    if (args.has("--timing")) {
+      const double total = now_wall() - t_start;
+      const auto line = [&](const char *name, double seconds) {
+        std::printf("  %-24s %7.3f s  %5.1f%%\n", name, seconds,
+                    total > 0.0 ? 100.0 * seconds / total : 0.0);
+      };
+      std::printf("\ntiming\n");
+      line("read", t_read);
+      line("build the target rows", g_observations_seconds);
+      line("the jacobian", g_jacobian_seconds);
+      line("the normal equations", g_normal_seconds);
+      line("the solve", g_solve_seconds);
+      line("the trial residuals", g_residual_seconds);
+      line("outlier rejection", g_outlier_seconds);
+      line("write", t_write);
+      std::printf("  %-24s %7.3f s\n", "total", total);
+    }
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_refine: %s\n", e.what());

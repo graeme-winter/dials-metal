@@ -19,6 +19,10 @@ namespace mxi {
 //: A knob because a machine running several of these at once wants fewer, and
 //: because a threading change that cannot be turned off cannot be measured
 //: against the version without it.
+double g_observations_seconds = 0.0;
+double g_solve_seconds = 0.0;
+double g_outlier_seconds = 0.0;
+double g_residual_seconds = 0.0;
 std::size_t g_jacobian_threads = 0;
 double g_jacobian_seconds = 0.0;
 double g_normal_seconds = 0.0;
@@ -443,8 +447,10 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
                     const RefineOptions &options) {
   RefineResult result;
   std::size_t ill_conditioned = 0;
+  const double t_observations = now_seconds();
   std::vector<TargetRow> observations =
       gather(experiments, reflections, options, &ill_conditioned);
+  g_observations_seconds += now_seconds() - t_observations;
   if (observations.size() < 20) return result;
 
   Layout layout;
@@ -537,13 +543,17 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         for (std::size_t b = a + 1; b < n; ++b) normal[a * n + b] = normal[b * n + a];
       }
 
+      g_normal_seconds += now_seconds() - t_normal;
+
       bool stepped = false;
       for (int attempt = 0; attempt < 8; ++attempt) {
+        const double t_solve = now_seconds();
         std::vector<double> damped = normal;
-      g_normal_seconds += now_seconds() - t_normal;
         for (std::size_t a = 0; a < n; ++a) damped[a * n + a] *= (1.0 + lambda);
         std::vector<double> solution = rhs;
-        if (!solve_spd(damped.data(), solution.data(), n)) {
+        const bool solved = solve_spd(damped.data(), solution.data(), n);
+        g_solve_seconds += now_seconds() - t_solve;
+        if (!solved) {
           lambda *= 10.0;
           continue;
         }
@@ -551,9 +561,13 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         // of the residual, so the normal equations already solve for the shift
         // that reduces it. Negating here was the first thing that made this
         // diverge smoothly.
+        // Each damping attempt evaluates the residual again, so this is the
+        // cost of the line search rather than of the step.
+        const double t_residual = now_seconds();
         apply(experiments, layout, solution, &trial);
         std::vector<double> trial_residual;
         const double value = residuals_of(trial, observations, &trial_residual);
+        g_residual_seconds += now_seconds() - t_residual;
         if (value < previous) {
           experiments = trial;
           residual = trial_residual;
@@ -576,6 +590,7 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
     // Outlier rejection between macrocycles, never inside one: rejecting while
     // the model is still moving throws away reflections for being far from a
     // prediction that was wrong.
+    const double t_outlier = now_seconds();
     if (options.outlier_sigma > 0.0 && macro + 1 < options.macrocycles) {
       std::vector<double> dx, dy, dz;
       for (std::size_t i = 0; i < observations.size(); ++i) {
@@ -602,6 +617,7 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         std::printf("  macrocycle %d: rejected %zu outliers\n", macro + 1, rejected);
       }
     }
+    g_outlier_seconds += now_seconds() - t_outlier;
 
     if (options.verbose) {
       double sx = 0, sy = 0, sz = 0;

@@ -1,5 +1,43 @@
 # Computing the refinement target on a device
 
+## Refinement on its own is dominated by file I/O
+
+`mxi_refine --timing`, on 78618 reflections whose table carries shoeboxes:
+
+    read                       0.293 s   28.7%
+    build the target rows      0.032 s    3.1%
+    the jacobian               0.251 s   24.5%
+    the normal equations       0.111 s   10.9%
+    the solve                  0.000 s    0.0%
+    the trial residuals        0.110 s   10.7%
+    outlier rejection          0.008 s    0.8%
+    write                      0.130 s   12.7%
+    total                      1.023 s
+
+**Reading and writing are 41 per cent of it**, more than the Jacobian, and
+nine tenths of that is pixel data refinement never looks at. The file is
+100 MB, of which the shoebox column is 79. The same run on a table with the
+shoeboxes stripped:
+
+    read     0.293 -> 0.049 s
+    write    0.130 -> 0.042 s
+    total    1.023 -> 0.615 s
+
+A third of the run is carrying shoeboxes from one file to another. They have to
+be carried -- dropping them would lose the pixels for everything downstream,
+which is how five format bugs got here in the first place -- but they do not
+have to be parsed into a string, copied into a table and copied out again.
+The column is already held as opaque bytes; what it wants is to be moved rather
+than copied, and on the write side streamed rather than assembled.
+
+Which is worth saying plainly: refinement's arithmetic is now a smaller part of
+`mxi_refine` than its file handling, and no amount of threading or device work
+on the Jacobian will change that. The cheapest remaining second is in the
+reader.
+
+The solve is 0.000 s and that is not a broken timer: it is a Cholesky of a ten
+by ten matrix, done a handful of times.
+
 ## The transform, and the half of it that is not needed
 
 With analytical derivatives in use the transform is the largest phase of
