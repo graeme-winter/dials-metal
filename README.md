@@ -69,9 +69,10 @@ detector distance to two microns and its cell to six thousandths of an
 Angstrom. Analytical derivatives for crystal, detector and beam are validated
 against finite differences and are six times faster.
 
-**Integration is not started.** `docs/integration.md` has the plan, what it is
-bound by, and the profile model, which is implemented and does not yet agree
-with DIALS: `sigma_b` 0.0274 against 0.0317, `sigma_m` 0.119 against 0.098.
+**Integration is not started.** `docs/integration.md` has the plan and what it
+is bound by. The profile model is implemented and does not yet agree with
+DIALS; `mxi_profile` prints both values and the disagreement with every answer,
+which is the only place either number should be read from.
 
 **A device port is designed but not written.** `docs/gpu.md`. The target
 evaluation is 88 to 106 per cent of refinement time, the work is one

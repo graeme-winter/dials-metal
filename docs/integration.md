@@ -17,14 +17,15 @@ nothing integrates yet.
 | summation | not started; needs Leslie (1999) |
 | profile fitting | not started; needs the reference profiles of Kabsch section 3.3 |
 
-    sigma_b   0.027393 here   0.031698 DIALS
-    sigma_m   0.118552 here   0.097667 DIALS
+Neither sigma agrees with DIALS. **Run `mxi_profile` for the numbers**: it
+prints both, and the disagreement with each, every time. They are not repeated
+here or in the README, because a number copied into prose is wrong from the
+first time either estimator changes and nothing checks it.
 
-Neither agrees and `mxi_profile` says so with every answer. What the forward
-model says about them is the most useful reading: rendered onto the pixels, the
-observed spot is 3.3 per cent narrower than the model on the detector and 5 per
-cent narrower in rotation, so both sigmas are a little large and by far less
-than the raw comparisons suggested.
+What the forward model says about them is the most useful reading: rendered
+onto the pixels, the observed spot is about three per cent narrower than the
+model on the detector and five per cent narrower in rotation, so both sigmas
+are a little large and by far less than the raw comparisons suggested.
 
 Read `## Rendering the model onto the pixels` before anything below it. Several
 earlier sections reach conclusions it overturns, and they are marked.
@@ -159,16 +160,15 @@ DIALS' `R` is a partiality rather than a density -- it is not divided by the
 oscillation width as Kabsch writes it -- but that is a constant in the log and
 the argument of the maximum is identical.
 
-Where this leaves it, on 1800 images of insulin:
+Both still disagree; `mxi_profile` prints by how much. The figure quoted here
+was 0.030786 for sigma_b until the pixel-to-millimetre conventions were matched
+two sections below, which moved it -- which is the argument for not quoting it
+at all.
 
-    sigma_b   0.030786 here   0.031698 DIALS    -2.9 per cent
-    sigma_m   0.118552 here   0.097667 DIALS   +21.4 per cent
-
-Both still disagree, and the program says so with every answer. The remaining
-candidates are in code this has not read: `Shoebox::beam_vectors`, which
-decides exactly which lab coordinate a pixel maps to, and `compute_zeta`.
-Parallax is not among them -- applying it moves sigma_b to +24 per cent and
-inverting it to -14, so DIALS is doing neither.
+The remaining candidate is in code this has not read: `Shoebox::beam_vectors`,
+which decides exactly which lab coordinate a pixel maps to. Parallax applied
+the other way is not it -- that moves sigma_b to +24 per cent and inverting it
+to -14, so DIALS is doing neither.
 
 The estimators themselves are checked against planted values rather than
 against DIALS: a known angular spread comes back exactly, and samples drawn
