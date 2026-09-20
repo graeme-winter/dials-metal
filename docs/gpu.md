@@ -16,25 +16,37 @@ grid, one core:
     macrocycles              2.446 s   18.4%
     indexing total          13.304 s
 
-**The FFT is a quarter of it.** The natural guess is that indexing is an FFT
-with some refinement around it, and porting those two to a device would buy
+On another machine, same code and the same number of reflections:
 
-    13.30 s -> 7.65 s, which is 1.74x
+    candidate vectors        3.843 s   78.8%
+      the transform          2.783 s   57.1%
+      the peak search        1.045 s   21.4%
+    choose basis             0.183 s    3.8%
+    macrocycles              0.788 s   16.2%
+    indexing total           4.875 s
 
-even if both became free. The two phases that guess leaves out are the peak
-search, which is the same size as the transform, and choosing the basis, which
-is larger than either.
+**The two runs disagree about which phase is largest**, and the disagreement is
+not noise: `choose basis` is 3.8 per cent of one and 30.8 per cent of the
+other, a factor of twenty-two, while the transform differs by fifteen per cent.
 
-What each is worth if it cost nothing:
+The reason is in the code. Choosing a basis scores every triple of candidate
+vectors whose volume clears a degeneracy filter, so its cost is the number of
+triples that clear it times the number of reflections. `--timing` reports the
+count: 3743 of 4060 scored in the slow run, and something near 170 in the fast
+one. How many survive depends on how nearly parallel the candidate vectors are,
+which depends on the data. **The phase is data-dependent by more than an order
+of magnitude and no single measurement of it means anything.**
 
-    without the transform     1.32x
-    without the peak search   1.32x
-    without choose basis      1.44x
-    without macrocycles       1.23x
+The transform and the peak search are not: they are fixed work for a given grid
+size, 16.7 million points either way, and they are 78.8 and 44.6 per cent of
+the two runs. Those are the phases to attack.
 
-No single phase is worth more than a third. This is the ordinary shape of a
-program with no hot spot, and the ordinary consequence is that porting one
-thing disappoints.
+What each is worth on the faster machine if it cost nothing:
+
+    without the transform     2.33x
+    without the peak search   1.27x
+    without choose basis      1.04x
+    without macrocycles       1.19x
 
 ### What each phase is, as work
 
@@ -51,18 +63,27 @@ thing disappoints.
 * **The macrocycles**: assignment, which is a pass over the reflections, and
   refinement, whose device port is designed in the rest of this document.
 
-### Threads before devices
+### Threads before devices, and the transform is the one that matters
 
-All of the above is one core. Three of the four phases are embarrassingly
-parallel on the host, and on a machine with eight of them the same work would
-take
+All of this is one core. From 4.875 s, with the peak search, the basis search
+and the macrocycles threaded -- all three are embarrassingly parallel -- and
+the transform treated two ways:
 
-    13.30 s -> about 3 s
+    4 threads, transform threads perfectly   1.28 s  3.8x
+    4 threads, transform threads 2x only     1.97 s  2.5x
+    8 threads, transform threads perfectly   0.68 s  7.2x
+    8 threads, transform threads 2x only     1.72 s  2.8x
 
-for `std::thread` and no device, no library, no memory transfers and no second
-implementation to keep in step with the first. The device is worth doing after
-that, not instead of it, and the honest comparison for any device backend is
-against the threaded host version rather than against this one.
+Threading everything except the transform hits a floor at about 1.7 s however
+many cores are thrown at it, because the transform is 57 per cent of the run.
+**Under a second needs the transform.** A threaded radix-2 will not get there
+on its own; the realistic options are a library on the host -- vDSP, FFTW,
+MKL -- or the device.
+
+All of which is `std::thread` and no device, no memory transfers and no second
+implementation to keep in step. The device is worth doing after that rather
+than instead of it, and the honest comparison for any device backend is against
+the threaded host version and not against this one.
 
 
 

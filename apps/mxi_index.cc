@@ -133,6 +133,8 @@ int main(int argc, char **argv) {
       line("  the rest of it",
            t.candidate_vectors - t.fft - t.peak_search);
       line("choose basis", t.choose_basis);
+      std::printf("    %zu triples scored, %zu skipped as degenerate\n",
+                  t.triples_scored, t.triples_skipped);
       line("fit and reduce", t.fit_and_reduce);
       line("macrocycles", t.macrocycles);
       std::printf("  %-22s %7.3f s\n", "indexing total", t.total);

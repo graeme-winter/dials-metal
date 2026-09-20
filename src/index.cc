@@ -20,6 +20,8 @@ namespace {
 //: than a return value because find_candidate_vectors is on a public header
 //: and its signature is not worth changing to answer one question about where
 //: four seconds go.
+std::size_t g_triples_scored = 0;
+std::size_t g_triples_skipped = 0;
 double g_last_fft_seconds = 0.0;
 double g_last_peak_seconds = 0.0;
 
@@ -351,7 +353,11 @@ bool choose_basis(const std::vector<Vec3> &candidates,
         // before they are scored.
         const double scale = candidates[a].norm() * candidates[b].norm() *
                              candidates[c].norm();
-        if (volume < 0.05 * scale) continue;
+        if (volume < 0.05 * scale) {
+          ++g_triples_skipped;
+          continue;
+        }
+        ++g_triples_scored;
 
         const std::size_t count = score_basis(rows, points, tolerance, nullptr);
         // More reflections indexed wins. On a tie the smaller cell wins,
@@ -497,12 +503,16 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
   }
 
   const double t_choose = now_seconds();
+  g_triples_scored = 0;
+  g_triples_skipped = 0;
   std::size_t n_indexed = 0;
   if (!choose_basis(result.candidates, points, options.tolerance,
                     &result.crystal, &n_indexed)) {
     return result;
   }
   result.timing.choose_basis = now_seconds() - t_choose;
+  result.timing.triples_scored = g_triples_scored;
+  result.timing.triples_skipped = g_triples_skipped;
   const double t_fit = now_seconds();
 
   // Fit, reduce, fit again. The first fit pulls the transform's peak centroids

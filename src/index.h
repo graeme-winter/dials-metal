@@ -56,6 +56,12 @@ struct IndexTiming {
   double choose_basis = 0.0;
   double fit_and_reduce = 0.0;
   double macrocycles = 0.0;  //: assignment and refinement together
+  //: Triples of candidate vectors actually scored, and how many were skipped
+  //: as too nearly degenerate. The cost of choosing a basis is this count
+  //: times the number of reflections, and the count depends on the data: the
+  //: same code was 3.8 per cent of one run and 30.8 per cent of another.
+  std::size_t triples_scored = 0;
+  std::size_t triples_skipped = 0;
   double total = 0.0;
 };
 
