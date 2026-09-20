@@ -44,6 +44,31 @@ not be achievable, in which case the test should compare decoded contents --
 every column, every dtype, every shoebox byte -- rather than be weakened to
 pass.
 
+## The Python
+
+There is one package, `python/`, and everything Python in this repository is in
+it. It was in five places: the checker in `mxeq/`, two plotters in `docs/`,
+three scripts in `spotfinder/tests/`, and two data makers in `tests/`.
+
+    mxeq.checks     the equivalence checks, including the spot finder's two
+    mxeq.plots      drawing what the C++ tools wrote; needs matplotlib
+    mxeq.fixtures   making test data; needs h5py
+
+The checker needs neither matplotlib nor h5py and must keep working where they
+are absent, so nothing in it may import those two subpackages. They are extras
+in `pyproject.toml` and there is a check that `mxeq.cli` imports with both
+blocked.
+
+`mxeq.checks.spotfinder_refl` carried its own sixty-line msgpack decoder,
+because it began as a script beside the spot finder where no dependency was
+allowed. Inside the package `msgpack` is already required and the hand-rolled
+one is gone.
+
+Consolidating found a real bug: `mxeq.plots.anisotropy` unpacked eleven columns
+positionally from a file that had grown to eleven from nine. It had simply
+stopped running, and nothing said so. It now reads the columns by name from the
+header and refuses a file whose header and data disagree.
+
 ## What cannot be checked here
 
 This container has no HDF5, so `spotfinder/` does not build in it and nothing

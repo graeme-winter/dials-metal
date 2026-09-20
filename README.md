@@ -16,12 +16,14 @@ defaults off and the reason is written down.
 | --- | --- |
 | `spotfinder/` | the Metal and CUDA spot finder; needs HDF5 |
 | `src/`, `apps/` | indexing, refinement, prediction, profile model |
-| `mxeq/` | the equivalence checker: Python, no cctbx |
+| `python/` | everything Python: the checker, the plots, the fixtures |
 | `docs/` | notes on integration and on a device port |
 | `CLAUDE.md` | working notes: what was got wrong, and how it was found |
 
 `mxeq` is the referee and must stay independent of what it judges. Nothing in
-`src/` may import it and it must never import them; it reads files.
+`src/` may import it and it must never import them; it reads files. Within it,
+the checker must not import `mxeq.plots` or `mxeq.fixtures`, so it keeps
+working where matplotlib and h5py are not installed.
 
 ## Building
 

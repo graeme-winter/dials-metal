@@ -14,6 +14,11 @@ dependencies = ["numpy>=1.22", "scipy>=1.8", "msgpack>=1.0", "gemmi>=0.6"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+# The checker itself needs neither of these, and must keep working where they
+# are absent: `mxeq.plots` draws what the C++ tools wrote, and `mxeq.fixtures`
+# makes test data. Nothing in the checker may import either subpackage.
+plots = ["matplotlib>=3.5"]
+fixtures = ["h5py>=3.6"]
 
 [project.scripts]
 mxeq = "mxeq.cli:main"

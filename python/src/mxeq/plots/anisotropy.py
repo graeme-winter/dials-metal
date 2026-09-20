@@ -17,11 +17,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def read(path):
+    """Columns by name, from the header mxi_grid writes.
+
+    Not by position. This unpacked nine columns positionally and broke silently
+    the day the writer grew three more -- the plot simply stopped running, and
+    it was months before anyone ran it again.
+    """
+    with open(path) as handle:
+        header = handle.readline().lstrip("# ").split()
+    data = np.loadtxt(path)
+    if data.shape[1] != len(header):
+        raise ValueError(
+            f"{path} has {data.shape[1]} columns and a header naming "
+            f"{len(header)}"
+        )
+    return {name: data[:, i] for i, name in enumerate(header)}
+
+
 def main(path, out, pixel_degrees):
-    d = np.loadtxt(path)
-    x, y, r, ob, w1, w2, w3, counts, pred = d.T
+    d = read(path)
+    x, y = d["x_mm"], d["y_mm"]
+    ob = d["obliquity_deg"]
+    w1, w2 = d["width1"], d["width2"]
+    counts, pred = d["counts"], d["predicted_smear"]
     keep = (counts > 50) & (w1 > 0) & (w2 > 0)
-    x, y, r, ob, w1, w2, pred = (a[keep] for a in (x, y, r, ob, w1, w2, pred))
+    x, y, ob, w1, w2, pred = (a[keep] for a in (x, y, ob, w1, w2, pred))
 
     edges = np.percentile(ob, np.linspace(0, 100, 13))
     mid, m1, m2, mp, excess = [], [], [], [], []

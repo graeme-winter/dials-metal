@@ -30,6 +30,8 @@ this runs under any python3 rather than needing the DIALS environment.
 
 from __future__ import annotations
 
+import msgpack
+
 import struct
 import sys
 
@@ -53,66 +55,6 @@ ELEMENT_SIZE = {
 VARIABLE = {"Shoebox<>", "std::string"}
 
 
-class Unpacker:
-    """Just the msgpack a reflection table is made of."""
-
-    def __init__(self, data: bytes) -> None:
-        self.data = data
-        self.at = 0
-
-    def byte(self) -> int:
-        value = self.data[self.at]
-        self.at += 1
-        return value
-
-    def take(self, n: int) -> bytes:
-        if self.at + n > len(self.data):
-            raise ValueError(f"a value of {n} bytes runs off the end")
-        value = self.data[self.at : self.at + n]
-        self.at += n
-        return value
-
-    def be(self, n: int) -> int:
-        return int.from_bytes(self.take(n), "big")
-
-    def value(self):
-        tag = self.byte()
-        if tag < 0x80:
-            return tag
-        if tag >= 0xE0:
-            return tag - 0x100  # negative fixint
-        if 0xA0 <= tag <= 0xBF:
-            return self.take(tag & 0x1F).decode("utf-8")
-        if 0x90 <= tag <= 0x9F:
-            return [self.value() for _ in range(tag & 0x0F)]
-        if 0x80 <= tag <= 0x8F:
-            return {self.value(): self.value() for _ in range(tag & 0x0F)}
-        if tag == 0xC0:
-            return None
-        if tag == 0xC2:
-            return False
-        if tag == 0xC3:
-            return True
-        if tag in (0xC4, 0xC5, 0xC6):
-            return self.take(self.be({0xC4: 1, 0xC5: 2, 0xC6: 4}[tag]))
-        if tag in (0xCA, 0xCB):
-            width = 4 if tag == 0xCA else 8
-            return struct.unpack("<f" if width == 4 else "<d", self.take(width))[0]
-        if tag in (0xCC, 0xCD, 0xCE, 0xCF):
-            return self.be({0xCC: 1, 0xCD: 2, 0xCE: 4, 0xCF: 8}[tag])
-        if tag in (0xD0, 0xD1, 0xD2, 0xD3):
-            width = {0xD0: 1, 0xD1: 2, 0xD2: 4, 0xD3: 8}[tag]
-            return int.from_bytes(self.take(width), "big", signed=True)
-        if tag in (0xD9, 0xDA, 0xDB):
-            return self.take(self.be({0xD9: 1, 0xDA: 2, 0xDB: 4}[tag])).decode("utf-8")
-        if tag in (0xDC, 0xDD):
-            return [self.value() for _ in range(self.be(2 if tag == 0xDC else 4))]
-        if tag in (0xDE, 0xDF):
-            n = self.be(2 if tag == 0xDE else 4)
-            return {self.value(): self.value() for _ in range(n)}
-        raise ValueError(f"msgpack tag {tag:#02x} at byte {self.at - 1}")
-
-
 class Table:
     def __init__(self, path: str) -> None:
         with open(path, "rb") as handle:
@@ -121,13 +63,12 @@ class Table:
             import gzip
 
             raw = gzip.decompress(raw)
-        unpacker = Unpacker(raw)
-        document = unpacker.value()
-        if unpacker.at != len(raw):
-            raise ValueError(
-                f"{unpacker.at} of {len(raw)} bytes consumed; there is more in "
-                "here than a reflection table"
-            )
+        # msgpack, not a hand-rolled parser. This file carried one because it
+        # began life as a script beside the spot finder with no dependencies
+        # allowed; inside the package msgpack is already required by
+        # mxeq.refl, and a second decoder for one format is a second place for
+        # it to be read wrongly.
+        document = msgpack.unpackb(raw, raw=False, strict_map_key=False)
         if not isinstance(document, list) or len(document) != 3:
             raise ValueError("not an array of three: this is not a reflection table")
         if document[0] != "dials::af::reflection_table":

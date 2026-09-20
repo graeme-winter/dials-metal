@@ -18,18 +18,14 @@ What it checks:
   * every bounding box spanning exactly the frames the reflection was on
   * nothing else in the table
 
-Reuses the msgpack decoder in check_refl.py, which is beside it.
+Reuses the table reader in spotfinder_refl, which is beside it.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from check_refl import Table  # noqa: E402
+from .spotfinder_refl import Table
 
 # A pixel in x and y. The profile is symmetric, so the centroid should land on
 # the pixel it was planted in; anything approaching a pixel is a systematic
