@@ -89,7 +89,16 @@ brew install fftw                       # macOS
 cmake -S . -B build -DMXI_FFTW=ON
 ```
 
-`cmake` prints `FFT: FFTW` or `FFT: the built-in radix-2`. The built-in is
+`cmake` prints `FFT: FFTW` with how it found it, or `FFT: the built-in
+radix-2`. If it cannot be found -- a Homebrew prefix that is not searched, no
+pkg-config -- point at it:
+
+```sh
+cmake -S . -B build -DMXI_FFTW=ON \
+      -DFFTW3_LIBRARY=/opt/homebrew/lib/libfftw3.dylib \
+      -DFFTW3_INCLUDE_DIR=/opt/homebrew/include
+```
+ The built-in is
 always compiled whichever is used, and there is a test that the two agree:
 a library can be planned wrongly, normalised differently or linked against
 another precision, and none of that shows in a result that still looks like a

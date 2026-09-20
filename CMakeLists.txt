@@ -25,21 +25,48 @@ endif()
 #   cmake -S . -B build -DMXI_FFTW=ON
 option(MXI_FFTW "Use FFTW for the transform instead of the built-in radix-2" OFF)
 if(MXI_FFTW)
+    # pkg-config first, through an imported target rather than by hand.
+    # pkg_check_modules sets FFTW3_LIBRARIES to the link NAME -- "fftw3" -- and
+    # keeps the directory in FFTW3_LIBRARY_DIRS, so linking the first without
+    # the second works only where the library is already on the linker's
+    # default path. It is on Linux, and it is not under Homebrew's
+    # /opt/homebrew, which is where this failed. The imported target carries
+    # both.
     find_package(PkgConfig QUIET)
     if(PkgConfig_FOUND)
-        pkg_check_modules(FFTW3 QUIET fftw3)
+        pkg_check_modules(FFTW3 QUIET IMPORTED_TARGET fftw3)
     endif()
-    if(NOT FFTW3_FOUND)
-        find_library(FFTW3_LIBRARIES NAMES fftw3)
-        find_path(FFTW3_INCLUDE_DIRS NAMES fftw3.h)
+    if(TARGET PkgConfig::FFTW3)
+        set(MXI_FFTW_TARGET PkgConfig::FFTW3)
+    else()
+        # No pkg-config, or no .pc file. find_library returns a full path, so
+        # this needs no directory of its own -- but it does need to be told
+        # where Homebrew puts things, since /opt/homebrew is not searched by
+        # default.
+        find_library(FFTW3_LIBRARY NAMES fftw3
+                     HINTS ENV FFTW_ROOT ENV HOMEBREW_PREFIX
+                     PATHS /opt/homebrew /usr/local /opt/local
+                     PATH_SUFFIXES lib)
+        find_path(FFTW3_INCLUDE_DIR NAMES fftw3.h
+                  HINTS ENV FFTW_ROOT ENV HOMEBREW_PREFIX
+                  PATHS /opt/homebrew /usr/local /opt/local
+                  PATH_SUFFIXES include)
+        if(FFTW3_LIBRARY AND FFTW3_INCLUDE_DIR)
+            add_library(mxi_fftw INTERFACE)
+            target_link_libraries(mxi_fftw INTERFACE ${FFTW3_LIBRARY})
+            target_include_directories(mxi_fftw INTERFACE ${FFTW3_INCLUDE_DIR})
+            set(MXI_FFTW_TARGET mxi_fftw)
+        endif()
     endif()
-    if(NOT FFTW3_LIBRARIES)
+    if(NOT MXI_FFTW_TARGET)
         message(FATAL_ERROR
-                "MXI_FFTW is on but FFTW was not found. Install libfftw3-dev "
-                "or fftw, or configure without -DMXI_FFTW=ON to use the "
-                "built-in transform.")
+                "MXI_FFTW is on but FFTW was not found. Install it with "
+                "'apt-get install libfftw3-dev' or 'brew install fftw', or "
+                "point at it with -DFFTW3_LIBRARY=<path to libfftw3> and "
+                "-DFFTW3_INCLUDE_DIR=<path to fftw3.h>. Configure without "
+                "-DMXI_FFTW=ON to use the built-in transform.")
     endif()
-    message(STATUS "FFT: FFTW")
+    message(STATUS "FFT: FFTW (${MXI_FFTW_TARGET})")
 else()
     message(STATUS "FFT: the built-in radix-2; -DMXI_FFTW=ON for FFTW")
 endif()
@@ -68,8 +95,7 @@ if(MXI_FFTW)
     # PUBLIC: fft3d is called from mxi and the symbol has to resolve in every
     # executable that links mxi, not only inside the archive.
     target_compile_definitions(mxi PUBLIC MXI_USE_FFTW)
-    target_link_libraries(mxi PUBLIC ${FFTW3_LIBRARIES})
-    target_include_directories(mxi PUBLIC ${FFTW3_INCLUDE_DIRS})
+    target_link_libraries(mxi PUBLIC ${MXI_FFTW_TARGET})
 endif()
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
