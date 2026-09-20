@@ -283,6 +283,37 @@ finer sampling, where the spot is several pixels across; and test the sampling
 hypothesis directly by measuring the width against the sub-pixel position of
 the spot centre, which should show nothing if the widths are real.
 
+## Seeing the model on the images
+
+    mxi_mask refined.expt refined.refl -o masked.refl \
+             --d-min 1.6 --first-image 0 --last-image 20
+    dials.image_viewer refined.expt masked.refl
+
+Predicts the reflections, works out each one's integration region, and writes a
+shoebox whose mask marks it: `Valid | Foreground` inside the n-sigma region,
+`Valid | Background` around it. **The pixel values are left at zero.** Nothing
+here has read an image, and invented counts would be worse than none -- the
+point is to see where the model says the signal is, drawn over the real image
+by the viewer.
+
+The bounding box comes from inverting the region rather than guessing a size:
+the four corners of the `(eps1, eps2)` square are offset from `s1` in the
+frame's own tangent plane and intersected with the panel, and the rotation
+half-width is `n sigma_M / |zeta|` turned into images. It is then clipped to
+the panel and the scan, so a box hanging off an edge is kept as the part of it
+that is real.
+
+An image range is not optional in practice. A whole 1800-image sweep at 1.6
+Angstrom is 129000 reflections and about a gigabyte of empty shoebox; the first
+attempt at this was killed by the machine. The boxes are also built and encoded
+one at a time rather than all held at once.
+
+What it shows on insulin, twenty images at 1.6 Angstrom: 1445 boxes, typically
+12 by 12 pixels by 8 images, of which 44 per cent of the voxels are inside the
+region. Those are big boxes for spots that are two pixels across, which is the
+same conclusion as everything else in this section, in the form most likely to
+be believed.
+
 ## Order of work
 
 1. `sigma_D` and `sigma_M` from the indexed strong spots, using the shoebox

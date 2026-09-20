@@ -27,6 +27,7 @@ add_library(mxi
   src/shoebox.cc
   src/profile_model.cc
   src/profile_grid.cc
+  src/mask.cc
 )
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
@@ -46,6 +47,10 @@ target_compile_options(mxi_residuals PRIVATE -Wall -Wextra)
 add_executable(mxi_profile apps/mxi_profile.cc)
 target_link_libraries(mxi_profile PRIVATE mxi)
 target_compile_options(mxi_profile PRIVATE -Wall -Wextra)
+
+add_executable(mxi_mask apps/mxi_mask.cc)
+target_link_libraries(mxi_mask PRIVATE mxi)
+target_compile_options(mxi_mask PRIVATE -Wall -Wextra)
 
 add_executable(mxi_grid apps/mxi_grid.cc)
 target_link_libraries(mxi_grid PRIVATE mxi)
@@ -85,6 +90,7 @@ add_executable(mxi_tests
   tests/test_precision.cc
   tests/test_expt_format.cc
   tests/test_shoebox.cc
+  tests/test_mask.cc
   tests/test_profile_model.cc
 )
 target_link_libraries(mxi_tests PRIVATE mxi)
