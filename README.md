@@ -28,15 +28,55 @@ working where matplotlib and h5py are not installed.
 
 ## Building
 
+The pipeline itself has no dependencies:
+
 ```sh
-git submodule update --init --recursive    # for the spot finder
 cmake -S . -B build && cmake --build build
-./build/mxi_tests
+ctest --test-dir build
 ```
 
-The spot finder is built only when HDF5 and the submodule are both present;
-otherwise `cmake` says so and builds the rest, so a machine that cannot build
-the whole tree still builds and tests most of it.
+The spot finder needs HDF5 and the bitshuffle submodule, and is left out
+silently if either is missing -- `cmake` prints which. To build it:
+
+```sh
+sudo apt-get install libhdf5-dev        # Debian and Ubuntu
+brew install hdf5                       # macOS
+# or: conda install -c conda-forge hdf5
+
+git submodule update --init --recursive
+cmake -S . -B build && cmake --build build
+```
+
+`cmake` says `spotfinder: building` when it has both, and
+`spotfinder: HDF5 not found, skipping` or `bitshuffle submodule not checked
+out` when it does not. If the spot finder is what you want, check that line
+rather than the absence of an error: leaving it out is not a failure.
+
+The threshold kernels are CPU by default. One device backend at a time, and
+`cmake` refuses both at once:
+
+```sh
+cmake -S . -B build -DSPOTFINDER_METAL=ON      # Apple
+cmake -S . -B build -DSPOTFINDER_CUDA=ON       # NVIDIA
+```
+
+`SPOTFINDER_AVX2` is on where the compiler takes it, which means the binary
+will not run on a CPU without AVX2. `-DSPOTFINDER_AVX2=OFF` gives a portable
+SSE2 build.
+
+`ctest` runs everything: this project's tests and the spot finder's, when the
+spot finder was built.
+
+## The Python
+
+```sh
+pip install -e python                   # the checker
+pip install -e "python[plots,fixtures]" # and the plots and test-data makers
+pytest python/tests
+```
+
+The checker deliberately needs neither matplotlib nor h5py, so it runs where
+those are not installed.
 
 ## The chain
 

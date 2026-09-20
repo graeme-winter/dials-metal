@@ -328,7 +328,7 @@ endif()
 # so its chunks can be read directly. HDF5 stays behind this library rather than
 # reaching the tool.
 add_library(spotfinder_series STATIC src/spots/nxmx.cc)
-target_include_directories(spotfinder_series PUBLIC src)
+target_include_directories(spotfinder_series PUBLIC src/spots)
 target_include_directories(spotfinder_series SYSTEM PRIVATE ${HDF5_C_INCLUDE_DIRS})
 target_link_libraries(spotfinder_series
     PRIVATE ${HDF5_C_LIBRARIES} spotfinder_warnings)
@@ -337,27 +337,27 @@ target_compile_definitions(spotfinder_series PRIVATE
 
 # bitshuffle+LZ4, plain LZ4 and uncompressed chunks.
 add_library(spotfinder_decompress STATIC src/spots/decompress.cc)
-target_include_directories(spotfinder_decompress PUBLIC src)
+target_include_directories(spotfinder_decompress PUBLIC src/spots)
 target_link_libraries(spotfinder_decompress PRIVATE bitshuffle spotfinder_warnings)
 
 # The extended dispersion threshold, explicitly instantiated for 16 and 32 bit
 # pixels.
 add_library(spotfinder_dext STATIC src/spots/dext.cc)
-target_include_directories(spotfinder_dext PUBLIC src)
+target_include_directories(spotfinder_dext PUBLIC src/spots)
 target_link_libraries(spotfinder_dext PRIVATE spotfinder_warnings)
 
 # Ordering a device's signal pixels by index. Host code, shared by both device
 # backends, and its own library because it is worth testing on a machine with no
 # GPU at all -- which is where it was written and where its bug was found.
 add_library(spotfinder_signal_order STATIC src/spots/signal_order.cc)
-target_include_directories(spotfinder_signal_order PUBLIC src)
+target_include_directories(spotfinder_signal_order PUBLIC src/spots)
 target_link_libraries(spotfinder_signal_order PRIVATE spotfinder_warnings)
 
 # The backend-agnostic half of gpu::: which window each stage uses, whether to
 # profile, and the last frame's split. Plain C++ with no toolkit in it, so it
 # builds whether the backend is CUDA or Metal and is compiled once either way.
 add_library(spotfinder_dext_gpu STATIC src/spots/dext_gpu.cc)
-target_include_directories(spotfinder_dext_gpu PUBLIC src)
+target_include_directories(spotfinder_dext_gpu PUBLIC src/spots)
 target_link_libraries(spotfinder_dext_gpu PRIVATE spotfinder_warnings)
 
 # Grouping signal pixels six-connected in three dimensions, as DIALS does, with
@@ -365,7 +365,7 @@ target_link_libraries(spotfinder_dext_gpu PRIVATE spotfinder_warnings)
 # components as it compacts, and a union-find it owns is both smaller than
 # adjacency_list and the reason the whole sweep need not be held in memory.
 add_library(spotfinder_dials_spots STATIC src/spots/dials_spots.cc)
-target_include_directories(spotfinder_dials_spots PUBLIC src)
+target_include_directories(spotfinder_dials_spots PUBLIC src/spots)
 target_link_libraries(spotfinder_dials_spots PRIVATE spotfinder_warnings)
 
 # Writing a DIALS reflection table. A .refl is msgpack around raw column dumps,
@@ -373,7 +373,7 @@ target_link_libraries(spotfinder_dials_spots PRIVATE spotfinder_warnings)
 # column type names to be exactly right, since DIALS refuses a name it does not
 # know.
 add_library(spotfinder_refl STATIC src/spots/refl.cc)
-target_include_directories(spotfinder_refl PUBLIC src)
+target_include_directories(spotfinder_refl PUBLIC src/spots)
 target_link_libraries(spotfinder_refl
     PUBLIC spotfinder_dials_spots
     PRIVATE spotfinder_warnings)
@@ -383,14 +383,14 @@ target_link_libraries(spotfinder_refl
 # copy of one. It does NOT use the shared experiment reader: that one refuses a
 # scan without an oscillation, and the spot finder does not need one.
 add_library(spotfinder_expt STATIC src/spots/expt.cc)
-target_include_directories(spotfinder_expt PUBLIC src)
+target_include_directories(spotfinder_expt PUBLIC src/spots)
 target_link_libraries(spotfinder_expt PRIVATE spotfinder_warnings)
 if(TARGET mxi)
   target_link_libraries(spotfinder_expt PRIVATE mxi)
 else()
   # Standalone: compile the one file it needs from the parent tree.
   target_sources(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/json.cc)
-  target_include_directories(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_include_directories(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/spots)
 endif()
 
 add_executable(dials-metal-find-spots src/spots/find_spots.cc)
@@ -426,7 +426,7 @@ endif()
 if(SPOTFINDER_METAL)
     add_library(spotfinder_dext_metal STATIC
                 src/spots/dext_metal.cc ${spotfinder_metallib_cc})
-    target_include_directories(spotfinder_dext_metal PUBLIC src)
+    target_include_directories(spotfinder_dext_metal PUBLIC src/spots)
     # SYSTEM: metal-cpp is not clean under -Wall -Wextra and it is not ours to
     # fix. The warnings that matter are the ones in src/spots/.
     target_include_directories(spotfinder_dext_metal SYSTEM PUBLIC
@@ -518,7 +518,7 @@ if(SPOTFINDER_TESTS)
 
         add_executable(test_dext_gpu tests/spots/test_dext_gpu.cc
                        ${spotfinder_gpu_test_sources})
-        target_include_directories(test_dext_gpu PRIVATE tests)
+        target_include_directories(test_dext_gpu PRIVATE tests/spots)
         target_link_libraries(test_dext_gpu PRIVATE ${spotfinder_gpu_test_libs})
         target_compile_definitions(test_dext_gpu PRIVATE
                                    ${spotfinder_gpu_definitions})
@@ -531,7 +531,7 @@ if(SPOTFINDER_TESTS)
         # is a number to read, not a pass or a fail.
         add_executable(bench_dext_gpu tests/spots/bench_dext_gpu.cc
                        ${spotfinder_gpu_test_sources})
-        target_include_directories(bench_dext_gpu PRIVATE tests)
+        target_include_directories(bench_dext_gpu PRIVATE tests/spots)
         target_link_libraries(bench_dext_gpu
             PRIVATE ${spotfinder_gpu_test_libs} Threads::Threads)
         target_compile_definitions(bench_dext_gpu PRIVATE

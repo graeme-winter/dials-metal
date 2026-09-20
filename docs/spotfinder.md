@@ -86,9 +86,25 @@ positionally from a file that had grown to eleven from nine. It had simply
 stopped running, and nothing said so. It now reads the columns by name from the
 header and refuses a file whose header and data disagree.
 
-## What cannot be checked here
+## Building it is the only check that works
 
-This container has no HDF5, so `spotfinder/` does not build in it and nothing
-that touches images can be run. `src/expt.cc` and `src/refl.cc` have no HDF5
-dependency and their tests build and run standalone, which is why those two
-were the parts consolidated: they are the parts that can be held to a test.
+For most of this work the spot finder could not be built here and the moves
+were checked statically: that every include resolved against the include path
+the build sets, and that every path named in `cmake/spots.cmake` existed. Both
+checks passed. Both missed real breakage, because both were checking against my
+description of what the build does rather than against the build:
+
+* the version guard compares `vcpkg.json` against `project()`, and the
+  top-level `project()` had no `VERSION`, so every configure aborted;
+* the substitution that repointed `src/` at `src/spots/` required a trailing
+  slash, so ten `target_include_directories(... PUBLIC src)` and two
+  `PRIVATE tests` were left pointing at directories that no longer held the
+  headers.
+
+`apt-get install libhdf5-dev` fixes all of that, and should have been the first
+thing tried rather than the last. The whole tree now builds here, including
+`dials-metal-find-spots`, and `ctest` runs eight suites.
+
+What still cannot be checked here is anything needing a device -- the Metal and
+CUDA kernels compile only on a machine that has them -- and anything needing
+real images.
