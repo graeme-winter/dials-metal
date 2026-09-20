@@ -196,8 +196,10 @@ int main(int argc, char **argv) {
     std::printf(
         "\nNOTE: neither number agrees with dials.integrate exactly. On 1800\n"
         "images of insulin it records sigma_b = 0.031698 and sigma_m =\n"
-        "0.097667, against 0.030786 here (-2.9 per cent) and 0.118552\n"
-        "(+21 per cent). See docs/integration.md.\n");
+        "0.097667, against 0.027393 here and 0.118552. See\n"
+        "docs/integration.md: every pixel here is mapped through the same\n"
+        "px-to-mm correction that s1 was built with, which is demonstrably\n"
+        "right and takes sigma_b further from DIALS, not closer.\n");
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_profile: %s\n", e.what());

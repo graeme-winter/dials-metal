@@ -30,16 +30,13 @@ bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &
         if (!(count > 0.0)) continue;
 
         // The direction of the ray that would have landed in the middle of
-        // this pixel. Millimetres straight from the pixel size, with no
-        // parallax: the correction moves where a ray of a given direction is
-        // recorded, and undoing it here would be asking where the ray came
-        // from, which is a different question and gives a spread 15 per cent
-        // smaller.
-        const double mm_fast =
-            (static_cast<double>(box.bbox[0] + x) + 0.5) * p.pixel_size[0];
-        const double mm_slow =
-            (static_cast<double>(box.bbox[2] + y) + 0.5) * p.pixel_size[1];
-        const Vec3 lab = p.lab_coord_mm(mm_fast, mm_slow);
+        // this pixel, through the SAME px-to-mm mapping the s1 it is compared
+        // against was built with, parallax and all. Mixing the two conventions
+        // displaces every pixel radially by about half a pixel, which showed
+        // up as a systematic 0.44 sigma offset in eps2 and nowhere else.
+        const auto mm = p.px_to_mm(static_cast<double>(box.bbox[0] + x) + 0.5,
+                                   static_cast<double>(box.bbox[2] + y) + 0.5);
+        const Vec3 lab = p.lab_coord_mm(mm.first, mm.second);
         const double n = lab.norm();
         if (!(n > 0.0)) continue;
 
@@ -179,7 +176,8 @@ Epsilon epsilon_of(const Experiment &e, const KabschFrame &frame, const Panel &p
   Epsilon out;
   if (!frame.valid) return out;
   const double length = frame.s1.norm();
-  const Vec3 lab = p.lab_coord_mm(px_fast * p.pixel_size[0], px_slow * p.pixel_size[1]);
+  const auto mm = p.px_to_mm(px_fast, px_slow);
+  const Vec3 lab = p.lab_coord_mm(mm.first, mm.second);
   const double lab_length = lab.norm();
   if (!(lab_length > 0.0)) return out;
   // The diffracted beam that would have gone through this pixel, of the same

@@ -148,6 +148,47 @@ against DIALS: a known angular spread comes back exactly, and samples drawn
 from the reflecting-range model with a known sigma come back within five per
 cent at 0.05, 0.1 and 0.3 degrees.
 
+## Where the centre is, and the half pixel that was hiding in it
+
+Every measurement here maps a pixel into the frame of a reflection:
+
+    lab   = origin + mm_fast * fast + mm_slow * slow
+    s'    = lab * |s1| / |lab|                       elastic, so |s'| = |s1|
+    eps1  = degrees( e1 . (s' - s1) / |s1| )
+    eps2  = degrees( e2 . (s' - s1) / |s1| )
+    eps3  = degrees( zeta * (phi_image - phi_calculated) )
+
+The inputs are the panel geometry, the beam, the rotation axis, `s1`, and
+`phi`. What was wrong was the first line: `mm` came from a plain multiplication
+by the pixel size, while the `s1` it is compared against was built from
+`xyzobs.mm`, which is parallax corrected. Two conventions, differing by about
+half a pixel radially.
+
+A width cannot see that, which is why it survived every test here. Comparing
+each spot's centroid with its own centre in the frame does see it:
+
+    eps1   mean -0.000007 deg   -0.000 sigma      sd 0.014 sigma
+    eps2   mean +0.013506 deg   +0.439 sigma      sd 0.110 sigma
+    eps3   mean +0.000176 deg   +0.001 sigma      sd 0.127 sigma
+
+A systematic 0.44 sigma in the radial direction and nothing in the other two --
+which is the signature of a radial displacement, not of anything physical.
+Mapping the pixel through `px_to_mm` instead takes all three to zero within a
+millionth of a degree.
+
+**It costs agreement with DIALS.** sigma_D moves from 0.0308 to 0.0274 degrees,
+from -2.9 per cent of the DIALS value to -13.6. That is recorded rather than
+tuned away: a mapping that is demonstrably inconsistent cannot be the right one
+however well its number happens to agree, and the remaining difference is now a
+cleaner question than it was.
+
+It also means `s1` in a DIALS reflection table is the OBSERVED scattering
+vector, not the predicted one -- computed from `xyzobs.mm`. So these
+measurements are centred on the observation, and the centroid sitting at zero
+is a check on the arithmetic rather than a result. The mask in `mxi_mask` is a
+different matter: it is built on the PREDICTED `s1`, which is what it must be,
+since the point of a mask is to say where the model expects the signal.
+
 ## Is the model any good? Ask the data, not DIALS
 
 The Gaussian is supposed to hold essentially all of a spot's density by three

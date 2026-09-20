@@ -10,13 +10,30 @@
 // the wrong size, which costs intensity if too small and background if too
 // large.
 //
+// THE PIXEL TO MILLIMETRE CONVENTION
+// ----------------------------------
+// Every pixel here is mapped through `Panel::px_to_mm`, parallax and all,
+// because that is the mapping the `s1` it is compared against was built with.
+// Mixing the two -- a plain multiplication by the pixel size on one side and a
+// corrected one on the other -- displaces every pixel radially by about half a
+// pixel. That is not visible in a width, which is why it survived: it showed
+// up only when the centroid of each spot was compared with its prediction in
+// the frame, as a systematic offset of 0.44 sigma in eps2 and nothing at all
+// in eps1 or eps3. With the conventions matched the offset is zero to a
+// millionth of a degree.
+//
+// The cost is that sigma_D moves from 0.0308 to 0.0274 degrees, further from
+// dials.integrate rather than closer. That is recorded rather than tuned away:
+// a mapping that is demonstrably inconsistent cannot be the right one however
+// well its number agrees.
+//
 // STATUS
 // ------
 // `beam_divergence` implements Kabsch's estimator and is verified against
 // synthetic spots whose angular spread is known in advance. On real insulin it
-// gives 0.0304 degrees where dials.integrate records 0.0317, a difference of
-// 4.2 per cent that is NOT yet explained -- see docs/integration.md. Do not
-// treat the two as interchangeable until it is.
+// gives 0.0274 degrees where dials.integrate records 0.0317. That difference
+// is NOT explained -- see docs/integration.md. Do not treat the two as
+// interchangeable until it is.
 
 #pragma once
 

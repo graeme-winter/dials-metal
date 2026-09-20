@@ -34,6 +34,10 @@ void usage(const char *program) {
       "  --half-width W    grid spans plus and minus W sigma (3)\n"
       "  --neighbours K    spots averaged for the reference profile (200)\n"
       "  --spots N         how many example spots to write (4)\n"
+      "  --recentre        put each spot on its own centroid before adding it,\n"
+      "                    rather than on its predicted position. The\n"
+      "                    prediction is off by 0.44 sigma_D on average, which\n"
+      "                    blurs an aggregate by about root two\n"
       "  --subdivisions S  split each pixel S ways per axis; 1 to see the\n"
       "                    undersampling raw (5)\n"
       "  --sigma-b B --sigma-m M   use these instead of estimating\n",
@@ -45,8 +49,12 @@ void usage(const char *program) {
 int main(int argc, char **argv) {
   const std::set<std::string> known = {"--out",      "--n",        "--half-width",
                                        "--neighbours", "--spots",  "--subdivisions",
-                                       "--sigma-b",  "--sigma-m", "--map"};
-  const Arguments args = parse_arguments(argc, argv, known, known);
+                                       "--sigma-b",  "--sigma-m", "--map", "--recentre"};
+  // Not every known option takes a value: passing one set as both made
+  // --recentre demand an argument.
+  std::set<std::string> takes_value = known;
+  takes_value.erase("--recentre");
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage(argv[0]);
     return 0;
@@ -128,6 +136,7 @@ int main(int argc, char **argv) {
     const int subdivisions = static_cast<int>(args.number("--subdivisions", 5));
     const std::size_t neighbours =
         static_cast<std::size_t>(args.number("--neighbours", 200));
+    const bool recentre = args.has("--recentre");
     const std::size_t examples =
         static_cast<std::size_t>(args.number("--spots", 4));
 
@@ -150,7 +159,7 @@ int main(int argc, char **argv) {
     ProfileGrid all = make_grid(n, sigma_b, sigma_m, half);
     for (std::size_t i : chosen) {
       add_to_grid(e, boxes[i], {s.real(i, 0), s.real(i, 1), s.real(i, 2)},
-                  cal.real(i, 2), &all, subdivisions);
+                  cal.real(i, 2), &all, subdivisions, recentre);
     }
     all.normalise();
     write("all", all);
@@ -162,7 +171,7 @@ int main(int argc, char **argv) {
       ProfileGrid one = make_grid(n, sigma_b, sigma_m, half);
       add_to_grid(e, boxes[centre], {s.real(centre, 0), s.real(centre, 1),
                                      s.real(centre, 2)},
-                  cal.real(centre, 2), &one, subdivisions);
+                  cal.real(centre, 2), &one, subdivisions, recentre);
       one.normalise();
 
       // Nearest on the detector face, which is what "nearby" has to mean: the
@@ -183,7 +192,7 @@ int main(int argc, char **argv) {
       for (std::size_t j = 0; j < neighbours && j < distance.size(); ++j) {
         const std::size_t i = distance[j].second;
         add_to_grid(e, boxes[i], {s.real(i, 0), s.real(i, 1), s.real(i, 2)},
-                    cal.real(i, 2), &reference, subdivisions);
+                    cal.real(i, 2), &reference, subdivisions, recentre);
       }
       reference.normalise();
 

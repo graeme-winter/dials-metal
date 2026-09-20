@@ -29,7 +29,8 @@ ProfileGrid make_grid(int n, double sigma_d, double sigma_m, double half_width) 
 }
 
 void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
-                 double phi_calculated, ProfileGrid *grid, int subdivisions) {
+                 double phi_calculated, ProfileGrid *grid, int subdivisions,
+                 bool recentre) {
   if (grid == nullptr || subdivisions < 1) return;
   if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
     return;
@@ -48,6 +49,17 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
   const double width = Scan::radians(e.scan.osc_width);
   const double share = 1.0 / static_cast<double>(subdivisions * subdivisions);
 
+  // Where this spot's own centre of mass sits in the frame, if it is to be
+  // shifted onto it.
+  double centre1 = 0.0, centre2 = 0.0, centre3 = 0.0;
+  if (recentre) {
+    const SpotMoments moments = spot_moments(e, box, s1, phi_calculated);
+    if (!moments.valid) return;
+    centre1 = moments.centre1;
+    centre2 = moments.centre2;
+    centre3 = moments.centre3;
+  }
+
   ++grid->n_spots;
   for (std::int32_t z = 0; z < box.nz(); ++z) {
     // The angular range this image covers, as an eps3 range. eps3 runs
@@ -58,8 +70,8 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
     const double phi_low = Scan::radians(e.scan.osc_start) +
                            (image - static_cast<double>(e.scan.z_offset)) * width;
     const double phi_high = phi_low + width;
-    double e3_low = Scan::degrees(frame.zeta * (phi_low - phi_calculated));
-    double e3_high = Scan::degrees(frame.zeta * (phi_high - phi_calculated));
+    double e3_low = Scan::degrees(frame.zeta * (phi_low - phi_calculated)) - centre3;
+    double e3_high = Scan::degrees(frame.zeta * (phi_high - phi_calculated)) - centre3;
     if (e3_low > e3_high) std::swap(e3_low, e3_high);
     const double e3_span = e3_high - e3_low;
 
@@ -80,8 +92,9 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
             const double py = static_cast<double>(box.bbox[2] + y) +
                               (static_cast<double>(sy) + 0.5) /
                                   static_cast<double>(subdivisions);
-            const Epsilon eps =
-                epsilon_of(e, frame, p, px, py, phi_low, phi_calculated);
+            Epsilon eps = epsilon_of(e, frame, p, px, py, phi_low, phi_calculated);
+            eps.e1 -= centre1;
+            eps.e2 -= centre2;
             const int i1 = static_cast<int>(
                 std::floor((eps.e1 + span_d) / step_d));
             const int i2 = static_cast<int>(
@@ -166,6 +179,9 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
   }
   out.valid = true;
   out.counts = sum;
+  out.centre1 = m1;
+  out.centre2 = m2;
+  out.centre3 = m3;
   out.width1 = std::sqrt(s11 / sum);
   out.width2 = std::sqrt(s22 / sum);
   out.width3 = std::sqrt(s33 / sum);

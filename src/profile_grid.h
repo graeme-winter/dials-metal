@@ -64,8 +64,23 @@ ProfileGrid make_grid(int n, double sigma_d, double sigma_m, double half_width);
 //: `subdivisions` splits each pixel that many ways along each detector axis;
 //: five is what Kabsch uses. One means no subdivision, which is what makes the
 //: undersampling visible.
+//: `recentre` shifts each spot onto its own centroid in the frame before it is
+//: added, instead of onto its predicted position.
+//:
+//: This matters more than it sounds. The prediction is off by a mean of 0.0135
+//: degrees on the detector, which is 0.44 sigma_D and is the same size as the
+//: measured width of a spot. Added about the prediction, an aggregate carries
+//: that error convolved into it and is blurred by roughly a factor of the
+//: square root of two -- so the average looks wider, rounder and less
+//: structured than the spots actually are.
+//:
+//: Which is right depends on the question. About the prediction is what
+//: integration sees, so it is the right centre for asking whether a mask
+//: captures the signal. About the spot is the right centre for asking what
+//: shape a spot is, which is what an aggregate profile is for.
 void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
-                 double phi_calculated, ProfileGrid *grid, int subdivisions = 5);
+                 double phi_calculated, ProfileGrid *grid, int subdivisions = 5,
+                 bool recentre = false);
 
 //: Counts-weighted second moments of one spot's density in the Kabsch frame,
 //: about its own centroid there.
@@ -75,6 +90,10 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
 //: here is the SHAPE.
 struct SpotMoments {
   bool valid = false;
+  //: Where the spot's centre of mass sits in the frame, relative to where the
+  //: model predicts it, in degrees. Not small: a mean of 0.0135 on the
+  //: detector, which is 0.44 sigma_D.
+  double centre1 = 0.0, centre2 = 0.0, centre3 = 0.0;
   double width1 = 0.0, width2 = 0.0, width3 = 0.0;  //: degrees
   double counts = 0.0;
   //: Where it sits, for binning: distance from the beam centre in millimetres,
