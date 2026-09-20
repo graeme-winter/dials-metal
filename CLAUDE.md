@@ -871,8 +871,13 @@ in it, matched nothing, and changed nothing -- the same failure that let a
 reformatted line silently escape a fix in `mxeq` twice.
 
 An edit that matches nothing is not a no-op, it is a change that did not
-happen while the commit says it did. Anything that rewrites a file should
-assert that its anchor was found.
+happen while the commit says it did. **Anything that rewrites a file must
+assert that its anchor was found**, and fail loudly when it was not.
+
+Written down, and then done again three commits later: a regex meant to add a
+test target to `spotfinder/CMakeLists.txt` matched nothing, the commit said the
+test was wired in, and it was not. Knowing the failure mode is not the same as
+guarding against it. The guard is an assertion in the edit, every time.
 
 ## Relative precision belongs to the arithmetic, not to the answer
 

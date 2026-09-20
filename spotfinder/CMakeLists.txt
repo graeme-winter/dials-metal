@@ -483,6 +483,15 @@ if(SPOTFINDER_TESTS)
     target_link_libraries(test_refl PRIVATE spotfinder_refl spotfinder_warnings)
     add_test(NAME refl COMMAND test_refl)
 
+    # Holds the writer's output to what it produces today, so that replacing it
+    # with the general writer in ../src/refl.cc can be shown to change nothing.
+    # See docs/spotfinder.md: this must not be weakened to pass.
+    add_executable(test_refl_golden tests/test_refl_golden.cc)
+    target_link_libraries(test_refl_golden
+                          PRIVATE spotfinder_refl spotfinder_dials_spots
+                                  spotfinder_warnings)
+    add_test(NAME refl_golden COMMAND test_refl_golden)
+
     add_executable(test_expt tests/test_expt.cc)
     target_link_libraries(test_expt PRIVATE spotfinder_expt spotfinder_warnings)
     add_test(NAME expt COMMAND test_expt)
