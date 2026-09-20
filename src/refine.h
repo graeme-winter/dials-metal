@@ -231,6 +231,8 @@ void add_reciprocal_columns(const ExperimentList &experiments, Table &reflection
 //: summed over every refinement since the process started. For deciding what
 //: to move to a device: the two have entirely different shapes, one being a
 //: pass over reflections and the other a reduction into a small matrix.
+//: Threads used to build the Jacobian: 0 for hardware_concurrency, 1 for none.
+extern std::size_t g_jacobian_threads;
 extern double g_jacobian_seconds;
 extern double g_normal_seconds;
 

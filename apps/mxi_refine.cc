@@ -19,6 +19,7 @@ void usage() {
   std::printf(
       "usage: mxi_refine INDEXED.expt INDEXED.refl [options]\n"
       "  --no-crystal      hold the crystal fixed\n"
+      "  --jacobian-threads N  threads for the Jacobian; 0 is one per core (0)\n"
       "  --no-detector     hold the detector fixed\n"
       "  --beam            refine the beam direction too (off: correlated\n"
       "                    with the detector on a single sweep)\n"
@@ -45,11 +46,15 @@ int main(int argc, char **argv) {
       "--no-crystal",   "--no-detector",  "--beam",         "--separate",
       "--macrocycles",  "--outlier-sigma", "--output-expt", "--output-refl",
       "--conditional-depth", "--scan-varying", "--unit-weights",
-      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying"};
+      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying", "--jacobian-threads"};
   const std::set<std::string> takes_value = {
       "--macrocycles", "--outlier-sigma", "--output-expt", "--output-refl",
-      "--scan-varying", "--z-weight", "--min-volume"};
+      "--scan-varying", "--z-weight", "--min-volume", "--jacobian-threads"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  // 0 means one per core, 1 means none. Exposed because a threading change
+  // that cannot be switched off cannot be measured against its absence.
+  g_jacobian_threads =
+      static_cast<std::size_t>(args.number("--jacobian-threads", 0.0));
   if (args.help) {
     usage();
     return 0;

@@ -629,3 +629,42 @@ TEST(the_cell_and_the_detector_distance_are_degenerate_in_position) {
   check::is_true(together.second > 0.1,
                  "but the cell does, so the angle breaks the degeneracy");
 }
+
+TEST(the_threaded_jacobian_is_identical_to_the_serial_one) {
+  // Bit for bit, not nearly. Every thread writes only the entries of its own
+  // reflections, so there is no shared accumulator and no reordered sum; if
+  // the two differ at all then something is written twice or not at all, and
+  // a tolerance would hide exactly that.
+  //
+  // This container has one core, so the test says the threaded version is
+  // correct and says nothing at all about whether it is faster. That has to be
+  // measured where there are cores.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 2.0);
+
+  const auto refined_with = [&](std::size_t threads) {
+    g_jacobian_threads = threads;
+    ExperimentList list;
+    Experiment moved = truth;
+    moved.detector.panels[0].origin += Vec3{0.4, -0.3, 1.2};
+    list.experiments.push_back(moved);
+    RefineOptions options;
+    options.crystal = false;
+    options.outlier_sigma = 0.0;
+    refine(list, t, options);
+    const Panel &p = list[0].detector[0];
+    return std::vector<double>{p.origin.x, p.origin.y, p.origin.z,
+                               p.fast.x,   p.fast.y,   p.fast.z,
+                               p.slow.x,   p.slow.y,   p.slow.z};
+  };
+
+  const std::vector<double> serial = refined_with(1);
+  const std::vector<double> threaded = refined_with(4);
+  g_jacobian_threads = 0;  // back to the default for every test after this
+
+  check::is_true(t.nrows > 1000, "enough reflections to be worth threading");
+  for (std::size_t i = 0; i < serial.size(); ++i) {
+    check::is_true(serial[i] == threaded[i],
+                   "threaded refinement is bit identical to serial");
+  }
+}

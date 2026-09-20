@@ -104,6 +104,19 @@ a library can be planned wrongly, normalised differently or linked against
 another precision, and none of that shows in a result that still looks like a
 lattice.
 
+The Jacobian of the refinement target is the largest remaining phase of
+indexing -- 36 per cent of it on a fast machine -- and is built on one thread
+per reflection. `--jacobian-threads N` sets the count, 0 being one per core and
+1 none:
+
+```sh
+mxi_index imported.expt strong.refl --jacobian-threads 1 --timing
+```
+
+The threaded and serial results are bit identical, and there is a test that
+says so: every thread writes only its own reflections' entries, so there is no
+shared accumulator and no reordered sum.
+
 On x86, `MXI_SSE41` is on where the compiler takes it, for the rounding
 instruction. Without it `std::rint` compiles to a sequence and the basis search
 runs about three times slower. `-DMXI_SSE41=OFF` for a CPU older than 2009. ARM

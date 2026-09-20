@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 
@@ -14,6 +15,11 @@ namespace mxi {
 // refine() is on a public header and its signature is not worth changing for
 // this. Placed by position, not by pattern: the last timer added by pattern
 // landed inside a lambda that runs four hundred and fifty million times.
+//: Threads for the Jacobian. Zero means hardware_concurrency, one means none.
+//: A knob because a machine running several of these at once wants fewer, and
+//: because a threading change that cannot be turned off cannot be measured
+//: against the version without it.
+std::size_t g_jacobian_threads = 0;
 double g_jacobian_seconds = 0.0;
 double g_normal_seconds = 0.0;
 
@@ -278,6 +284,20 @@ double residuals_of(const ExperimentList &experiments,
 // calculated, so every entry is the NEGATIVE of the derivative of the
 // prediction -- which matches what the finite-difference branch produces,
 // since it differences the residual and not the prediction.
+//: How many threads to build the Jacobian with. One below a threshold, where
+//: the work is smaller than the cost of starting threads.
+std::size_t jacobian_thread_count(std::size_t observations) {
+  if (g_jacobian_threads == 1) return 1;
+  std::size_t wanted = g_jacobian_threads;
+  if (wanted == 0) {
+    wanted = std::thread::hardware_concurrency();
+    if (wanted == 0) wanted = 1;
+  }
+  // Below a few thousand reflections the threads cost more than they save.
+  const std::size_t by_work = observations / 2000;
+  return std::max<std::size_t>(1, std::min(wanted, by_work));
+}
+
 void build_analytic_jacobian(const ExperimentList &experiments,
                              const std::vector<TargetRow> &observations,
                              const Layout &layout,
@@ -285,7 +305,18 @@ void build_analytic_jacobian(const ExperimentList &experiments,
   const std::size_t n = layout.size();
   jacobian->assign(n, std::vector<double>(observations.size() * 3, 0.0));
 
-  for (std::size_t i = 0; i < observations.size(); ++i) {
+  // One reflection per unit of work. Every thread writes only the three
+  // entries belonging to its own reflection, in every parameter's row, so no
+  // two threads touch the same double and no locking is needed. The rows are
+  // sized above, before any thread starts, because resizing a vector another
+  // thread is reading from is not something a lock would fix.
+  //
+  // The reduction into the normal equations is NOT threaded: it is five per
+  // cent of refinement, it sums into one small matrix, and a parallel sum in
+  // a different order would change the last bits of the answer for nothing.
+  const std::size_t threads = jacobian_thread_count(observations.size());
+  const auto chunk = [&](std::size_t from, std::size_t to) {
+  for (std::size_t i = from; i < to; ++i) {
     const TargetRow &o = observations[i];
     if (!o.active) continue;
     const Experiment &e = experiments[o.experiment];
@@ -347,6 +378,23 @@ void build_analytic_jacobian(const ExperimentList &experiments,
       for (std::size_t k = 0; k < 2; ++k) place(at + k, d[k], 1.0);
     }
   }
+  };
+
+  if (threads <= 1) {
+    chunk(0, observations.size());
+    return;
+  }
+  std::vector<std::thread> pool;
+  pool.reserve(threads - 1);
+  const std::size_t each = (observations.size() + threads - 1) / threads;
+  for (std::size_t t = 1; t < threads; ++t) {
+    const std::size_t from = std::min(t * each, observations.size());
+    const std::size_t to = std::min(from + each, observations.size());
+    if (from < to) pool.emplace_back(chunk, from, to);
+  }
+  // This thread takes the first chunk rather than waiting for the others.
+  chunk(0, std::min(each, observations.size()));
+  for (std::thread &t : pool) t.join();
 }
 
 std::vector<double> step_sizes(const ExperimentList &experiments,
