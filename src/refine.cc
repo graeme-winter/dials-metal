@@ -524,17 +524,46 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       const double t_normal = now_seconds();
       std::vector<double> normal(n * n, 0.0);
       std::vector<double> rhs(n, 0.0);
+      // The nonzero entries of one row of the Jacobian, gathered once and
+      // then used against each other.
+      //
+      // A scan-varying crystal is a cubic B-spline, so a reflection touches
+      // four control points and no more: with eighteen of them, about forty of
+      // the hundred and seventy parameters have a nonzero derivative and the
+      // rest are structurally zero. The loop this replaces skipped the zeros
+      // in its outer index but not its inner one, so each nonzero was
+      // multiplied against every parameter below it, most of them zero -- and
+      // `jacobian[b][row]` walks across a hundred and seventy separate heap
+      // allocations, one load per parameter, which is the worse half of the
+      // cost.
+      //
+      // The order of accumulation is unchanged -- a ascending, b ascending
+      // within it -- so every sum is formed from the same terms in the same
+      // sequence and the result is bit for bit what it was.
+      std::vector<std::size_t> nonzero;
+      std::vector<double> value;
+      nonzero.reserve(n);
+      value.reserve(n);
       for (std::size_t i = 0; i < observations.size(); ++i) {
         if (!observations[i].active) continue;
         for (std::size_t k = 0; k < 3; ++k) {
           const std::size_t row = i * 3 + k;
           const double w = observations[i].weight[k];
+          nonzero.clear();
+          value.clear();
           for (std::size_t a = 0; a < n; ++a) {
             const double ja = jacobian[a][row];
             if (ja == 0.0) continue;
-            rhs[a] -= w * ja * residual[row];
-            for (std::size_t b = 0; b <= a; ++b) {
-              normal[a * n + b] += w * ja * jacobian[b][row];
+            nonzero.push_back(a);
+            value.push_back(ja);
+          }
+          for (std::size_t x = 0; x < nonzero.size(); ++x) {
+            const std::size_t a = nonzero[x];
+            const double wja = w * value[x];
+            rhs[a] -= wja * residual[row];
+            double *row_a = &normal[a * n];
+            for (std::size_t y = 0; y <= x; ++y) {
+              row_a[nonzero[y]] += wja * value[y];
             }
           }
         }

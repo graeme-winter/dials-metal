@@ -1,5 +1,40 @@
 # Computing the refinement target on a device
 
+## Scan-varying refinement, where the normal equations were the cost
+
+The static case below is not the command anyone actually runs. This is:
+
+    mxi_refine indexed.expt indexed.refl --scan-varying 18 --beam --analytic
+
+Eighteen control points takes the parameter count from about ten to about a
+hundred and seventy, and the normal equations are quadratic in it. Measured:
+
+    the jacobian               1.791 s   23.5%
+    the normal equations       4.848 s   63.6%
+    total                      7.629 s
+
+A scan-varying crystal is a cubic B-spline, so a reflection touches four
+control points and no more: about forty of those hundred and seventy
+parameters have a nonzero derivative and the rest are structurally zero. The
+accumulation skipped the zeros in its outer index and not its inner one, so
+each nonzero was multiplied against every parameter below it, and
+`jacobian[b][row]` walked across a hundred and seventy separate heap
+allocations -- one load per parameter, which is the worse half of the cost.
+
+Gathering the nonzero entries of a row once and using them against each other:
+
+    the normal equations       4.848 -> 1.517 s
+    total                      7.629 -> 4.204 s
+
+The order of accumulation is unchanged, ascending in both indices, so every sum
+is formed from the same terms in the same sequence. The refined crystal,
+detector and beam are identical, compared as written files rather than to a
+tolerance.
+
+That the sparsity was there to be used is a property of the model rather than
+of the data, so it holds for any scan-varying refinement and the saving grows
+with the number of control points.
+
 ## Refinement on its own is dominated by file I/O
 
 `mxi_refine --timing`, on 78618 reflections whose table carries shoeboxes:

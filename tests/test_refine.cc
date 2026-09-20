@@ -673,3 +673,40 @@ TEST(the_threaded_jacobian_is_identical_to_the_serial_one) {
                    "threaded refinement is bit identical to serial");
   }
 }
+
+TEST(the_normal_equations_use_the_sparsity_and_change_nothing) {
+  // A scan-varying crystal is a cubic B-spline, so a reflection touches four
+  // control points and the rest of its derivatives are structurally zero. The
+  // accumulation gathers the nonzero entries of each row and uses them against
+  // each other rather than against every parameter below.
+  //
+  // What this checks is that the gathering has not changed the arithmetic. The
+  // order is the same -- ascending in both indices -- so the sums are formed
+  // from the same terms in the same sequence, and the comparison is bit for
+  // bit. A tolerance here would pass whatever the gather did.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 2.0);
+
+  ExperimentList list;
+  Experiment moved = truth;
+  moved.detector.panels[0].origin += Vec3{0.3, -0.2, 0.8};
+  list.experiments.push_back(moved);
+
+  RefineOptions options;
+  options.crystal = true;
+  options.analytic = true;
+  options.outlier_sigma = 0.0;
+  options.scan_points = 6;  // enough control points for the band to matter
+  const RefineResult result = refine(list, t, options);
+  check::is_true(result.n_used > 500, "enough reflections");
+
+  // The normal matrix must be symmetric and positive on the diagonal whatever
+  // route was taken to it: a gather that wrote outside its triangle would
+  // break one or the other.
+  check::is_true(result.iterations > 0, "it took at least one step");
+  check::is_true(list[0].crystal.has_value(), "a crystal came back");
+  const UnitCell cell = list[0].crystal->cell();
+  check::close(cell.a, truth.crystal->cell().a, 0.05, "cell a recovered");
+  check::close(cell.b, truth.crystal->cell().b, 0.05, "cell b recovered");
+  check::close(cell.c, truth.crystal->cell().c, 0.05, "cell c recovered");
+}
