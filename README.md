@@ -56,9 +56,24 @@ The threshold kernels are CPU by default. One device backend at a time, and
 `cmake` refuses both at once:
 
 ```sh
-cmake -S . -B build -DSPOTFINDER_METAL=ON      # Apple
 cmake -S . -B build -DSPOTFINDER_CUDA=ON       # NVIDIA
+
+cmake -S . -B build -DSPOTFINDER_METAL=ON \
+      -DMETAL_CPP_DIR=~/third-party-git/metal-cpp   # Apple
 ```
+
+Metal needs `METAL_CPP_DIR`. metal-cpp is Apple's header-only wrapper over the
+Metal API and is distributed as a zip from
+<https://developer.apple.com/metal/cpp/> rather than through any package
+manager, so it has to be pointed at rather than found. `METAL_CPP_DIR` also
+works as an environment variable, and the directory wanted is the one holding
+`Metal/Metal.hpp`. Without it the configure stops and says so.
+
+CUDA needs nothing pointed at, but it does guess what to build for:
+`CMAKE_CUDA_ARCHITECTURES` defaults to `native` on CMake 3.24 and later and to
+`70` before that, which is a guess rather than an answer. Set it to the cards
+the binary will actually run on -- `-DCMAKE_CUDA_ARCHITECTURES="80;90"` -- if
+that is not this machine.
 
 `SPOTFINDER_AVX2` is on where the compiler takes it, which means the binary
 will not run on a CPU without AVX2. `-DSPOTFINDER_AVX2=OFF` gives a portable
