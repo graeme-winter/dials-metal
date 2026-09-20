@@ -3,6 +3,32 @@
 Not started. This is the plan, what it is bound by, and what is missing before
 parts of it can be written at all.
 
+## Where this stands
+
+Not started. The profile model is implemented and the tools to judge it exist;
+nothing integrates yet.
+
+| | |
+| --- | --- |
+| profile model | implemented, `mxi_profile`; does not yet match DIALS |
+| the region | implemented, `mxi_mask`; box and ellipsoid |
+| forward model | implemented, `mxi_forward`; agrees with the data to four per cent |
+| background | not started; needs Parkhurst et al. (2016) |
+| summation | not started; needs Leslie (1999) |
+| profile fitting | not started; needs the reference profiles of Kabsch section 3.3 |
+
+    sigma_b   0.027393 here   0.031698 DIALS
+    sigma_m   0.118552 here   0.097667 DIALS
+
+Neither agrees and `mxi_profile` says so with every answer. What the forward
+model says about them is the most useful reading: rendered onto the pixels, the
+observed spot is 3.3 per cent narrower than the model on the detector and 5 per
+cent narrower in rotation, so both sigmas are a little large and by far less
+than the raw comparisons suggested.
+
+Read `## Rendering the model onto the pixels` before anything below it. Several
+earlier sections reach conclusions it overturns, and they are marked.
+
 ## What this follows
 
 DIALS, transcribed, as the spot finder transcribes `DispersionExtendedThreshold`
@@ -52,17 +78,18 @@ have to be copied deliberately:
   points across the detector, each strong reflection contributing to its
   nearest profiles with a Gaussian weight by distance.
 
-## What is missing
+## What is still missing
 
-**The papers with the formulas in them.** Winter et al. (2018) defers to others
-for everything numerical, and none of them are here:
+Winter et al. (2018) defers to others for everything numerical. Two of those
+are still not here, and each blocks one stage:
 
-| | for |
-| --- | --- |
-| Parkhurst et al. (2016) | the Poisson GLM background |
-| Leslie (1999) | summation error estimates |
+| | for | blocks |
+| --- | --- | --- |
+| Parkhurst et al. (2016) | the Poisson GLM background | background |
+| Leslie (1999) | summation error estimates | summation |
 
-**Kabsch (2010a) is here now**, and it carries most of what was missing:
+Kabsch (2010a) and DIALS' own `calculator.py` are here, and between them they
+settled the profile model. From the paper:
 
 * §2.3, the `{e1, e2, e3}` frame and the mapping of a pixel to `(eps1, eps2,
   eps3)`, with `zeta = m2 . e1` correcting for the path length through the
@@ -244,7 +271,20 @@ answered wrongly twice. The cubic crystal does argue for isotropy, and the
 spots are consistent with an isotropic model -- once the model is compared with
 the data on the data's own terms.
 
-## The anisotropy, remeasured
+## Superseded: the anisotropy hunt
+
+Everything from here to the end of this section was measured by comparing a
+number taken from the data with a number taken from the model in closed form.
+At widths of two pixels that comparison is dominated by the grid, and its
+conclusions did not survive rendering the model onto the pixels instead: the
+spots are consistent with an isotropic Gaussian once model and data are reduced
+the same way.
+
+It is kept because the reasoning is sound given what was measured, and because
+three separate hypotheses were tested and rejected on evidence that turned out
+to be an artefact of the method. That is worth being able to recognise again.
+
+### The anisotropy, remeasured
 
 With the pixel-to-millimetre conventions matched, over 61047 spots with more
 than fifty counts:
@@ -309,7 +349,7 @@ The caveat from before still holds and still matters: the widths are 0.69 and
 shape, and none of these numbers should be modelled until they can be
 reproduced on data where a spot is several pixels across.
 
-## Is the model any good? Ask the data, not DIALS
+### Is the model any good? Ask the data, not DIALS
 
 The Gaussian is supposed to hold essentially all of a spot's density by three
 sigma. So measure it: over the flagged shoeboxes, what fraction of the counts
@@ -351,7 +391,7 @@ density outside the box is not in the denominator at all and every fraction
 here is an overestimate. Neither affects the comparison between the two sets of
 sigmas, which is over identical pixels.
 
-## Looking at the spots
+### Looking at the spots
 
     mxi_grid  refined.expt refined.refl --out grids.txt --n 5 --neighbours 300
     python3   docs/plot_grid.py grids.txt kabsch.png
@@ -387,7 +427,7 @@ reached, now visible.
 `sigma_D` cannot express: the model is isotropic on the detector face and the
 spots are not.
 
-## Is the anisotropy the sensor? Apparently not, and everything here is a pixel wide
+### Is the anisotropy the sensor? Apparently not, and everything here is a pixel wide
 
     mxi_grid refined.expt refined.refl --out grids.txt --map map.txt
     python3 docs/plot_anisotropy.py map.txt anisotropy.png 0.0253
