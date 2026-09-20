@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
       const Panel &p0 = e.detector[0];
       std::fprintf(m,
                    "# x_mm y_mm radius_mm obliquity_deg width1 width2 width3 "
-                   "counts predicted_smear\n");
+                   "counts predicted_smear width_along_axis width_across_axis\n");
       const Vec3 normal = p0.fast.cross(p0.slow).normalized();
       for (std::size_t i : chosen) {
         const SpotMoments mom = spot_moments(
@@ -230,11 +230,12 @@ int main(int argc, char **argv) {
         if (!mom.valid) continue;
         const double predicted =
             sensor_depth_width(p0.mu, p0.thickness, mom.obliquity, mom.path_mm);
-        std::fprintf(m, "%.3f %.3f %.4f %.5f %.6f %.6f %.6f %.6g %.6f\n",
+        std::fprintf(m, "%.3f %.3f %.4f %.5f %.6f %.6f %.6f %.6g %.6f %.6f %.6f\n",
                      obs.real(i, 0) * p0.pixel_size[0],
                      obs.real(i, 1) * p0.pixel_size[1], mom.radius_mm,
                      Scan::degrees(mom.obliquity), mom.width1, mom.width2,
-                     mom.width3, mom.counts, predicted);
+                     mom.width3, mom.counts, predicted, mom.width_along_axis,
+                     mom.width_across_axis);
       }
       std::fclose(m);
       (void)normal;

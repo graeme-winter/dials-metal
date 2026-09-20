@@ -95,6 +95,16 @@ struct SpotMoments {
   //: detector, which is 0.44 sigma_D.
   double centre1 = 0.0, centre2 = 0.0, centre3 = 0.0;
   double width1 = 0.0, width2 = 0.0, width3 = 0.0;  //: degrees
+  //: The same spread resolved along two axes FIXED IN THE LABORATORY rather
+  //: than in the reflection's own frame: along the rotation axis, and
+  //: perpendicular to both it and the beam.
+  //:
+  //: The distinction decides what the anisotropy is. A property of the
+  //: detector or of the scattering geometry is radial and belongs in
+  //: width1 and width2; a property of the beam -- and a synchrotron beam is
+  //: routinely wider horizontally than vertically -- is fixed in the
+  //: laboratory and belongs here. One averages away in the other.
+  double width_along_axis = 0.0, width_across_axis = 0.0;
   double counts = 0.0;
   //: Where it sits, for binning: distance from the beam centre in millimetres,
   //: and the angle between the incident ray and the detector normal.

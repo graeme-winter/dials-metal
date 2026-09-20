@@ -189,6 +189,41 @@ is a check on the arithmetic rather than a result. The mask in `mxi_mask` is a
 different matter: it is built on the PREDICTED `s1`, which is what it must be,
 since the point of a mask is to say where the model expects the signal.
 
+## The anisotropy, remeasured
+
+With the pixel-to-millimetre conventions matched, over 61047 spots with more
+than fifty counts:
+
+    in the reflection frame   tangential 0.017363   radial 0.021149   ratio 1.237
+    in the laboratory         along axis 0.018159   across   0.019496  ratio 1.051
+
+**It survives the fix.** The earlier figure was about 1.5 from the aggregate
+profile and 1.20 from the per-spot moments; it is now 1.24. The half-pixel
+convention error was not the cause.
+
+**It is not the sensor.** The ratio is flat with obliquity -- 1.248, 1.249,
+1.236, 1.226, 1.216, 1.253 from 2 to 31 degrees -- and an absorption-depth
+smear must grow with obliquity. This is the third measurement to say so, and
+the cleanest.
+
+**It is not the beam either.** A synchrotron beam is routinely wider in one
+direction than the other, which would be fixed in the laboratory; resolved
+along and across the rotation axis the ratio is 1.05, against 1.24 in the
+reflection's own frame. Whatever it is prefers the radial direction, not a
+laboratory one. Worth saying because the cubic crystal argues for isotropic
+mosaicity, which is `sigma_M`, and says nothing about `sigma_D`, which is the
+beam.
+
+**And it is not simply radial.** Split by azimuth around the beam centre the
+radial ratio runs from 1.01 to 1.42, which a purely radial effect cannot do.
+That may be confounded with radius, since the azimuth bins cover different
+parts of the face, and it is not resolved.
+
+The caveat from before still holds and still matters: the widths are 0.69 and
+0.84 pixels. A second moment below the sampling interval is not a reliable
+shape, and none of these numbers should be modelled until they can be
+reproduced on data where a spot is several pixels across.
+
 ## Is the model any good? Ask the data, not DIALS
 
 The Gaussian is supposed to hold essentially all of a spot's density by three

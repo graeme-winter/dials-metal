@@ -140,8 +140,19 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
   const double width = Scan::radians(e.scan.osc_width);
 
   // Two passes: the centroid, then the spread about it.
+  // Two axes fixed in the laboratory, perpendicular to the beam: the rotation
+  // axis, and the direction perpendicular to both it and the beam.
+  const Vec3 s0 = e.beam.s0();
+  const Vec3 axis = e.goniometer.lab_axis();
+  Vec3 along = axis - s0 * (axis.dot(s0) / s0.dot(s0));
+  const double along_length = along.norm();
+  if (!(along_length > 0.0)) return out;
+  along = along / along_length;
+  const Vec3 across = s0.cross(along).normalized();
+
   double sum = 0.0, m1 = 0.0, m2 = 0.0, m3 = 0.0;
   double s11 = 0.0, s22 = 0.0, s33 = 0.0;
+  double ma = 0.0, mc = 0.0, saa = 0.0, scc = 0.0;
   for (int pass = 0; pass < 2; ++pass) {
     for (std::int32_t z = 0; z < box.nz(); ++z) {
       const double image = static_cast<double>(box.bbox[4] + z) + 0.5;
@@ -157,15 +168,30 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
           const Epsilon eps = epsilon_of(
               e, frame, p, static_cast<double>(box.bbox[0] + x) + 0.5,
               static_cast<double>(box.bbox[2] + y) + 0.5, phi, phi_calculated);
+          // The same offset, resolved in the laboratory instead.
+          const auto mm = p.px_to_mm(static_cast<double>(box.bbox[0] + x) + 0.5,
+                                     static_cast<double>(box.bbox[2] + y) + 0.5);
+          const Vec3 lab = p.lab_coord_mm(mm.first, mm.second);
+          const double length = frame.s1.norm();
+          const double lab_length = lab.norm();
+          const Vec3 offset =
+              lab_length > 0.0 ? lab * (length / lab_length) - frame.s1
+                               : Vec3{0.0, 0.0, 0.0};
+          const double ea = Scan::degrees(along.dot(offset) / length);
+          const double ec = Scan::degrees(across.dot(offset) / length);
           if (pass == 0) {
             sum += count;
             m1 += count * eps.e1;
             m2 += count * eps.e2;
             m3 += count * eps.e3;
+            ma += count * ea;
+            mc += count * ec;
           } else {
             s11 += count * (eps.e1 - m1) * (eps.e1 - m1);
             s22 += count * (eps.e2 - m2) * (eps.e2 - m2);
             s33 += count * (eps.e3 - m3) * (eps.e3 - m3);
+            saa += count * (ea - ma) * (ea - ma);
+            scc += count * (ec - mc) * (ec - mc);
           }
         }
       }
@@ -175,6 +201,8 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
       m1 /= sum;
       m2 /= sum;
       m3 /= sum;
+      ma /= sum;
+      mc /= sum;
     }
   }
   out.valid = true;
@@ -185,13 +213,15 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
   out.width1 = std::sqrt(s11 / sum);
   out.width2 = std::sqrt(s22 / sum);
   out.width3 = std::sqrt(s33 / sum);
+  out.width_along_axis = std::sqrt(saa / sum);
+  out.width_across_axis = std::sqrt(scc / sum);
 
   // Where the spot sits, from its predicted direction rather than its pixels.
   const Vec3 normal = p.fast.cross(p.slow).normalized();
   const Vec3 direction = s1 / s1.norm();
   out.obliquity = std::acos(std::fmin(1.0, std::fabs(direction.dot(normal))));
-  const double along = p.origin.dot(normal) / direction.dot(normal);
-  const Vec3 hit = direction * along;
+  const double to_panel = p.origin.dot(normal) / direction.dot(normal);
+  const Vec3 hit = direction * to_panel;
   out.path_mm = hit.norm();
   // Distance from where the beam itself strikes.
   const Vec3 beam = e.beam.s0() * (-1.0 / e.beam.s0().norm());
