@@ -130,4 +130,21 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
 double sensor_depth_width(double mu, double thickness, double obliquity,
                           double path);
 
+//: The width a crystal of this extent along the beam adds to a spot, in
+//: degrees, for a ray leaving at `obliquity` and recorded `path` away.
+//:
+//: Diffraction from the front and the back of the crystal starts from points
+//: separated along the beam, and at a scattering angle those two rays land
+//: `extent * tan(2 theta)` apart on the detector: a hundred micrometres at
+//: thirty degrees is fifty-eight. Purely radial, like the sensor.
+//:
+//: Which is the difficulty. Seen from the crystal both smears go as
+//: sin(2 theta) cos(2 theta) / distance, so they have the SAME dependence on
+//: angle and this data cannot tell them apart -- only their sum can be
+//: measured, and only if it follows that shape at all.
+//:
+//: A uniform slab of thickness T illuminated throughout has a standard
+//: deviation of T / sqrt(12), which is what `extent` means here.
+double source_extent_width(double extent, double obliquity, double path);
+
 }  // namespace mxi

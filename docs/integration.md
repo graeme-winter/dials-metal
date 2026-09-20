@@ -214,6 +214,36 @@ laboratory one. Worth saying because the cubic crystal argues for isotropic
 mosaicity, which is `sigma_M`, and says nothing about `sigma_D`, which is the
 beam.
 
+**Nor is it the crystal.** Diffraction from the front and the back of the
+crystal starts from points separated along the beam, and at a scattering angle
+those rays land `extent * tan(2 theta)` apart -- a hundred micrometres at thirty
+degrees is fifty-eight, purely radial. The difficulty is that seen from the
+crystal this goes as `sin(2 theta) cos(2 theta) / distance`, which is exactly
+the sensor's dependence, so the two cannot be separated by this data; only
+their sum can be tested, and only if the excess follows that shape.
+
+It does not. Fitting a single source extent to `w2^2 - w1^2` gives an answer
+that is not single:
+
+    two-theta     excess      implied extent (T = sigma sqrt 12)
+      2 - 11    8.27e-05        593 um
+     11 - 15    1.51e-04        577 um
+     15 - 17    1.56e-04        492 um
+     17 - 19    1.64e-04        454 um
+     19 - 20    1.54e-04        406 um
+     20 - 22    1.50e-04        375 um
+     22 - 24    1.47e-04        348 um
+     24 - 31    1.59e-04        337 um
+
+The excess is nearly flat while `sin(2 theta) cos(2 theta)` rises sixfold, so
+the implied extent falls from 593 to 337 micrometres across the range. A real
+source extent is a property of the crystal and cannot do that.
+
+The magnitudes are worth having anyway. At the widest angle a 100 micrometre
+crystal would contribute 1.4e-05 square degrees, the sensor alone predicts
+2.5e-04, and 1.6e-04 is measured. So the crystal term is about a tenth of what
+is seen and the sensor term alone already overshoots it.
+
 **And it is not simply radial.** Split by azimuth around the beam centre the
 radial ratio runs from 1.01 to 1.42, which a purely radial effect cannot do.
 That may be confounded with radius, since the azimuth bins cover different

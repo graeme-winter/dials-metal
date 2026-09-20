@@ -250,4 +250,11 @@ double sensor_depth_width(double mu, double thickness, double obliquity,
   return Scan::degrees(std::sin(obliquity) * sigma_depth / path);
 }
 
+double source_extent_width(double extent, double obliquity, double path) {
+  if (!(extent > 0.0) || !(path > 0.0)) return 0.0;
+  // extent * tan(obliquity) on the face; seen from the crystal that subtends
+  // extent * sin(obliquity) / path, the same form as the sensor's smear.
+  return Scan::degrees(std::sin(obliquity) * extent / path);
+}
+
 }  // namespace mxi
