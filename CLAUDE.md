@@ -837,6 +837,43 @@ oscillation form, the number types, and the blocks dropped on write.
 `tests/test_expt_format.cc` therefore asserts on characters rather than values,
 and was checked by reverting the fix -- three of its tests fail without it.
 
+## Render the model into a measurement; do not compare a measurement to a model
+
+Spots on this detector are two pixels across. Every comparison of the profile
+model with the data took a number from the data -- through a pixel grid that
+truncates and quantises it, inside a mask that cuts it off -- and a number from
+the model in closed form. At that scale the difference between the two ways of
+computing is most of what is being measured.
+
+It produced three wrong conclusions in a row, each argued carefully from what
+had been measured: that one sigma held 0.74 of the density where a Gaussian
+holds 0.47, so the model was far too wide; that the spots were anisotropic by a
+factor of 1.24; and that the anisotropy was not the sensor, because the excess
+was flat in obliquity where absorption predicts growth.
+
+Integrating the same model over the same pixels, over the same images, inside
+the same mask, and reducing both the same way:
+
+    positions      agree to a hundredth of a pixel
+    widths         agree to within four per cent
+    anisotropy     observed 1.074, model 1.092 -- predicted, not missing
+
+Whatever the grid does to the data it does to the model, and what is left is
+the model being wrong. It was barely wrong. **When the thing being measured is
+at the sampling scale, the comparison has to be made in the data's own terms.**
+
+## A silent replace leaves two documents that disagree
+
+`README.md` sat for a dozen commits as a seventy per cent duplicate of this
+file, still titled `dials-metal-index`, describing none of the six tools
+written after it. Edits meant for it had been written against text that was not
+in it, matched nothing, and changed nothing -- the same failure that let a
+reformatted line silently escape a fix in `mxeq` twice.
+
+An edit that matches nothing is not a no-op, it is a change that did not
+happen while the commit says it did. Anything that rewrites a file should
+assert that its anchor was found.
+
 ## Relative precision belongs to the arithmetic, not to the answer
 
 This file once claimed that float32 would leave about four digits in a
