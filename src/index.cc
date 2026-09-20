@@ -252,7 +252,15 @@ static std::size_t score_basis(const Mat3 &real_rows, const std::vector<Vec3> &p
     double worst = 0.0;
     double miss = 0.0;
     for (std::size_t k = 0; k < 3; ++k) {
-      const double d = h[k] - std::round(h[k]);
+      // rint, not round. They differ only on an exact tie at .5, which is
+      // outside every tolerance used here -- a tolerance of 0.5 or more would
+      // accept every reflection -- so the result cannot change. The cost does:
+      // round has round-half-away-from-zero semantics that no instruction
+      // implements, so it compiles to a sequence, while rint is the hardware
+      // rounding instruction where there is one. Measured at 3.51 against 1.22
+      // nanoseconds a value, and there are three of them per reflection per
+      // triple scored.
+      const double d = h[k] - std::rint(h[k]);
       worst = std::fmax(worst, std::abs(d));
       miss += d * d;
     }

@@ -16,6 +16,34 @@ endif()
 # No third-party dependencies, deliberately. The spot finder hand-rolled its
 # msgpack writer for the same reason: this has to build on a laptop and on a
 # beamline machine with nothing installed on it.
+# FFTW for the transform, which is the largest phase of indexing on a fast
+# machine. The built-in radix-2 in src/fft.cc is the default and needs nothing;
+# this is faster and is GPL, which is why it is opt-in rather than assumed.
+#
+#   sudo apt-get install libfftw3-dev      # Debian and Ubuntu
+#   brew install fftw                      # macOS
+#   cmake -S . -B build -DMXI_FFTW=ON
+option(MXI_FFTW "Use FFTW for the transform instead of the built-in radix-2" OFF)
+if(MXI_FFTW)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FFTW3 QUIET fftw3)
+    endif()
+    if(NOT FFTW3_FOUND)
+        find_library(FFTW3_LIBRARIES NAMES fftw3)
+        find_path(FFTW3_INCLUDE_DIRS NAMES fftw3.h)
+    endif()
+    if(NOT FFTW3_LIBRARIES)
+        message(FATAL_ERROR
+                "MXI_FFTW is on but FFTW was not found. Install libfftw3-dev "
+                "or fftw, or configure without -DMXI_FFTW=ON to use the "
+                "built-in transform.")
+    endif()
+    message(STATUS "FFT: FFTW")
+else()
+    message(STATUS "FFT: the built-in radix-2; -DMXI_FFTW=ON for FFTW")
+endif()
+
 add_library(mxi
   src/linalg.cc
   src/geometry.cc
@@ -24,6 +52,7 @@ add_library(mxi
   src/expt.cc
   src/refl.cc
   src/fft.cc
+  $<$<BOOL:${MXI_FFTW}>:src/fft_fftw.cc>
   src/index.cc
   src/refine.cc
   src/args.cc
@@ -34,6 +63,14 @@ add_library(mxi
   src/mask.cc
   src/forward.cc
 )
+
+if(MXI_FFTW)
+    # PUBLIC: fft3d is called from mxi and the symbol has to resolve in every
+    # executable that links mxi, not only inside the archive.
+    target_compile_definitions(mxi PUBLIC MXI_USE_FFTW)
+    target_link_libraries(mxi PUBLIC ${FFTW3_LIBRARIES})
+    target_include_directories(mxi PUBLIC ${FFTW3_INCLUDE_DIRS})
+endif()
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -80,6 +117,27 @@ target_compile_options(mxi_grid PRIVATE -Wall -Wextra)
 # before the subdirectory was entered. It sat after for a long time, which
 # meant `ctest` from the top ran this project's tests and silently none of the
 # spot finder's.
+# SSE4.1 on x86, for the rounding instruction. Baseline x86-64 predates it, so
+# std::rint compiles to a sequence rather than roundsd and the scoring loop in
+# indexing runs three times slower: 3.5 nanoseconds a value against 1.2, and
+# there are three values per reflection per triple of candidates scored.
+# Anything from 2009 onwards has it; -DMXI_SSE41=OFF for a machine that does
+# not.
+#
+# ARM needs nothing: the rounding instruction has always been there, which is
+# why the same scoring loop was twenty-two times faster on an Apple machine
+# than in this container, and why that difference first looked like the data.
+option(MXI_SSE41 "Use SSE4.1 on x86, for the rounding instruction" ON)
+if(MXI_SSE41 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[36]86")
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-msse4.1 MXI_COMPILER_TAKES_SSE41)
+    if(MXI_COMPILER_TAKES_SSE41)
+        add_compile_options(-msse4.1)
+        message(STATUS "x86: SSE4.1 enabled for the rounding instruction")
+    endif()
+endif()
+
+
 enable_testing()
 
 find_package(HDF5 QUIET COMPONENTS C)
