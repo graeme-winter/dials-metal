@@ -75,6 +75,31 @@ CUDA needs nothing pointed at, but it does guess what to build for:
 the binary will actually run on -- `-DCMAKE_CUDA_ARCHITECTURES="80;90"` -- if
 that is not this machine.
 
+## Making indexing faster
+
+The transform is the largest phase of indexing on a fast machine. FFTW is about
+three times quicker than the built-in radix-2 and is opt-in, because it is GPL
+and the licence of anything linking it has to accommodate that:
+
+```sh
+sudo apt-get install libfftw3-dev       # Debian and Ubuntu
+brew install fftw                       # macOS
+# or: conda install -c conda-forge fftw
+
+cmake -S . -B build -DMXI_FFTW=ON
+```
+
+`cmake` prints `FFT: FFTW` or `FFT: the built-in radix-2`. The built-in is
+always compiled whichever is used, and there is a test that the two agree:
+a library can be planned wrongly, normalised differently or linked against
+another precision, and none of that shows in a result that still looks like a
+lattice.
+
+On x86, `MXI_SSE41` is on where the compiler takes it, for the rounding
+instruction. Without it `std::rint` compiles to a sequence and the basis search
+runs about three times slower. `-DMXI_SSE41=OFF` for a CPU older than 2009. ARM
+needs nothing.
+
 `SPOTFINDER_AVX2` is on where the compiler takes it, which means the binary
 will not run on a CPU without AVX2. `-DSPOTFINDER_AVX2=OFF` gives a portable
 SSE2 build.

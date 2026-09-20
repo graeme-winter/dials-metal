@@ -25,6 +25,17 @@ std::size_t next_power_of_two(std::size_t n);
 // `sign` is -1 for the forward transform and +1 for the inverse; no scaling is
 // applied in either direction, because every use here looks at the modulus of
 // the result and a constant factor never matters.
+//: The transform used by the pipeline. FFTW when the build asked for it,
+//: otherwise the built-in below.
 void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign);
+
+//: The built-in radix-2, always compiled whichever transform is in use.
+//:
+//: It is the reference: a library can be linked wrongly, planned wrongly or
+//: normalised differently, and none of that shows in a result that merely
+//: looks like a lattice. There is a test that the two agree, and it is only
+//: worth anything because this one is always here to disagree with.
+void fft3d_builtin(std::vector<std::complex<double>> &grid, std::size_t n,
+                   int sign);
 
 }  // namespace mxi

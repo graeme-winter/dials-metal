@@ -13,8 +13,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 
 #include "../src/expt.h"
+#include "../src/fft.h"
 #include "../src/index.h"
 #include "../src/predict.h"
 #include "../src/refl.h"
@@ -417,4 +419,38 @@ TEST(macrocycles_keep_a_weak_population_from_dragging_the_model) {
   check::is_true(cycled < once,
                  "macrocycles on strong reflections must beat assigning once");
   check::is_true(cycled < 0.002, "and land within 0.2 per cent on volume");
+}
+
+TEST(the_transform_in_use_agrees_with_the_built_in) {
+  // Says nothing unless a library is linked, and then says the thing that
+  // matters: a library can be planned wrongly, normalised differently, or
+  // linked against a build of another precision, and none of that shows in a
+  // result that still looks like a lattice. Peaks in roughly the right places
+  // are not evidence. Agreeing with a transform that is itself tested against
+  // a direct summation is.
+  for (std::size_t n : {std::size_t(8), std::size_t(16)}) {
+    std::vector<std::complex<double>> a(n * n * n);
+    std::uint64_t state = 987654321;
+    const auto uniform = [&state]() {
+      state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+      return static_cast<double>((state >> 11) & ((1ULL << 53) - 1)) /
+                 static_cast<double>(1ULL << 53) -
+             0.5;
+    };
+    for (auto &z : a) z = {uniform(), uniform()};
+    std::vector<std::complex<double>> b = a;
+
+    fft3d(a, n, +1);
+    fft3d_builtin(b, n, +1);
+
+    double worst = 0.0;
+    double scale = 0.0;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+      worst = std::fmax(worst, std::abs(a[i] - b[i]));
+      scale = std::fmax(scale, std::abs(b[i]));
+    }
+    check::is_true(scale > 0.0, "the reference is not all zero");
+    check::is_true(worst < 1e-9 * scale,
+                   "the transform in use agrees with the built-in");
+  }
 }

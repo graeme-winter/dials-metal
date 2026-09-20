@@ -43,7 +43,8 @@ void transform_line(std::complex<double> *data, std::size_t n,
 
 }  // namespace
 
-void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
+void fft3d_builtin(std::vector<std::complex<double>> &grid, std::size_t n,
+                   int sign) {
   if ((n & (n - 1)) != 0 || n == 0) {
     throw std::invalid_argument("fft3d needs a power-of-two grid size");
   }
@@ -72,3 +73,12 @@ void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
 }
 
 }  // namespace mxi
+
+#ifndef MXI_USE_FFTW
+namespace mxi {
+// No library asked for, so the built-in is the transform.
+void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
+  fft3d_builtin(grid, n, sign);
+}
+}  // namespace mxi
+#endif
