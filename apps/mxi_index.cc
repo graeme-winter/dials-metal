@@ -26,7 +26,8 @@ void usage() {
   std::printf(
       "usage: mxi_index IMPORTED.expt STRONG.refl [options]\n"
       "  --d-min D        resolution limit (default: from the data)\n"
-      "  --jacobian-threads N  threads for the Jacobian; 0 is one per core (0)\n"
+      "  --jacobian-threads N  threads for the analytical Jacobian; 0 is one\n"
+      "                   per core (0)\n"
       "  --max-cell A     longest cell edge (default: from spot spacing)\n"
       "  --grid N         FFT grid size, power of two (default: from d_min)\n"      "  --timing         where the time went, by phase\n"
       "  --tolerance T    how far an index may fall from an integer (0.3)\n"

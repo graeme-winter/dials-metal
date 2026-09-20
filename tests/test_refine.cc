@@ -651,6 +651,11 @@ TEST(the_threaded_jacobian_is_identical_to_the_serial_one) {
     RefineOptions options;
     options.crystal = false;
     options.outlier_sigma = 0.0;
+    // Analytical, or this tests nothing: the threading is in
+    // build_analytic_jacobian and the finite-difference branch never calls it.
+    // Written without this line first, and it passed, because both runs took
+    // the other path.
+    options.analytic = true;
     refine(list, t, options);
     const Panel &p = list[0].detector[0];
     return std::vector<double>{p.origin.x, p.origin.y, p.origin.z,

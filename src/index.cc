@@ -660,6 +660,13 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
     refinement.outlier_sigma = 3.0;
     refinement.macrocycles = 2;
     refinement.verbose = false;
+    // Analytical derivatives. They are validated against the finite
+    // differences elsewhere and are the whole reason that code exists;
+    // indexing had been using finite differences all along, which costs one
+    // full residual evaluation per parameter per iteration instead of one
+    // pass, and which no amount of threading the analytical path could help
+    // because the analytical path was never called.
+    refinement.analytic = true;
     const RefineResult r = refine(experiments, subset, refinement);
     result.timing.refine += now_seconds() - t_refine;
     if (r.n_used == 0) break;
