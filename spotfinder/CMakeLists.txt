@@ -487,9 +487,10 @@ if(SPOTFINDER_TESTS)
     # with the general writer in ../src/refl.cc can be shown to change nothing.
     # See docs/spotfinder.md: this must not be weakened to pass.
     add_executable(test_refl_golden tests/test_refl_golden.cc)
+    # spotfinder_refl links spotfinder_dials_spots PUBLIC, so naming it here
+    # too puts the archive on the link line twice and ld warns about it.
     target_link_libraries(test_refl_golden
-                          PRIVATE spotfinder_refl spotfinder_dials_spots
-                                  spotfinder_warnings)
+                          PRIVATE spotfinder_refl spotfinder_warnings)
     add_test(NAME refl_golden COMMAND test_refl_golden)
 
     add_executable(test_expt tests/test_expt.cc)
