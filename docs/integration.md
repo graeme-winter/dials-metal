@@ -798,27 +798,33 @@ The patch went into `predict_indices` first and changed nothing, because
 `predict` has its own copy of the loop and is the one that runs. There is now
 one emitter that both call.
 
-**It streams the scan in blocks.** Every shoebox cannot exist at once: ten
-rotations of insulin is 7.4 million reflections and, at about 3500 voxels each,
-233 GB of pixels. Building them all and then filling them all is what the first
-version did, and it is not a thing that can be made to work by any amount of
-care elsewhere.
+**It walks the frames once, with shoeboxes open across them.** Every shoebox
+cannot exist at once: ten rotations of insulin is 7.4 million reflections and,
+at about 3500 voxels each, 233 GB of pixels.
 
-Two passes. The first works out every bounding box and keeps nothing but the
-box -- 24 bytes a reflection, not 31 kB. The second walks the scan in blocks of
-images, holding only the shoeboxes of the block it is on. A reflection belongs
-to the block its FIRST image falls in, and a block reads whatever frames its
-own reflections span, which is usually a few images past its end: splitting a
-reflection across two blocks would integrate half of it twice, so the blocks
-overlap in what they read and never in what they own.
+Blocks of images were the first attempt and were wrong. A reflection near the
+rotation axis spans `n_sigma sigma_m / |zeta|` in phi, which at the zeta cut is
+about a hundred and fifty frames; one of those in a block forces the whole
+block to read that far, and the next block reads it again. On three hundred
+frames it read 2951 of them at a block of ten, 817 at fifty -- which is how
+this was noticed, a three hundred frame sweep reporting 817 frames read.
 
-    --block-size     peak memory
-              10         80 MB
-              50        192 MB
-            4000        872 MB   (the whole thirty degree scan at once)
+So the frames are walked once in order. A shoebox opens when the frame it
+starts on comes round, takes a slice from every frame it spans, and is
+integrated and released on the frame it ends. Every frame is read exactly once,
+and memory is bounded by what is open at the time -- which is what the block
+size was trying to bound anyway, and bounds it by the data rather than by a
+guess.
 
-and the answer does not depend on it: 21032 reflections, with the Miller
-indices, intensities and variances identical between all three.
+    frames read     300 of 300
+    peak memory      86 MB
+    open at once    931 shoeboxes
+
+with the Miller indices, intensities, variances and backgrounds identical to
+the block version.
+
+The first pass is unchanged: work out every bounding box and keep nothing but
+the box, 24 bytes a reflection rather than 31 kB.
 
 Three things the pixels settled that no synthetic test would have:
 
