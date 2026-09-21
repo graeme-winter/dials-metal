@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -42,6 +43,15 @@ using namespace mxi;
 
 namespace {
 
+//: Wall clock, in seconds. Wall rather than CPU: the question is how long
+//: someone waits, and on a seven minute job most of the answer may be the
+//: disk.
+double now_wall() {
+  return std::chrono::duration<double>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
 void usage(const char *program) {
   std::printf(
       "usage: %s [options] EXPT [STRONG_REFL]\n"
@@ -57,7 +67,8 @@ void usage(const char *program) {
       "  --first-image N --last-image N   restrict to part of the scan\n"
       "  --gain G          detector gain, counts per photon (1)\n"
 
-      "  --save-shoeboxes  keep the pixels and the mask in the output\n",
+      "  --save-shoeboxes  keep the pixels and the mask in the output\n"
+      "  --timing          where the time went, by phase\n",
       program);
 }
 
@@ -74,9 +85,10 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images"};
+      "--gain",      "--save-shoeboxes", "--images", "--timing"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
+  takes_value.erase("--timing");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage(argv[0]);
@@ -97,6 +109,11 @@ int main(int argc, char **argv) {
       args.positional.size() == 2 ? args.positional[1] : std::string();
 
   try {
+    const double t_start = now_wall();
+    double t_profile = 0.0, t_predict = 0.0, t_boxes = 0.0;
+    double t_fetch = 0.0, t_decompress = 0.0, t_fill = 0.0, t_open = 0.0;
+    double t_integrate = 0.0, t_write = 0.0;
+
     const ExperimentList experiments = read_experiments(args.positional[0]);
     if (experiments.size() == 0) {
       std::fprintf(stderr, "mxi_integrate: no experiments\n");
@@ -105,6 +122,7 @@ int main(int argc, char **argv) {
     const Experiment &e = experiments[0];
     const Panel &panel = e.detector[0];
 
+    const double t_profile_start = now_wall();
     MaskOptions mask_options;
     mask_options.box_scale = args.number("--box-scale", 1.9);
 
@@ -170,6 +188,7 @@ int main(int argc, char **argv) {
     mask_options.sigma_d = sigma_b;
     mask_options.sigma_m = sigma_m;
     mask_options.n_sigma = n_sigma > 0.0 ? n_sigma : 3.0;
+    t_profile = now_wall() - t_profile_start;
     std::printf("profile model: sigma_b %.6f sigma_m %.6f n_sigma %.1f (%s)\n",
                 sigma_b, sigma_m, mask_options.n_sigma, source);
     IntegrateOptions integrate_options;
@@ -217,7 +236,9 @@ int main(int argc, char **argv) {
 
     PredictOptions predict_options;
     predict_options.d_min = args.number("--d-min", 0.0);
+    const double t_predict_start = now_wall();
     const std::vector<Prediction> predictions = predict(e, predict_options);
+    t_predict = now_wall() - t_predict_start;
     const double first_image = args.number("--first-image", 0.0);
     const double last_image =
         args.number("--last-image", static_cast<double>(e.scan.num_images()));
@@ -240,6 +261,7 @@ int main(int argc, char **argv) {
       const Prediction *prediction;
       std::int32_t bbox[6];
     };
+    const double t_boxes_start = now_wall();
     std::vector<Planned> planned;
     std::map<std::string, std::size_t> refused;
     std::size_t outside_range = 0;
@@ -257,6 +279,7 @@ int main(int argc, char **argv) {
       }
       planned.push_back(item);
     }
+    t_boxes = now_wall() - t_boxes_start;
     std::printf("%zu shoeboxes to fill\n", planned.size());
     if (outside_range > 0) {
       std::printf("  %zu outside the image range\n", outside_range);
@@ -327,11 +350,15 @@ int main(int argc, char **argv) {
     if (save) saved.resize(planned.size());
 
     std::unique_ptr<series::Reader> reader = images->reader();
-    std::map<std::int64_t, std::string> key_of;
-    for (const std::string &key : images->ready()) {
-      series::Frame probe;
-      if (reader->read(key, &probe)) key_of[probe.number] = key;
-    }
+    // The keys, in the order the series gives them. Reading each one to build
+    // a frame-number-to-key map first would read every chunk twice, which on
+    // the thirty degree sweep was most of the run: 18 of 21 seconds spent
+    // fetching compressed bytes that were then fetched again.
+    //
+    // The loop below is driven by the frames as they arrive instead, and
+    // checks they arrive in order rather than assuming it -- the Series
+    // interface promises keys that can be read, not keys in sequence.
+    const std::vector<std::string> keys = images->ready();
 
     series::Frame frame;
     std::vector<std::uint8_t> pixels;
@@ -414,10 +441,22 @@ int main(int argc, char **argv) {
       if (save) saved[row] = std::move(*box);
     };
 
-    std::int32_t last_frame = 0;
-    for (const Planned &item : planned) last_frame = std::max(last_frame, item.bbox[5]);
-    for (std::int32_t z = planned.front().bbox[4]; z < last_frame; ++z) {
-      // Open everything that starts here.
+    std::int64_t previous = -1;
+    for (const std::string &key : keys) {
+      const double t_frame_start = now_wall();
+      if (!reader->read(key, &frame)) continue;
+      t_fetch += now_wall() - t_frame_start;
+      const std::int32_t z = static_cast<std::int32_t>(frame.number);
+      if (frame.number <= previous) {
+        throw std::runtime_error(
+            "the image series returned frame " + std::to_string(frame.number) +
+            " after " + std::to_string(previous) +
+            "; this reads them in order and cannot take them out of it");
+      }
+      previous = frame.number;
+
+      // Open everything that starts at or before this frame.
+      const double t_open_start = now_wall();
       while (next < planned.size() && planned[next].bbox[4] <= z) {
         Shoebox box;
         BoxRejection ignored = BoxRejection::kNone;
@@ -428,18 +467,21 @@ int main(int argc, char **argv) {
         }
         ++next;
       }
+      t_open += now_wall() - t_open_start;
       most_open = std::max(most_open, open.size());
 
-      const auto found = key_of.find(z);
-      if (found != key_of.end() && reader->read(found->second, &frame)) {
+      {
         const std::size_t height = static_cast<std::size_t>(frame.height);
         const std::size_t width = static_cast<std::size_t>(frame.width);
         const std::size_t bytes =
             decompress::frame_bytes(height, width, frame.bit_depth);
         pixels.resize(bytes);
+        const double t_decompress_start = now_wall();
         decompress::image(frame.data, frame.algorithm, frame.bit_depth, height,
                           width, {pixels.data(), bytes});
         ++frames_read;
+        t_decompress += now_wall() - t_decompress_start;
+        const double t_fill_start = now_wall();
 
         const auto fill = [&](auto typed, std::uint32_t bad) {
           using Pixel = decltype(typed);
@@ -478,9 +520,11 @@ int main(int argc, char **argv) {
           throw std::runtime_error("unsupported bit depth " +
                                    std::to_string(frame.bit_depth));
         }
+        t_fill += now_wall() - t_fill_start;
       }
 
       // Close everything that ends here.
+      const double t_close_start = now_wall();
       for (auto it = open.begin(); it != open.end();) {
         if (it->second.bbox[5] <= z + 1) {
           close(it->first, &it->second);
@@ -489,6 +533,7 @@ int main(int argc, char **argv) {
           ++it;
         }
       }
+      t_integrate += now_wall() - t_close_start;
     }
     // Anything still open ran past the end of the images.
     for (auto &entry : open) close(entry.first, &entry.second);
@@ -510,8 +555,29 @@ int main(int argc, char **argv) {
     if (!e.identifier.empty()) out.identifiers[0] = e.identifier;
 
     const std::string path = args.value("-o", "integrated.refl");
+    const double t_write_start = now_wall();
     write_reflections(path, out);
+    t_write = now_wall() - t_write_start;
     std::printf("wrote %s\n", path.c_str());
+
+    if (args.has("--timing")) {
+      const double total = now_wall() - t_start;
+      const auto line = [&](const char *name, double seconds) {
+        std::printf("  %-26s %8.3f s  %5.1f%%\n", name, seconds,
+                    total > 0.0 ? 100.0 * seconds / total : 0.0);
+      };
+      std::printf("\ntiming\n");
+      line("the profile model", t_profile);
+      line("prediction", t_predict);
+      line("bounding boxes", t_boxes);
+      line("opening shoeboxes", t_open);
+      line("fetching frames", t_fetch);
+      line("decompressing", t_decompress);
+      line("filling shoeboxes", t_fill);
+      line("background and summation", t_integrate);
+      line("writing", t_write);
+      std::printf("  %-26s %8.3f s\n", "total", total);
+    }
     return 0;
   } catch (const std::exception &error) {
     std::fprintf(stderr, "mxi_integrate: %s\n", error.what());

@@ -826,6 +826,42 @@ the block version.
 The first pass is unchanged: work out every bounding box and keep nothing but
 the box, 24 bytes a reflection rather than 31 kB.
 
+**Where the time goes**, from `--timing`, on the thirty degree sweep:
+
+    the profile model             0.171 s    4.4%
+    prediction                    0.251 s    6.4%
+    bounding boxes                0.010 s    0.2%
+    opening shoeboxes             0.876 s   22.5%
+    fetching frames               0.281 s    7.2%
+    decompressing                 0.835 s   21.5%
+    filling shoeboxes             0.312 s    8.0%
+    background and summation      1.049 s   26.9%
+    writing                       0.038 s    1.0%
+    total                         3.894 s
+
+It was 21 seconds when the timing went in, and finding out where meant adding
+the phases twice: the first breakdown accounted for 15 per cent of the run and
+the second for 35, and each gap was somewhere the clock had not been put. A
+breakdown that does not add up is not a breakdown.
+
+Two things it found, neither of which was the images.
+
+**Every chunk was fetched twice.** A map from frame number to key was built by
+reading every key to ask what frame it was, and then the loop read them all
+again -- 18 of the 21 seconds. The loop is now driven by the frames as they
+arrive, and checks they arrive in order rather than assuming it.
+
+**Building the masks was 63 per cent of what was left.** `build_shoebox`
+evaluated the Kabsch mapping once per voxel, and `eps1` and `eps2` depend only
+on where a pixel is on the detector while `eps3` depends only on which image it
+is. So the mapping was being run `nz` times for every pixel, and it has a
+parallax correction with an `exp()` in it. Computing the face once and the
+images once is `nx*ny + nz` evaluations instead of `nx*ny*nz`: 5.344 s to
+0.876, with every intensity, variance, background and foreground count
+identical.
+
+    21.0 s -> 8.5 s -> 3.9 s
+
 Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It

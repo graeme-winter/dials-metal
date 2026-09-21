@@ -141,15 +141,49 @@ bool build_shoebox(const Experiment &e, const Prediction &p,
   box->mask.assign(n, 0);
 
   const double width = Scan::radians(e.scan.osc_width);
+
+  // eps1 and eps2 depend only on where a pixel is on the detector, and eps3
+  // only on which image it is. Computing all three per voxel evaluates the
+  // detector mapping nz times over for every pixel -- and that mapping has a
+  // parallax correction with an exp() in it. On a thirty degree sweep this
+  // loop was 63 per cent of the whole integration, more than reading and
+  // decompressing the images put together.
+  //
+  // So the face is computed once and the images once: nx*ny + nz evaluations
+  // instead of nx*ny*nz. The arithmetic is unchanged and so is every mask.
+  const std::int32_t face = box->nx() * box->ny();
+  std::vector<double> eps1(static_cast<std::size_t>(face));
+  std::vector<double> eps2(static_cast<std::size_t>(face));
+  for (std::int32_t y = 0; y < box->ny(); ++y) {
+    for (std::int32_t x = 0; x < box->nx(); ++x) {
+      const Epsilon eps = epsilon_of(
+          e, frame, panel, static_cast<double>(bbox[0] + x) + 0.5,
+          static_cast<double>(bbox[2] + y) + 0.5, p.phi, p.phi);
+      const std::size_t at = static_cast<std::size_t>(y) *
+                                 static_cast<std::size_t>(box->nx()) +
+                             static_cast<std::size_t>(x);
+      eps1[at] = eps.e1;
+      eps2[at] = eps.e2;
+    }
+  }
+  std::vector<double> eps3(static_cast<std::size_t>(box->nz()));
   for (std::int32_t z = 0; z < box->nz(); ++z) {
     const double image = static_cast<double>(bbox[4] + z) + 0.5;
     const double phi = Scan::radians(e.scan.osc_start) +
                        (image - static_cast<double>(e.scan.z_offset)) * width;
+    eps3[static_cast<std::size_t>(z)] = Scan::degrees(frame.zeta * (phi - p.phi));
+  }
+
+  for (std::int32_t z = 0; z < box->nz(); ++z) {
     for (std::int32_t y = 0; y < box->ny(); ++y) {
       for (std::int32_t x = 0; x < box->nx(); ++x) {
-        const Epsilon eps = epsilon_of(
-            e, frame, panel, static_cast<double>(bbox[0] + x) + 0.5,
-            static_cast<double>(bbox[2] + y) + 0.5, phi, p.phi);
+        Epsilon eps;
+        const std::size_t on_face = static_cast<std::size_t>(y) *
+                                        static_cast<std::size_t>(box->nx()) +
+                                    static_cast<std::size_t>(x);
+        eps.e1 = eps1[on_face];
+        eps.e2 = eps2[on_face];
+        eps.e3 = eps3[static_cast<std::size_t>(z)];
         // In sigmas, which is the only scale on which the three directions
         // are comparable: eps1 and eps2 are measured against sigma_D and eps3
         // against sigma_M, and here they differ by a factor of four.
