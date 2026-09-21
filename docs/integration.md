@@ -773,6 +773,31 @@ reflection should, and clipped away entirely by the panel or the scan. Each is
 reachable and each has a test, because a reason that is never produced is a
 string nobody has checked.
 
+**A multi-turn sweep was predicted once, not once per turn.** The reason
+counters found it on their first outing: 749786 predictions of a ten rotation
+sweep, of which 378278 had a `z` off the end of the scan, against DIALS'
+7516507. The ratio is 10.02, which is the number of turns.
+
+Two faults, one line apart:
+
+    if (span < 2.0 * kPi) { phi = wrap_from(phi, lo); ... }
+
+A scan of a full turn or more skipped the wrap entirely, on the grounds that
+everything is inside it. Everything is -- but only after wrapping, and the
+caller needs phi in the scan's own coordinates or `z_from_phi` puts it in the
+wrong turn. That is the 378278.
+
+And a reciprocal lattice point that crosses the Ewald sphere at `phi` crosses
+it again at `phi + 2 pi`, so ten rotations record every reflection ten times
+over -- which is the entire reason for collecting them. Each turn's root is
+converged from its own seed rather than taken as `phi + 2 pi k`, because with a
+scan-varying crystal the setting matrix at turn nine is not the one at turn
+zero.
+
+The patch went into `predict_indices` first and changed nothing, because
+`predict` has its own copy of the loop and is the one that runs. There is now
+one emitter that both call.
+
 Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It

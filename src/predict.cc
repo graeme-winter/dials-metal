@@ -149,11 +149,15 @@ bool build(const Experiment &e, const PredictOptions &options, int h, int k,
     const double span = std::abs(end - start);
     // Wrapped into the scan's own interval, so a scan crossing 360 degrees and
     // a reflection predicted at -179 still meet.
-    if (span < 2.0 * kPi) {
-      const double wrapped = wrap_from(phi, lo);
-      if (wrapped > lo + span) return false;
-      phi = wrapped;
-    }
+    //
+    // A scan of a full turn or more used to skip this entirely, on the grounds
+    // that everything is inside it. Everything is -- but only after wrapping,
+    // and the caller needs phi in the scan's own coordinates or z_from_phi
+    // puts it in the wrong turn. On ten rotations that left 378278 of 749786
+    // predictions with a z off the end of the scan.
+    const double wrapped = wrap_from(phi, lo);
+    if (wrapped > lo + span) return false;
+    phi = wrapped;
   }
 
   const Mat3 r = e.goniometer.rotation_at(phi);
@@ -177,6 +181,54 @@ bool build(const Experiment &e, const PredictOptions &options, int h, int k,
 
 }  // namespace
 
+//: Emit one prediction per rotation of the scan.
+//:
+//: A reciprocal lattice point that crosses the Ewald sphere at phi crosses it
+//: again at phi + 2 pi, so a sweep of ten full turns records every reflection
+//: ten times over -- which is the entire reason for collecting one. Predicting
+//: it once left a tenth of the reflections and, on a real ten rotation sweep,
+//: 749786 predictions where DIALS made 7516507.
+//:
+//: Each turn's root is converged from its own seed rather than taken as
+//: phi + 2 pi k, because with a scan-varying crystal the setting matrix at
+//: turn nine is not the one at turn zero and the reflection is not in quite
+//: the same place.
+void emit_turns(const Experiment &e, const PredictOptions &options, int h, int k,
+                int l, const Vec3 &hkl, const Converged &first, bool entering,
+                std::vector<Prediction> *out) {
+  const double lo = std::min(e.scan.phi_start(), e.scan.phi_end());
+  const double span = std::abs(e.scan.phi_end() - e.scan.phi_start());
+  const double two_pi = 2.0 * kPi;
+  const int turns =
+      options.allow_outside_scan
+          ? 1
+          : std::max(1, static_cast<int>(std::floor(span / two_pi)) + 1);
+  const double base = wrap_from(first.phi, lo);
+  for (int turn = 0; turn < turns; ++turn) {
+    const double seed = base + two_pi * static_cast<double>(turn);
+    if (!options.allow_outside_scan && seed > lo + span) break;
+    // The first turn uses the root it was given. Re-converging it from the
+    // wrapped seed is not the same calculation and lost nine reflections of a
+    // thirty degree sweep, which is a scan of less than one turn and should
+    // not have been touched at all by a change about many.
+    //
+    // Later turns converge from their own seed: converge_root returns the
+    // crossing nearest it, so seeding a turn along is what puts the root in
+    // that turn. For a scan-static crystal it comes back to the principal
+    // value and the shift is put back by hand.
+    Converged c = first;
+    if (turn > 0) {
+      c = converge_root(e, hkl, seed, entering);
+      if (!c.any) continue;
+      if (!e.crystal->scan_varying()) c.phi = seed;
+    }
+    Prediction p;
+    if (build(e, options, h, k, l, c.r0, c.phi, c.entering, &p)) {
+      out->push_back(p);
+    }
+  }
+}
+
 std::vector<Prediction> predict_indices(
     const Experiment &e, const std::vector<std::array<int, 3>> &indices,
     const PredictOptions &options) {
@@ -193,10 +245,7 @@ std::vector<Prediction> predict_indices(
     for (int i = 0; i < 2; ++i) {
       const Converged c = converge_root(e, h, cross.phi[i], cross.entering[i]);
       if (!c.any) continue;
-      Prediction p;
-      if (build(e, options, hkl[0], hkl[1], hkl[2], c.r0, c.phi, c.entering, &p)) {
-        out.push_back(p);
-      }
+      emit_turns(e, options, hkl[0], hkl[1], hkl[2], h, c, cross.entering[i], &out);
     }
   }
   return out;
@@ -234,12 +283,10 @@ std::vector<Prediction> predict(const Experiment &e,
         const Intersections cross = ewald_intersections(e, r0);
         if (!cross.any) continue;
         for (int i = 0; i < 2; ++i) {
-          const Converged c = converge_root(e, hkl, cross.phi[i], cross.entering[i]);
+          const Converged c =
+              converge_root(e, hkl, cross.phi[i], cross.entering[i]);
           if (!c.any) continue;
-          Prediction p;
-          if (build(e, options, h, k, l, c.r0, c.phi, c.entering, &p)) {
-            out.push_back(p);
-          }
+          emit_turns(e, options, h, k, l, hkl, c, cross.entering[i], &out);
         }
       }
     }

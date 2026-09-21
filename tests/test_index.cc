@@ -608,3 +608,58 @@ TEST(a_reflection_is_seen_twice_in_one_rotation_and_the_blocks_know_it) {
   check::is_true(by_block_estimate < 1.2 * truth,
                  "grouping by thirty degrees recovers the cell");
 }
+
+TEST(a_sweep_of_several_turns_predicts_each_reflection_once_per_turn) {
+  // A reciprocal lattice point that crosses the Ewald sphere at phi crosses it
+  // again at phi + 2 pi. A sweep of ten full rotations therefore records every
+  // reflection ten times, which is the entire reason for collecting one.
+  //
+  // Predicting it once left a tenth of the reflections: on a real ten rotation
+  // sweep, 749786 predictions where DIALS made 7516507. The ratio was 10.02,
+  // which is the number of turns and is what gave it away.
+  const auto sweep = [](int turns) {
+    Experiment e;
+    e.beam.direction = {0.0, 0.0, 1.0};
+    e.beam.wavelength = 0.9537;
+    Panel p;
+    p.fast = {1.0, 0.0, 0.0};
+    p.slow = {0.0, -1.0, 0.0};
+    p.pixel_size[0] = p.pixel_size[1] = 0.075;
+    p.image_size[0] = 2068;
+    p.image_size[1] = 2162;
+    p.origin = {-77.5, 81.1, -168.5};
+    e.detector.panels.push_back(p);
+    e.goniometer.axis = {1.0, 0.0, 0.0};
+    e.scan.first_image = 1;
+    e.scan.last_image = 3600 * turns;
+    e.scan.osc_start = 0.0;
+    e.scan.osc_width = 0.1;
+    const Mat3 r = rotation({0.3, -0.5, 0.81}, 0.7);
+    e.crystal = Crystal::from_real_space(r * Vec3{78, 0, 0}, r * Vec3{0, 78, 0},
+                                         r * Vec3{0, 0, 78});
+    return e;
+  };
+
+  PredictOptions options;
+  options.d_min = 3.0;
+  const std::size_t one = predict(sweep(1), options).size();
+  check::is_true(one > 1000, "a single turn predicts something");
+
+  for (int turns : {2, 5, 10}) {
+    const Experiment e = sweep(turns);
+    const std::vector<Prediction> v = predict(e, options);
+    check::equal(static_cast<long long>(v.size()),
+                 static_cast<long long>(one) * turns,
+                 "exactly one prediction per reflection per turn");
+    // And every one of them is on the scan. A full turn or more used to skip
+    // the wrap entirely, on the grounds that everything is inside it --
+    // everything is, but only after wrapping, and without it z_from_phi put
+    // 378278 of 749786 predictions off the end of the scan.
+    const double images = static_cast<double>(e.scan.num_images());
+    std::size_t off = 0;
+    for (const Prediction &p : v) {
+      if (p.z < -1.0 || p.z > images + 1.0) ++off;
+    }
+    check::equal(static_cast<long long>(off), 0, "and none is off the scan");
+  }
+}
