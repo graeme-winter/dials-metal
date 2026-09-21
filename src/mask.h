@@ -76,15 +76,32 @@ struct MaskOptions {
   std::int32_t max_images = 200;
 };
 
+//: Why a reflection got no box. Counted rather than guessed: on a ten rotation
+//: sweep half the predictions produced no shoebox and there was no way to tell
+//: which of these it was.
+enum class BoxRejection {
+  kNone,
+  kNoPanel,        //: the prediction names a panel that is not there
+  kNoFrame,        //: s1 and s0 are parallel, so there is no Kabsch frame
+  kSmallZeta,      //: too near the rotation axis; the box would span the scan
+  kNoIntersection, //: a corner of the region misses the detector plane
+  kTooManyImages,  //: wider in rotation than any reflection should be
+  kOffDetector,    //: clipped away entirely by the panel or the scan
+};
+
+const char *describe(BoxRejection why);
+
 //: The bounding box of a reflection's integration region, half open, clipped
 //: to the panel and the scan. Returns false if it does not intersect them.
 bool integration_bbox(const Experiment &e, const Prediction &p,
-                      const MaskOptions &options, std::int32_t bbox[6]);
+                      const MaskOptions &options, std::int32_t bbox[6],
+                      BoxRejection *why = nullptr);
 
 //: A shoebox for that box, with the mask marking which voxels are inside the
 //: region: Valid | Foreground inside, Valid | Background outside. Values and
 //: background are zero.
 bool build_shoebox(const Experiment &e, const Prediction &p,
-                   const MaskOptions &options, Shoebox *box);
+                   const MaskOptions &options, Shoebox *box,
+                   BoxRejection *why = nullptr);
 
 }  // namespace mxi

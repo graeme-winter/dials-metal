@@ -274,3 +274,79 @@ TEST(the_region_is_an_ellipsoid_in_sigmas_not_in_degrees) {
   }
   check::is_true(false, "no reflection was built");
 }
+
+TEST(a_refused_box_says_which_reason) {
+  // Half the predictions of a ten rotation sweep produced no shoebox and there
+  // was no way to tell whether that was the detector, the rotation axis or a
+  // bug. Each reason is now counted, and each is reachable: a test that only
+  // checked the common one would leave the others as untested strings.
+  const Experiment e = masking_experiment();
+  MaskOptions options = options_for();
+
+  // A panel that does not exist.
+  {
+    PredictOptions po;
+    po.d_min = 3.0;
+    const std::vector<Prediction> predictions = predict(e, po);
+    check::is_true(!predictions.empty(), "something was predicted");
+    Prediction p = predictions.front();
+    p.panel = 7;
+    Shoebox box;
+    BoxRejection why = BoxRejection::kNone;
+    check::is_true(!build_shoebox(e, p, options, &box, &why), "refused");
+    check::is_true(why == BoxRejection::kNoPanel, "because there is no panel 7");
+  }
+
+  // Near the rotation axis: zeta small, so the region in rotation diverges.
+  {
+    PredictOptions po;
+    po.d_min = 2.0;
+    const std::vector<Prediction> predictions = predict(e, po);
+    MaskOptions severe = options;
+    severe.min_zeta = 0.99;  // so that almost everything is below it
+    std::size_t small_zeta = 0;
+    for (const Prediction &p : predictions) {
+      Shoebox box;
+      BoxRejection why = BoxRejection::kNone;
+      if (!build_shoebox(e, p, severe, &box, &why) &&
+          why == BoxRejection::kSmallZeta) {
+        ++small_zeta;
+      }
+    }
+    check::is_true(small_zeta > 0, "the zeta cut is reported as itself");
+  }
+
+  // A box wider in rotation than the limit allows.
+  {
+    PredictOptions po;
+    po.d_min = 2.0;
+    const std::vector<Prediction> predictions = predict(e, po);
+    MaskOptions narrow = options;
+    narrow.max_images = 1;
+    std::size_t too_many = 0;
+    for (const Prediction &p : predictions) {
+      Shoebox box;
+      BoxRejection why = BoxRejection::kNone;
+      if (!build_shoebox(e, p, narrow, &box, &why) &&
+          why == BoxRejection::kTooManyImages) {
+        ++too_many;
+      }
+    }
+    check::is_true(too_many > 0, "the image span limit is reported as itself");
+  }
+
+  // And a box that is built says nothing was wrong.
+  {
+    PredictOptions po;
+    po.d_min = 2.5;
+    for (const Prediction &p : predict(e, po)) {
+      Shoebox box;
+      BoxRejection why = BoxRejection::kTooManyImages;
+      if (build_shoebox(e, p, options, &box, &why)) {
+        check::is_true(why == BoxRejection::kNone, "a kept box has no reason");
+        return;
+      }
+    }
+    check::is_true(false, "nothing was built at all");
+  }
+}

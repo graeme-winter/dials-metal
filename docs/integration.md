@@ -757,6 +757,22 @@ is the same file. It only escapes when the master is one level up, which is
 exactly the case reported. A fixture that does not fail on the old code is not
 a test of anything.
 
+**Every prediction that gets no shoebox is counted, by reason.** On a ten
+rotation sweep 749786 predictions became 367050 boxes and there was no way to
+tell whether that was the detector, the rotation axis, or a bug. The reasons
+are now printed:
+
+    21521 reflections predicted
+    21032 shoeboxes to fill
+      471 a corner misses the detector
+      18 zeta below the cut
+
+The reasons are: no such panel, no Kabsch frame, zeta below the cut, a corner
+of the region missing the detector plane, a box spanning more images than any
+reflection should, and clipped away entirely by the panel or the scan. Each is
+reachable and each has a test, because a reason that is never produced is a
+string nobody has checked.
+
 Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It

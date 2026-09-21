@@ -228,15 +228,33 @@ int main(int argc, char **argv) {
     // reflections on it.
     std::vector<Shoebox> boxes;
     std::vector<const Prediction *> kept;
+    std::map<std::string, std::size_t> refused;
+    std::size_t outside_range = 0;
     for (const Prediction &p : predictions) {
-      if (p.z < first_image || p.z > last_image) continue;
+      if (p.z < first_image || p.z > last_image) {
+        ++outside_range;
+        continue;
+      }
       Shoebox box;
-      if (!build_shoebox(e, p, mask_options, &box)) continue;
+      BoxRejection why = BoxRejection::kNone;
+      if (!build_shoebox(e, p, mask_options, &box, &why)) {
+        ++refused[describe(why)];
+        continue;
+      }
       box.data.assign(box.size(), 0.0f);
       boxes.push_back(std::move(box));
       kept.push_back(&p);
     }
     std::printf("%zu shoeboxes to fill\n", boxes.size());
+    // Every prediction that did not become a box, by reason. Half of them
+    // vanishing with no explanation is not something a program should make
+    // anyone guess about.
+    if (outside_range > 0) {
+      std::printf("  %zu outside the image range\n", outside_range);
+    }
+    for (const auto &entry : refused) {
+      std::printf("  %zu %s\n", entry.second, entry.first.c_str());
+    }
     if (boxes.empty()) return 1;
 
     std::map<std::int64_t, std::vector<std::size_t>> by_frame;

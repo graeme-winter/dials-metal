@@ -28,20 +28,41 @@ bool offset_pixel(const Panel &p, const KabschFrame &frame,
 
 }  // namespace
 
+const char *describe(BoxRejection why) {
+  switch (why) {
+    case BoxRejection::kNone: return "kept";
+    case BoxRejection::kNoPanel: return "no such panel";
+    case BoxRejection::kNoFrame: return "no Kabsch frame";
+    case BoxRejection::kSmallZeta: return "zeta below the cut";
+    case BoxRejection::kNoIntersection: return "a corner misses the detector";
+    case BoxRejection::kTooManyImages: return "spans too many images";
+    case BoxRejection::kOffDetector: return "off the detector or the scan";
+  }
+  return "unknown";
+}
+
 bool integration_bbox(const Experiment &e, const Prediction &p,
-                      const MaskOptions &options, std::int32_t bbox[6]) {
-  if (p.panel >= e.detector.size()) return false;
+                      const MaskOptions &options, std::int32_t bbox[6],
+                      BoxRejection *why) {
+  const auto refuse = [&](BoxRejection reason) {
+    if (why != nullptr) *why = reason;
+    return false;
+  };
+  if (why != nullptr) *why = BoxRejection::kNone;
+  if (p.panel >= e.detector.size()) return refuse(BoxRejection::kNoPanel);
   const Panel &panel = e.detector[p.panel];
   const Vec3 s1 = p.s1;
   const KabschFrame frame = kabsch_frame(e, s1);
-  if (!frame.valid) return false;
-  if (std::fabs(frame.zeta) < options.min_zeta) return false;
+  if (!frame.valid) return refuse(BoxRejection::kNoFrame);
+  if (std::fabs(frame.zeta) < options.min_zeta) {
+    return refuse(BoxRejection::kSmallZeta);
+  }
 
   // The BOX is wider than the foreground region, to hold background. The mask
   // below still marks only the n_sigma region as foreground.
   const double scale = options.box_scale > 1.0 ? options.box_scale : 1.0;
   const double t = Scan::radians(options.n_sigma * options.sigma_d) * scale;
-  if (!(t > 0.0)) return false;
+  if (!(t > 0.0)) return refuse(BoxRejection::kNoFrame);
 
   // The four corners of the region in the tangent plane. The mapping is
   // smooth and monotonic over an offset this small, so the corners bound it.
@@ -51,7 +72,9 @@ bool integration_bbox(const Experiment &e, const Prediction &p,
     const double t1 = (i & 1) ? t : -t;
     const double t2 = (i & 2) ? t : -t;
     double px_fast = 0.0, px_slow = 0.0;
-    if (!offset_pixel(panel, frame, t1, t2, &px_fast, &px_slow)) return false;
+    if (!offset_pixel(panel, frame, t1, t2, &px_fast, &px_slow)) {
+      return refuse(BoxRejection::kNoIntersection);
+    }
     if (first) {
       low_fast = high_fast = px_fast;
       low_slow = high_slow = px_slow;
@@ -81,7 +104,9 @@ bool integration_bbox(const Experiment &e, const Prediction &p,
   bbox[4] = static_cast<std::int32_t>(std::floor(std::fmin(z_low, z_high)));
   bbox[5] = static_cast<std::int32_t>(std::ceil(std::fmax(z_low, z_high)));
 
-  if (bbox[5] - bbox[4] > options.max_images) return false;
+  if (bbox[5] - bbox[4] > options.max_images) {
+    return refuse(BoxRejection::kTooManyImages);
+  }
 
   // Clipped to what exists. A box hanging off the edge of the detector or the
   // end of the scan is kept, cut down to the part that is real.
@@ -92,14 +117,18 @@ bool integration_bbox(const Experiment &e, const Prediction &p,
   bbox[4] = std::max<std::int32_t>(bbox[4], 0);
   bbox[5] = std::min<std::int32_t>(bbox[5],
                                    static_cast<std::int32_t>(e.scan.num_images()));
-  return bbox[1] > bbox[0] && bbox[3] > bbox[2] && bbox[5] > bbox[4];
+  if (!(bbox[1] > bbox[0] && bbox[3] > bbox[2] && bbox[5] > bbox[4])) {
+    return refuse(BoxRejection::kOffDetector);
+  }
+  return true;
 }
 
 bool build_shoebox(const Experiment &e, const Prediction &p,
-                   const MaskOptions &options, Shoebox *box) {
+                   const MaskOptions &options, Shoebox *box,
+                   BoxRejection *why) {
   if (box == nullptr) return false;
   std::int32_t bbox[6];
-  if (!integration_bbox(e, p, options, bbox)) return false;
+  if (!integration_bbox(e, p, options, bbox, why)) return false;
   const Panel &panel = e.detector[p.panel];
   const KabschFrame frame = kabsch_frame(e, p.s1);
 
