@@ -862,6 +862,46 @@ identical.
 
     21.0 s -> 8.5 s -> 3.9 s
 
+### Threading the frames
+
+On ten rotations, 310 seconds:
+
+    decompressing               158.107 s   51.0%
+    background and summation     53.300 s   17.2%
+    opening shoeboxes            46.137 s   14.9%
+    prediction                   25.739 s    8.3%
+    filling shoeboxes            11.755 s    3.8%
+    writing                       7.131 s    2.3%
+    fetching frames               2.642 s    0.9%
+
+Decompressing is half of it and is per frame with nothing shared. What does
+NOT thread is the bookkeeping: a shoebox spans several frames and is opened,
+filled and closed in frame order.
+
+So the workers only fetch and decompress. Each holds its own `series::Reader`,
+because HDF5 cannot be entered from two threads at once and its own mutex
+serialises the fetch while the decompression runs outside it. Finished frames
+go into a buffer keyed by frame number and this thread takes them in sequence,
+which leaves every shoebox decision on one thread and needs no locking around
+the boxes at all.
+
+**Bounding the buffer deadlocks**, which it duly did on the first attempt. A
+worker holding frame zero waits for room while the buffer is full of frames one
+to eight, and the consumer waits for frame zero. The bound belongs on how far
+ahead work is handed out rather than on how much has come back: keys are handed
+out in order, so the frame the consumer wants was claimed before anything ahead
+of it, and a worker held back can never be one the consumer is waiting on.
+
+`--threads` sets the count, 0 being one per core and 1 the serial path;
+`--queue-depth` how far ahead to run, since a decompressed frame of a 16M
+detector is 72 MB.
+
+This container has one core, so the results are identical at 1, 2 and 4 threads
+and all three are the same speed or slower -- 4.5 seconds serial against 5.3
+with four threads, which is the queue's overhead with nothing to overlap. The
+speedup has to be measured where there are cores. The default degrades
+correctly: `hardware_concurrency` of one takes the serial path, byte for byte.
+
 Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It

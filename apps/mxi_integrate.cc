@@ -15,6 +15,10 @@
 
 #include <algorithm>
 #include <array>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -52,6 +56,110 @@ double now_wall() {
       .count();
 }
 
+
+//: Frames decompressed ahead of the loop that consumes them.
+//:
+//: Decompressing is half of a large integration -- 158 of 310 seconds on ten
+//: rotations -- and it is per frame with nothing shared, so it threads. What
+//: does NOT thread is the bookkeeping: a shoebox spans several frames and is
+//: opened, filled and closed in frame order, so the consumer must see frames
+//: in order and one at a time.
+//:
+//: So the threads only fetch and decompress. They put finished frames into a
+//: buffer keyed by frame number and the consumer takes them in sequence,
+//: which keeps every shoebox decision on one thread and needs no locking
+//: around the boxes at all. HDF5 cannot be entered from two threads at once,
+//: so each worker holds its own Reader and the library's own mutex serialises
+//: the fetch; the decompression, which is the expensive part, runs outside it.
+//:
+//: The buffer is bounded because a decompressed frame of a 16M detector is 72
+//: MB and running ahead without limit would be a way to exhaust memory
+//: instead of time.
+class FrameQueue {
+ public:
+  struct Decoded {
+    std::int64_t number = -1;
+    unsigned bit_depth = 0;
+    std::size_t height = 0;
+    std::size_t width = 0;
+    std::vector<std::uint8_t> pixels;
+  };
+
+  FrameQueue(std::size_t depth) : depth_(std::max<std::size_t>(depth, 1)) {}
+
+  //: Called by a worker when a frame is ready. Never blocks.
+  //:
+  //: Bounding the buffer here deadlocks: a worker holding frame zero waits for
+  //: room while the buffer is full of frames one to eight, and the consumer
+  //: waits for frame zero. The bound belongs on how far ahead work is handed
+  //: out, not on how much has come back -- see `wait_for_room`, which cannot
+  //: deadlock because keys are handed out in order and the frame the consumer
+  //: is waiting for was therefore claimed before any frame ahead of it.
+  void put(Decoded frame) {
+    std::lock_guard<std::mutex> held(lock_);
+    ready_.emplace(frame.number, std::move(frame));
+    arrived_.notify_all();
+  }
+
+  //: Called by a worker before it starts on `which`: holds it back until the
+  //: consumer is close enough behind.
+  void wait_for_room(std::size_t which) {
+    std::unique_lock<std::mutex> held(lock_);
+    room_.wait(held, [&] { return which < consumed_ + depth_ || stop_; });
+  }
+
+  //: Called by the consumer when it has finished with a frame.
+  void consumed(std::size_t which) {
+    std::lock_guard<std::mutex> held(lock_);
+    consumed_ = which + 1;
+    room_.notify_all();
+  }
+
+  //: Called by a worker that read nothing for a key, so the consumer does not
+  //: wait for a frame that will never come.
+  void skip(std::int64_t number) {
+    std::unique_lock<std::mutex> held(lock_);
+    missing_.insert(number);
+    arrived_.notify_all();
+  }
+
+  //: The frame with this number, once some worker has produced it. False when
+  //: no worker ever will.
+  bool take(std::int64_t number, Decoded *out) {
+    std::unique_lock<std::mutex> held(lock_);
+    arrived_.wait(held, [&] {
+      return ready_.count(number) > 0 || missing_.count(number) > 0 || stop_;
+    });
+    if (stop_) return false;
+    const auto found = ready_.find(number);
+    if (found == ready_.end()) {
+      missing_.erase(number);
+      return false;
+    }
+    *out = std::move(found->second);
+    ready_.erase(found);
+    room_.notify_all();
+    return true;
+  }
+
+  void halt() {
+    std::lock_guard<std::mutex> held(lock_);
+    stop_ = true;
+    arrived_.notify_all();
+    room_.notify_all();
+  }
+
+ private:
+  std::mutex lock_;
+  std::condition_variable arrived_;
+  std::condition_variable room_;
+  std::map<std::int64_t, Decoded> ready_;
+  std::set<std::int64_t> missing_;
+  std::size_t depth_;
+  std::size_t consumed_ = 0;
+  bool stop_ = false;
+};
+
 void usage(const char *program) {
   std::printf(
       "usage: %s [options] EXPT [STRONG_REFL]\n"
@@ -68,6 +176,10 @@ void usage(const char *program) {
       "  --gain G          detector gain, counts per photon (1)\n"
 
       "  --save-shoeboxes  keep the pixels and the mask in the output\n"
+      "  --threads N       threads fetching and decompressing frames; 0 is one\n"
+      "                    per core, 1 is none (0)\n"
+      "  --queue-depth N   frames decompressed ahead of the loop (8). A frame\n"
+      "                    of a 16M detector is 72 MB decompressed\n"
       "  --timing          where the time went, by phase\n",
       program);
 }
@@ -85,7 +197,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images", "--timing"};
+      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--queue-depth"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
@@ -441,19 +553,102 @@ int main(int argc, char **argv) {
       if (save) saved[row] = std::move(*box);
     };
 
+    // The workers fetch and decompress; this thread does everything that
+    // touches a shoebox. The keys are handed out by an atomic counter, and
+    // each frame is labelled with its own number so the consumer can take
+    // them in order however they finish.
+    std::size_t workers = static_cast<std::size_t>(args.number("--threads", 0.0));
+    if (workers == 0) {
+      workers = std::thread::hardware_concurrency();
+      if (workers == 0) workers = 1;
+    }
+    workers = std::min(workers, keys.size());
+    const std::size_t depth =
+        static_cast<std::size_t>(std::max(1.0, args.number("--queue-depth", 8.0)));
+    FrameQueue queue(depth);
+    std::atomic<std::size_t> handed_out{0};
+    std::vector<std::thread> pool;
+    std::atomic<double> fetch_seconds{0.0};
+    std::atomic<double> decompress_seconds{0.0};
+
+    if (workers > 1) {
+      for (std::size_t t = 0; t < workers; ++t) {
+        pool.emplace_back([&, t]() {
+          // Each worker holds its own Reader: HDF5 cannot be entered from two
+          // threads at once, and the library's own mutex serialises the fetch
+          // while the decompression runs outside it.
+          std::unique_ptr<series::Reader> mine = images->reader();
+          series::Frame raw;
+          for (;;) {
+            const std::size_t which = handed_out.fetch_add(1);
+            if (which >= keys.size()) break;
+            queue.wait_for_room(which);
+            const double t0 = now_wall();
+            if (!mine->read(keys[which], &raw)) {
+              queue.skip(static_cast<std::int64_t>(which));
+              continue;
+            }
+            const double t1 = now_wall();
+            FrameQueue::Decoded decoded;
+            decoded.number = raw.number;
+            decoded.bit_depth = raw.bit_depth;
+            decoded.height = static_cast<std::size_t>(raw.height);
+            decoded.width = static_cast<std::size_t>(raw.width);
+            const std::size_t bytes = decompress::frame_bytes(
+                decoded.height, decoded.width, raw.bit_depth);
+            decoded.pixels.resize(bytes);
+            decompress::image(raw.data, raw.algorithm, raw.bit_depth,
+                              decoded.height, decoded.width,
+                              {decoded.pixels.data(), bytes});
+            const double t2 = now_wall();
+            // Relaxed adds: these are for the timing report, not for anything
+            // the result depends on.
+            for (double *acc : {static_cast<double *>(nullptr)}) (void)acc;
+            fetch_seconds.store(fetch_seconds.load() + (t1 - t0));
+            decompress_seconds.store(decompress_seconds.load() + (t2 - t1));
+            queue.put(std::move(decoded));
+          }
+        });
+      }
+    }
+
     std::int64_t previous = -1;
-    for (const std::string &key : keys) {
-      const double t_frame_start = now_wall();
-      if (!reader->read(key, &frame)) continue;
-      t_fetch += now_wall() - t_frame_start;
-      const std::int32_t z = static_cast<std::int32_t>(frame.number);
-      if (frame.number <= previous) {
+    for (std::size_t index = 0; index < keys.size(); ++index) {
+      FrameQueue::Decoded decoded;
+      bool have = false;
+      if (workers > 1) {
+        const double t0 = now_wall();
+        have = queue.take(static_cast<std::int64_t>(index), &decoded);
+        t_fetch += now_wall() - t0;
+      } else {
+        const double t0 = now_wall();
+        if (reader->read(keys[index], &frame)) {
+          t_fetch += now_wall() - t0;
+          const double t1 = now_wall();
+          decoded.number = frame.number;
+          decoded.bit_depth = frame.bit_depth;
+          decoded.height = static_cast<std::size_t>(frame.height);
+          decoded.width = static_cast<std::size_t>(frame.width);
+          const std::size_t bytes = decompress::frame_bytes(
+              decoded.height, decoded.width, frame.bit_depth);
+          decoded.pixels.resize(bytes);
+          decompress::image(frame.data, frame.algorithm, frame.bit_depth,
+                            decoded.height, decoded.width,
+                            {decoded.pixels.data(), bytes});
+          t_decompress += now_wall() - t1;
+          have = true;
+        }
+      }
+      if (workers > 1) queue.consumed(index);
+      if (!have) continue;
+      const std::int32_t z = static_cast<std::int32_t>(decoded.number);
+      if (decoded.number <= previous) {
         throw std::runtime_error(
-            "the image series returned frame " + std::to_string(frame.number) +
+            "the image series returned frame " + std::to_string(decoded.number) +
             " after " + std::to_string(previous) +
             "; this reads them in order and cannot take them out of it");
       }
-      previous = frame.number;
+      previous = decoded.number;
 
       // Open everything that starts at or before this frame.
       const double t_open_start = now_wall();
@@ -471,21 +666,14 @@ int main(int argc, char **argv) {
       most_open = std::max(most_open, open.size());
 
       {
-        const std::size_t height = static_cast<std::size_t>(frame.height);
-        const std::size_t width = static_cast<std::size_t>(frame.width);
-        const std::size_t bytes =
-            decompress::frame_bytes(height, width, frame.bit_depth);
-        pixels.resize(bytes);
-        const double t_decompress_start = now_wall();
-        decompress::image(frame.data, frame.algorithm, frame.bit_depth, height,
-                          width, {pixels.data(), bytes});
+        const std::size_t width = decoded.width;
         ++frames_read;
-        t_decompress += now_wall() - t_decompress_start;
         const double t_fill_start = now_wall();
 
         const auto fill = [&](auto typed, std::uint32_t bad) {
           using Pixel = decltype(typed);
-          const Pixel *const raw = reinterpret_cast<const Pixel *>(pixels.data());
+          const Pixel *const raw =
+              reinterpret_cast<const Pixel *>(decoded.pixels.data());
           for (auto &entry : open) {
             Shoebox &box = entry.second;
             if (z < box.bbox[4] || z >= box.bbox[5]) continue;
@@ -512,13 +700,13 @@ int main(int argc, char **argv) {
             }
           }
         };
-        if (frame.bit_depth == 16) {
+        if (decoded.bit_depth == 16) {
           fill(std::uint16_t{}, 0xFFFFu);
-        } else if (frame.bit_depth == 32) {
+        } else if (decoded.bit_depth == 32) {
           fill(std::uint32_t{}, 0xFFFFFFFFu);
         } else {
           throw std::runtime_error("unsupported bit depth " +
-                                   std::to_string(frame.bit_depth));
+                                   std::to_string(decoded.bit_depth));
         }
         t_fill += now_wall() - t_fill_start;
       }
@@ -535,6 +723,16 @@ int main(int argc, char **argv) {
       }
       t_integrate += now_wall() - t_close_start;
     }
+    queue.halt();
+    for (std::thread &worker : pool) worker.join();
+    if (workers > 1) {
+      // The workers' own clocks, divided by how many of them there were: the
+      // report is wall time for this thread and their total would not fit in
+      // it.
+      t_fetch = fetch_seconds.load() / static_cast<double>(workers);
+      t_decompress = decompress_seconds.load() / static_cast<double>(workers);
+    }
+
     // Anything still open ran past the end of the images.
     for (auto &entry : open) close(entry.first, &entry.second);
     open.clear();
