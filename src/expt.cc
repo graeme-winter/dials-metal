@@ -179,6 +179,23 @@ ExperimentList experiments_from_json(const json::Value &document) {
 
   ExperimentList list;
   list.source = document;
+
+  // The profile block, if the file has one. Only the first: this package has
+  // no per-experiment profile model and would not know what to do with a
+  // second.
+  const json::Value &profiles = document["profile"];
+  if (profiles.is_array() && !profiles.as_array().empty()) {
+    const json::Value &first = profiles.as_array()[0];
+    if (first.is_object() && first["sigma_b"].is_number() &&
+        first["sigma_m"].is_number()) {
+      list.profile.present = true;
+      list.profile.sigma_b = first["sigma_b"].as_number();
+      list.profile.sigma_m = first["sigma_m"].as_number();
+      if (first["n_sigma"].is_number()) {
+        list.profile.n_sigma = first["n_sigma"].as_number();
+      }
+    }
+  }
   for (const json::Value &e : document["experiment"].as_array()) {
     Experiment x;
     x.identifier = e["identifier"].as_string();

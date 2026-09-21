@@ -44,10 +44,11 @@ namespace {
 
 void usage(const char *program) {
   std::printf(
-      "usage: %s [options] EXPT IMAGES\n"
+      "usage: %s [options] EXPT IMAGES [STRONG_REFL]\n"
       "\n"
       "  -o FILE           where to write (integrated.refl)\n"
-      "  --sigma-b B --sigma-m M   profile model; read from EXPT if it has one\n"
+      "  --sigma-b B --sigma-m M   profile model. Estimated from STRONG_REFL\n"
+      "                    if given, else taken from EXPT's profile block\n"
       "  --n-sigma N       foreground spans plus and minus N sigma (3)\n"
       "  --box-scale S     box is S times wider than the foreground (1.9)\n"
       "  --d-min D         resolution limit\n"
@@ -82,11 +83,15 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "mxi_integrate: %s\n", args.error.c_str());
     return 2;
   }
-  if (args.positional.size() != 2) {
-    std::fprintf(stderr, "mxi_integrate: expected an .expt and an image file\n");
+  if (args.positional.size() < 2 || args.positional.size() > 3) {
+    std::fprintf(stderr,
+                 "mxi_integrate: expected an .expt, an image file, and "
+                 "optionally a .refl of strong spots\n");
     usage(argv[0]);
     return 2;
   }
+  const std::string strong_path =
+      args.positional.size() == 3 ? args.positional[2] : std::string();
 
   try {
     const ExperimentList experiments = read_experiments(args.positional[0]);
@@ -98,16 +103,72 @@ int main(int argc, char **argv) {
     const Panel &panel = e.detector[0];
 
     MaskOptions mask_options;
-    mask_options.n_sigma = args.number("--n-sigma", 3.0);
     mask_options.box_scale = args.number("--box-scale", 1.9);
-    mask_options.sigma_d = args.number("--sigma-b", 0.0);
-    mask_options.sigma_m = args.number("--sigma-m", 0.0);
-    if (!(mask_options.sigma_d > 0.0) || !(mask_options.sigma_m > 0.0)) {
+
+    // The profile model, in order of preference: what the command line says,
+    // then what this package estimates from the strong spots, then what the
+    // .expt was carrying. Estimating is the default because the numbers should
+    // not have to be carried by hand between two programs, and because these
+    // estimates are the ones the rest of this package was measured with.
+    double sigma_b = args.number("--sigma-b", 0.0);
+    double sigma_m = args.number("--sigma-m", 0.0);
+    double n_sigma = args.number("--n-sigma", 0.0);
+    const char *source = "the command line";
+    if ((!(sigma_b > 0.0) || !(sigma_m > 0.0)) && !strong_path.empty()) {
+      const Table strong = read_reflections(strong_path);
+      const std::vector<Shoebox> strong_boxes = decode_shoeboxes(strong);
+      if (strong_boxes.empty()) {
+        std::fprintf(stderr,
+                     "mxi_integrate: %s has no shoeboxes, so the profile model "
+                     "cannot be estimated from it\n", strong_path.c_str());
+        return 1;
+      }
+      const Column &s1_in = strong.at("s1");
+      const Column &cal_in = strong.at("xyzcal.mm");
+      std::vector<Shoebox> selected;
+      std::vector<Vec3> beams;
+      std::vector<RangeSample> samples;
+      for (std::size_t i = 0; i < strong.nrows && i < strong_boxes.size(); ++i) {
+        if (strong.has("flags") &&
+            (strong.at("flags").integer(i) & flag::kUsedInRefinement) == 0) {
+          continue;
+        }
+        const Vec3 beam{s1_in.real(i, 0), s1_in.real(i, 1), s1_in.real(i, 2)};
+        if (std::fabs(compute_zeta(e, beam)) < 0.05) continue;
+        if (!has_prediction(strong, i)) continue;
+        selected.push_back(strong_boxes[i]);
+        beams.push_back(beam);
+        for (const RangeSample &sample :
+             range_samples(e, strong_boxes[i], cal_in.real(i, 2),
+                           compute_zeta(e, beam))) {
+          samples.push_back(sample);
+        }
+      }
+      std::size_t used = 0;
+      if (!(sigma_b > 0.0)) sigma_b = beam_divergence(e, selected, beams, &used);
+      if (!(sigma_m > 0.0)) {
+        sigma_m = reflecting_range(samples, Scan::radians(e.scan.osc_width), 0.0);
+      }
+      source = "estimated from the strong spots";
+    }
+    if ((!(sigma_b > 0.0) || !(sigma_m > 0.0)) && experiments.profile.present) {
+      if (!(sigma_b > 0.0)) sigma_b = experiments.profile.sigma_b;
+      if (!(sigma_m > 0.0)) sigma_m = experiments.profile.sigma_m;
+      if (!(n_sigma > 0.0)) n_sigma = experiments.profile.n_sigma;
+      source = "the profile block of the .expt";
+    }
+    if (!(sigma_b > 0.0) || !(sigma_m > 0.0)) {
       std::fprintf(stderr,
-                   "mxi_integrate: give --sigma-b and --sigma-m, from the "
-                   "profile block of an integrated .expt or from mxi_profile\n");
+                   "mxi_integrate: no profile model. Give a .refl of strong "
+                   "spots with shoeboxes to estimate it from, or --sigma-b and "
+                   "--sigma-m, or an .expt that carries a profile block.\n");
       return 1;
     }
+    mask_options.sigma_d = sigma_b;
+    mask_options.sigma_m = sigma_m;
+    mask_options.n_sigma = n_sigma > 0.0 ? n_sigma : 3.0;
+    std::printf("profile model: sigma_b %.6f sigma_m %.6f n_sigma %.1f (%s)\n",
+                sigma_b, sigma_m, mask_options.n_sigma, source);
     IntegrateOptions integrate_options;
     integrate_options.gain = args.number("--gain", 1.0);
 

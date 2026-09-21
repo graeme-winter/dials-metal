@@ -33,6 +33,19 @@ class ExptError : public std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
+//: The Gaussian profile model, if the file carried one.
+//:
+//: Read rather than modelled: this package estimates its own and does not
+//: write this block back changed, but an `integrated.expt` has one and a
+//: caller that can use it should not have to be told the numbers on a command
+//: line.
+struct ProfileBlock {
+  bool present = false;
+  double sigma_b = 0.0;  //: degrees
+  double sigma_m = 0.0;  //: degrees
+  double n_sigma = 3.0;
+};
+
 struct ExperimentList {
   std::vector<Experiment> experiments;
 
@@ -54,6 +67,9 @@ struct ExperimentList {
   //: package does understand replaced. Empty for an experiment list built in
   //: memory rather than read from a file.
   json::Value source;
+
+  //: The profile block of the first experiment, when there is one.
+  ProfileBlock profile;
 
   std::size_t size() const { return experiments.size(); }
   bool empty() const { return experiments.empty(); }

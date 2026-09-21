@@ -722,6 +722,24 @@ skirts of a spot misses signal, and a two per cent deficit on strong
 reflections is the size of that difference. So the mask discrepancy is no
 longer a curiosity to be chased when convenient -- it is the outstanding error.
 
+**The profile model is estimated rather than given.** In order of preference:
+the command line, then this package's own estimate from a `.refl` of strong
+spots with shoeboxes, then the `profile` block of the `.expt` if it carries one
+-- which is now read. Carrying two numbers by hand between two programs is a
+way to run the second on the wrong ones.
+
+Which exposes something worth not mistaking for progress:
+
+    DIALS' sigmas   sigma_b 0.028676  sigma_m 0.092108   ratio to DIALS 0.9817
+    our estimates   sigma_b 0.027315  sigma_m 0.128501   ratio to DIALS 0.9943
+
+Our own estimates give intensities closer to DIALS' than DIALS' own numbers do.
+That is compensation, not correctness: our `sigma_m` is forty per cent larger,
+which widens the foreground in the rotation direction and offsets the mask
+being too small on the detector. Two errors of opposite sign look like
+agreement, and the only reason this is visible at all is that both were
+measured separately first.
+
 Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It
