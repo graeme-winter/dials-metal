@@ -937,6 +937,36 @@ The diagnostic that found it exists because `27366 frames read` was not
 interpretable on its own, which was itself a complaint about the output rather
 than a hypothesis about the code.
 
+### The re-read rate, and where it comes from
+
+With the turns no longer collapsed, ten rotations wants all 36000 frames and
+reads 59134 of them, 1.64 times each. That is arithmetic rather than a puzzle:
+
+    7309317 boxes / 20000 per window = 365 windows
+      own span       99 frames
+      actually read 162 frames
+      overlap        63 frames past each window end
+
+and a shoebox at the zeta cut of 0.05 spans 82 images, because its extent in
+phi is `n_sigma sigma_m / |zeta|`. So the overlap IS the near-axis reflections,
+and the lever is window length against memory:
+
+    --max-boxes  20000:   99 frames per window, re-read 1.65 x, 0.6 GB
+    --max-boxes  40000:  197 frames per window, re-read 1.32 x, 1.3 GB
+    --max-boxes  60000:  296 frames per window, re-read 1.22 x, 1.9 GB
+    --max-boxes 120000:  591 frames per window, re-read 1.11 x, 3.8 GB
+
+Raising `--min-zeta` shortens the long boxes instead and costs reflections.
+
+### The timing report was summing to 124 per cent
+
+Fetching 77.1 per cent and decompressing 47.4 per cent of the same run: both
+were the busiest thread's wall clock inside one parallel region, so they
+overlap and the percentages are not shares of anything. The region now reports
+its own wall clock as the phase, with the work inside it in thread-seconds and
+a ratio against that wall -- which are additive, comparable, and show the
+difference between working and waiting.
+
 ### What that left, on sixteen cores
 
     total                        65.403 s   from 310

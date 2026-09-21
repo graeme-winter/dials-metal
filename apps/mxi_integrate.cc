@@ -224,6 +224,7 @@ int main(int argc, char **argv) {
     const double t_start = now_wall();
     double t_profile = 0.0, t_predict = 0.0, t_boxes = 0.0;
     double t_fetch = 0.0, t_decompress = 0.0, t_fill = 0.0, t_open = 0.0;
+    double t_region = 0.0;
     double t_integrate = 0.0, t_write = 0.0;
 
     const ExperimentList experiments = read_experiments(args.positional[0]);
@@ -677,6 +678,7 @@ int main(int argc, char **argv) {
       std::vector<double> decompress_by_thread(fetch_by_thread.size(), 0.0);
       std::vector<double> fill_by_thread(fetch_by_thread.size(), 0.0);
       std::atomic<std::size_t> thread_slot{0};
+      const double t_region_start = now_wall();
       in_parallel(frame_numbers.size(), [&](std::size_t which) {
         thread_local std::unique_ptr<series::Reader> mine;
         thread_local std::size_t slot = 0;
@@ -755,19 +757,27 @@ int main(int argc, char **argv) {
         decompress_by_thread[slot] += t2 - t1;
         fill_by_thread[slot] += t3 - t2;
       });
+      t_region += now_wall() - t_region_start;
       frames_read += frames_done.load();
       bad_pixels += bad_here.load();
       frames_missing += unread.load();
       for (const auto &entry : touching) wanted.insert(entry.first);
-      const auto largest = [](const std::vector<double> &v) {
-        double most = 0.0;
-        for (double x : v) most = std::max(most, x);
-        return most;
+      // Thread-seconds, summed over threads, NOT the busiest thread's share.
+      //
+      // Reporting the busiest thread per phase gave fetching 77.1 per cent and
+      // decompressing 47.4 per cent of the same run: both are wall clock
+      // inside one parallel region, they overlap, and the percentages summed
+      // to 124. Thread-seconds are additive and comparable with each other,
+      // and the region's own wall clock is reported beside them so the
+      // difference between work and waiting is visible.
+      const auto summed = [](const std::vector<double> &v) {
+        double all = 0.0;
+        for (double x : v) all += x;
+        return all;
       };
-      // The busiest thread's share, which is what the wall clock saw.
-      t_fetch += largest(fetch_by_thread);
-      t_decompress += largest(decompress_by_thread);
-      t_fill += largest(fill_by_thread);
+      t_fetch += summed(fetch_by_thread);
+      t_decompress += summed(decompress_by_thread);
+      t_fill += summed(fill_by_thread);
 
       // Integrate, in parallel over boxes: this was 53 seconds.
       const double t_close_start = now_wall();
@@ -831,9 +841,16 @@ int main(int argc, char **argv) {
       line("prediction", t_predict);
       line("bounding boxes", t_boxes);
       line("opening shoeboxes", t_open);
-      line("fetching frames", t_fetch);
-      line("decompressing", t_decompress);
-      line("filling shoeboxes", t_fill);
+      line("reading frames (wall)", t_region);
+      std::printf("    of which, in thread-seconds over %zu threads:\n",
+                  workers);
+      const auto thread_line = [&](const char *name, double seconds) {
+        std::printf("      %-22s %8.3f s  %5.2f x wall\n", name, seconds,
+                    t_region > 0.0 ? seconds / t_region : 0.0);
+      };
+      thread_line("fetching", t_fetch);
+      thread_line("decompressing", t_decompress);
+      thread_line("filling shoeboxes", t_fill);
       line("background and summation", t_integrate);
       line("writing", t_write);
       std::printf("  %-26s %8.3f s\n", "total", total);
