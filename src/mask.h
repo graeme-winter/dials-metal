@@ -37,8 +37,21 @@ enum class RegionShape {
 };
 
 struct MaskOptions {
-  //: How many sigmas the region spans, in each direction.
+  //: How many sigmas the FOREGROUND region spans, in each direction.
   double n_sigma = 3.0;
+  //: How much wider the box is than the foreground region, on the detector.
+  //:
+  //: A box that is only the foreground has no background in it, and the
+  //: background is where the background estimate comes from. DIALS' boxes are
+  //: measurement boxes in Leslie's sense: foreground plus a rim, and the rim is
+  //: most of the volume. Measured on 4018 reflections of insulin against a
+  //: DIALS `integrated.refl`: foreground 462 voxels, background 3094, and
+  //: their sum is the whole box for every row.
+  //:
+  //: The value here reproduces DIALS' box widths on that data. It is
+  //: empirical: DIALS' own box is not simply n_sigma times anything this can
+  //: see, and the factor is recorded as measured rather than derived.
+  double box_scale = 1.9;
   //: The box is a region in which each coordinate is separately within n
   //: sigma; the ellipsoid is the one on which the Gaussian is constant. They
   //: are not the same set, and the difference is not small: the ellipsoid is

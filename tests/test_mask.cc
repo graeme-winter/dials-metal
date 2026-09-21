@@ -34,9 +34,12 @@ Experiment masking_experiment() {
   return e;
 }
 
+//: A box that hugs the foreground, for the tests that are about the region
+//: rather than about the rim.
 MaskOptions options_for(double n_sigma = 3.0) {
   MaskOptions o;
   o.n_sigma = n_sigma;
+  o.box_scale = 1.0;  // no rim, so the box is the region
   o.sigma_d = 0.031;
   o.sigma_m = 0.098;
   return o;
@@ -54,7 +57,10 @@ TEST(the_box_encloses_the_region_and_not_much_more) {
   const std::vector<Prediction> predictions = predict(e, po);
   check::is_true(predictions.size() > 100, "enough predictions");
 
-  const MaskOptions options = options_for();
+  // With the rim, which is what the pipeline uses: the assertions below are
+  // about the rim existing and the foreground sitting inside it.
+  MaskOptions options = options_for();
+  options.box_scale = 1.9;
   std::size_t checked = 0;
   for (const Prediction &p : predictions) {
     Shoebox box;
@@ -69,8 +75,12 @@ TEST(the_box_encloses_the_region_and_not_much_more) {
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
           if ((box.mask[box.at(x, y, z)] & shoebox_mask::kForeground) == 0) continue;
-          if (x == 0 || y == 0 || z == 0 || x == box.nx() - 1 ||
-              y == box.ny() - 1 || z == box.nz() - 1) {
+          // Fast and slow only. The rim is on the detector; in the rotation
+          // direction the box follows the foreground exactly, because DIALS'
+          // image extents already agreed and widening them would break what
+          // is right to fix what is not. So foreground on the first or last
+          // image is expected and is not an error.
+          if (x == 0 || y == 0 || x == box.nx() - 1 || y == box.ny() - 1) {
             edge_has_foreground = true;
           }
         }
@@ -85,9 +95,16 @@ TEST(the_box_encloses_the_region_and_not_much_more) {
       if (m & shoebox_mask::kForeground) ++foreground;
     }
     check::is_true(foreground > 0, "a box always contains its own reflection");
-    check::is_true(foreground * 10 >= box.size(),
-                   "and is not mostly padding");
-    (void)edge_has_foreground;
+    // The box is deliberately wider than the foreground, because the
+    // background estimate needs background pixels and there are none in a box
+    // that is only the peak. DIALS' boxes are 13 per cent foreground on real
+    // data. What must hold is that the foreground is inside the box and does
+    // not reach its edge, or the rim is not a rim.
+    check::is_true(!edge_has_foreground,
+                   "the foreground does not reach the fast or slow edge, so "
+                   "there is a rim of background to estimate from");
+    check::is_true(foreground * 100 >= box.size(),
+                   "and the box is not absurdly larger than the region");
   }
   check::is_true(checked > 50, "enough boxes built");
 }

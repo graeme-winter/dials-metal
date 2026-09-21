@@ -35,7 +35,9 @@ void usage(const char *program) {
       "for dials.image_viewer. Pixel values are left at zero.\n"
       "\n"
       "  -o FILE           where to write (masked.refl)\n"
-      "  --n-sigma N       the region spans plus and minus N sigma (3)\n"
+      "  --n-sigma N       the foreground spans plus and minus N sigma (3)\n"
+      "  --box-scale S     the box is S times wider than the foreground on the\n"
+      "                    detector, to hold background (1.9)\n"
       "  --sigma-b B --sigma-m M   use these instead of estimating from REFL\n"
       "  --d-min D         resolution limit for prediction\n"
       "  --shape box|ellipsoid   the box is Kabsch's mask, each coordinate\n"
@@ -52,7 +54,7 @@ void usage(const char *program) {
 
 int main(int argc, char **argv) {
   const std::set<std::string> known = {"-o",         "--n-sigma",    "--sigma-b",
-                                       "--sigma-m",  "--d-min",      "--min-zeta",
+                                       "--sigma-m",  "--d-min",      "--min-zeta",  "--box-scale",
                                        "--first-image", "--last-image",
                                        "--shape"};
   const Arguments args = parse_arguments(argc, argv, known, known);
@@ -80,6 +82,7 @@ int main(int argc, char **argv) {
 
     MaskOptions options;
     options.n_sigma = args.number("--n-sigma", 3.0);
+    options.box_scale = args.number("--box-scale", 1.9);
     options.min_zeta = args.number("--min-zeta", 0.05);
     if (args.value("--shape", "box") == "ellipsoid") {
       options.shape = RegionShape::kEllipsoid;
