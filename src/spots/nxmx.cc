@@ -393,12 +393,21 @@ private:
       block.dataset =
           plist_string(dcpl, static_cast<int>(i), H5Pget_virtual_dsetname);
 
-      // "." means the mapping points back into the master file itself.
-      std::filesystem::path path = filename == "."
-                                       ? std::filesystem::path(master_)
-                                       : std::filesystem::path(filename);
-      if (path.is_relative() && !directory.empty())
-        path = directory / path;
+      // "." means the mapping points back into the master file itself, and
+      // the master's path is already whatever the caller gave -- it must NOT
+      // be resolved against its own directory a second time. Doing so turned
+      // "../ins10_1.nxs" into "../../ins10_1.nxs" and failed to open, for any
+      // master named by a relative path with a directory in it.
+      //
+      // Only a genuinely external filename, which HDF5 stores relative to the
+      // master, needs the directory prepended.
+      std::filesystem::path path;
+      if (filename == ".") {
+        path = std::filesystem::path(master_);
+      } else {
+        path = std::filesystem::path(filename);
+        if (path.is_relative() && !directory.empty()) path = directory / path;
+      }
       block.filename = path.string();
 
       const Handle vspace(
