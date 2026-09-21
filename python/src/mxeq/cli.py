@@ -121,10 +121,36 @@ def main(argv: list[str] | None = None) -> int:
         help="how many images apart two rows may be and still be the same observation",
     )
 
+    pl = sub.add_parser(
+        "profiles", help="draw the reference profiles mxi_integrate learned"
+    )
+    pl.add_argument("path", help="what --save-profiles wrote")
+    pl.add_argument(
+        "-o", "--output", default="profiles.png", help="where to write the sections"
+    )
+    pl.add_argument(
+        "--widths", help="also write a plot of profile width by region and axis"
+    )
+
     i = sub.add_parser("inspect", help="describe a file without assuming its layout")
     i.add_argument("path")
 
     args = parser.parse_args(argv)
+
+    if args.command == "profiles":
+        from .plots import profiles as profile_plots
+
+        reference = profile_plots.read_profiles(args.path)
+        print(
+            f"{len(reference.profiles)} profiles, {reference.side} a side, "
+            f"{reference.divisions}x{reference.divisions} regions per panel"
+        )
+        for r, spots in enumerate(reference.spots):
+            print(f"  region {r}: {spots} spots")
+        print(profile_plots.draw_profiles(reference, args.output))
+        if args.widths:
+            print(profile_plots.draw_profile_widths(reference, args.widths))
+        return 0
 
     if args.command == "trend":
         from . import trends

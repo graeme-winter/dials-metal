@@ -186,6 +186,7 @@ void usage(const char *program) {
       "  --subdivisions N  pixel subdivisions per axis (5, as Kabsch uses)\n"
       "  --regions N       detector divided N by N for reference profiles (3)\n"
       "  --reference-signal S   learn from reflections above S sigma (10)\n"
+      "  --save-profiles F the learned reference profiles, as text\n"
       "  --timing          where the time went, by phase\n",
       program);
 }
@@ -203,7 +204,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--reference-signal", "--summation-only"};
+      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--reference-signal", "--summation-only", "--save-profiles"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
@@ -887,6 +888,31 @@ int main(int argc, char **argv) {
       if (at >= planned.size() && pass == 0 && fitting) {
         // Between the passes: the profiles are what they are going to be.
         finalise_reference(&reference);
+        const std::string profile_path = args.value("--save-profiles", "");
+        if (!profile_path.empty()) {
+          std::FILE *f = std::fopen(profile_path.c_str(), "w");
+          if (f == nullptr) {
+            std::fprintf(stderr, "mxi_integrate: cannot write %s\n",
+                         profile_path.c_str());
+          } else {
+            // Plain text, one profile a block, because the thing that reads
+            // this is a person with a plotting script and not a program that
+            // needs a format.
+            std::fprintf(f, "# reference profiles\n");
+            std::fprintf(f, "side %d\n", grid_spec.side());
+            std::fprintf(f, "sigma_b %.9g\n", grid_spec.sigma_d);
+            std::fprintf(f, "sigma_m %.9g\n", grid_spec.sigma_m);
+            std::fprintf(f, "half_width %.9g\n", grid_spec.half_width);
+            std::fprintf(f, "divisions %d\n", reference.divisions);
+            std::fprintf(f, "panels %zu\n", reference.panels);
+            for (std::size_t r = 0; r < reference.profile.size(); ++r) {
+              std::fprintf(f, "profile %zu spots %zu\n", r, reference.spots[r]);
+              for (double v : reference.profile[r]) std::fprintf(f, "%.9g\n", v);
+            }
+            std::fclose(f);
+            std::printf("wrote %s\n", profile_path.c_str());
+          }
+        }
         std::size_t empty = 0;
         for (std::size_t r = 0; r < reference.spots.size(); ++r) {
           if (reference.spots[r] < 10) ++empty;

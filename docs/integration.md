@@ -1214,3 +1214,49 @@ Note that within-bin correlation is not a measure of agreement on its own: a
 narrow bin of a noisy quantity correlates poorly however well two programs
 agree, which is why the summation rows read as they do. The ratio column is
 what to read for agreement and the correlation column for outliers.
+
+## Looking at the profiles
+
+    mxi_integrate ... --save-profiles profiles.txt
+    mxeq profiles profiles.txt -o profiles.png --widths widths.png
+
+Plain text out of the integrator and pictures out of `mxeq`, because the thing
+that reads it is a person with a question rather than a program with a format.
+
+`mxeq profiles` draws three central SECTIONS of each region's profile rather
+than projections: a projection hides a profile that is hollow, double-peaked or
+displaced, which is exactly what is worth seeing. `--widths` plots the second
+moment of each profile along each axis.
+
+On the thirty degree sweep, nine regions:
+
+* **The widths vary by a factor of 1.9 between regions**, narrowest at the
+  detector centre (0.95 grid points in `e1`) and widest at the corners (1.81).
+  That is obliquity and parallax, and it is the reason per-region profiles
+  exist -- so the region division is earning its place.
+* **Several profiles are visibly off-centre**, one region markedly so. A
+  profile is built in the Kabsch frame about the PREDICTED position, so a
+  displaced profile means the prediction and the observation disagree
+  systematically in that part of the detector. Fitting a displaced profile to a
+  reflection biases its intensity, and a profile displaced differently in
+  different regions biases it differently across the detector.
+
+Both are worth having pictures of, and neither is visible in a correlation.
+
+### Two things the trends say, which are not the same thing
+
+**Summation.** The ratio to DIALS climbs monotonically with intensity: 0.95 at
+I around 25, 0.977 at 170, 1.0017 at 5800. That is the shape of a constant
+ABSOLUTE offset rather than a scale error -- a background biased slightly high
+costs every reflection the same number of counts, which is a large fraction of
+a weak one and nothing to a strong one. Ours measured 0.3042 against DIALS'
+0.3019 on the same reflections.
+
+**Profile fitting.** The ratio drifts with FRAME, 0.986 at the start of the
+scan to 0.951 at the end. Reference profiles here are learned per detector
+region for the whole scan; XDS and MOSFLM divide the scan as well, because the
+profile changes through it -- the crystal is scan-varying and, on a long
+enough sweep, so is the sample. A profile averaged over the whole scan fits the
+middle of it and neither end, which is the shape of that drift. Dividing the
+scan is the obvious next experiment, and it is a change to `ReferenceProfiles`
+rather than to the fitting.
