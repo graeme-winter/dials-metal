@@ -61,6 +61,12 @@ constexpr std::int64_t kStrong = 1 << 5;
 //: every one of them indexed, none of them also marked used_in_refinement, and
 //: their median |xyzcal - xyzobs| is 0.843 px against 0.310 for the rest.
 constexpr std::int64_t kCentroidOutlier = 1 << 17;
+//: Identified from a DIALS integrated.refl rather than guessed: its rows carry
+//: flag 769, which is predicted | 256 | 512, and the two bits split 21972 and
+//: 20688 ways across reflections that have summation and profile-fitted
+//: intensities respectively.
+constexpr std::int64_t kIntegratedSum = 1 << 8;
+constexpr std::int64_t kIntegratedPrf = 1 << 9;
 }  // namespace flag
 
 

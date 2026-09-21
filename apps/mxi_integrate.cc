@@ -1,0 +1,301 @@
+// mxi_integrate: summation integration on real images.
+//
+//   mxi_integrate integrated.expt master.nxs -o mine.refl --d-min 2.0
+//   mxi_integrate ... --save-shoeboxes            # keep the pixels and the mask
+//
+// Predicts, builds each reflection's measurement box, fills it from the
+// images, fits the background and sums the foreground. The output is a DIALS
+// reflection table, so `dials.show`, `dials.image_viewer` and the scaler all
+// read it, and `intensity.sum.value` can be compared with DIALS' own directly.
+//
+// --save-shoeboxes keeps the pixels and the mask in the table, as mxi_mask
+// does. They are large -- a megabyte per hundred reflections -- and they are
+// the difference between "the intensity is wrong" and "the intensity is wrong
+// because the mask is here and the spot is there".
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "args.h"
+#include "background.h"
+#include "expt.h"
+#include "integrate.h"
+#include "mask.h"
+#include "predict.h"
+#include "profile_model.h"
+#include "refl.h"
+#include "shoebox.h"
+
+#include "decompress.hh"
+#include "series.hh"
+
+#include <memory>
+#include <stdexcept>
+
+using namespace mxi;
+
+namespace {
+
+void usage(const char *program) {
+  std::printf(
+      "usage: %s [options] EXPT IMAGES\n"
+      "\n"
+      "  -o FILE           where to write (integrated.refl)\n"
+      "  --sigma-b B --sigma-m M   profile model; read from EXPT if it has one\n"
+      "  --n-sigma N       foreground spans plus and minus N sigma (3)\n"
+      "  --box-scale S     box is S times wider than the foreground (1.9)\n"
+      "  --d-min D         resolution limit\n"
+      "  --first-image N --last-image N   restrict to part of the scan\n"
+      "  --gain G          detector gain, counts per photon (1)\n"
+      "  --save-shoeboxes  keep the pixels and the mask in the output\n",
+      program);
+}
+
+//: One frame, decompressed into counts.
+struct Frame {
+  std::vector<std::int32_t> pixels;
+  std::size_t fast = 0;
+  std::size_t slow = 0;
+};
+
+}  // namespace
+
+int main(int argc, char **argv) {
+  const std::set<std::string> known = {
+      "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
+      "--box-scale", "--d-min",      "--first-image", "--last-image",
+      "--gain",      "--save-shoeboxes"};
+  std::set<std::string> takes_value = known;
+  takes_value.erase("--save-shoeboxes");
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  if (args.help) {
+    usage(argv[0]);
+    return 0;
+  }
+  if (!args.ok) {
+    std::fprintf(stderr, "mxi_integrate: %s\n", args.error.c_str());
+    return 2;
+  }
+  if (args.positional.size() != 2) {
+    std::fprintf(stderr, "mxi_integrate: expected an .expt and an image file\n");
+    usage(argv[0]);
+    return 2;
+  }
+
+  try {
+    const ExperimentList experiments = read_experiments(args.positional[0]);
+    if (experiments.size() == 0) {
+      std::fprintf(stderr, "mxi_integrate: no experiments\n");
+      return 1;
+    }
+    const Experiment &e = experiments[0];
+    const Panel &panel = e.detector[0];
+
+    MaskOptions mask_options;
+    mask_options.n_sigma = args.number("--n-sigma", 3.0);
+    mask_options.box_scale = args.number("--box-scale", 1.9);
+    mask_options.sigma_d = args.number("--sigma-b", 0.0);
+    mask_options.sigma_m = args.number("--sigma-m", 0.0);
+    if (!(mask_options.sigma_d > 0.0) || !(mask_options.sigma_m > 0.0)) {
+      std::fprintf(stderr,
+                   "mxi_integrate: give --sigma-b and --sigma-m, from the "
+                   "profile block of an integrated .expt or from mxi_profile\n");
+      return 1;
+    }
+    IntegrateOptions integrate_options;
+    integrate_options.gain = args.number("--gain", 1.0);
+
+    // The images. series::nxmx unpacks the NXmx virtual dataset so each
+    // frame's compressed bytes can be read without HDF5's filter pipeline;
+    // decompress::image then turns them into pixels.
+    std::unique_ptr<series::Series> images = series::nxmx(args.positional[1]);
+    series::Info info;
+    if (!images || !images->try_open(&info)) {
+      std::fprintf(stderr, "mxi_integrate: cannot open %s\n",
+                   args.positional[1].c_str());
+      return 1;
+    }
+    std::printf("%s\n", images->describe().c_str());
+
+    PredictOptions predict_options;
+    predict_options.d_min = args.number("--d-min", 0.0);
+    const std::vector<Prediction> predictions = predict(e, predict_options);
+    const double first_image = args.number("--first-image", 0.0);
+    const double last_image =
+        args.number("--last-image", static_cast<double>(e.scan.num_images()));
+    std::printf("%zu reflections predicted\n", predictions.size());
+
+    // Every box is built first, because a shoebox spans several frames and a
+    // frame serves many shoeboxes: the loop has to be over frames with the
+    // boxes waiting, or every frame is read as many times as it has
+    // reflections on it.
+    std::vector<Shoebox> boxes;
+    std::vector<const Prediction *> kept;
+    for (const Prediction &p : predictions) {
+      if (p.z < first_image || p.z > last_image) continue;
+      Shoebox box;
+      if (!build_shoebox(e, p, mask_options, &box)) continue;
+      box.data.assign(box.size(), 0.0f);
+      boxes.push_back(std::move(box));
+      kept.push_back(&p);
+    }
+    std::printf("%zu shoeboxes to fill\n", boxes.size());
+    if (boxes.empty()) return 1;
+
+    std::map<std::int64_t, std::vector<std::size_t>> by_frame;
+    for (std::size_t i = 0; i < boxes.size(); ++i) {
+      for (std::int32_t z = boxes[i].bbox[4]; z < boxes[i].bbox[5]; ++z) {
+        by_frame[z].push_back(i);
+      }
+    }
+
+    std::unique_ptr<series::Reader> reader = images->reader();
+    series::Frame frame;
+    std::vector<std::uint8_t> pixels;
+    std::size_t frames_read = 0;
+    std::size_t bad_pixels = 0;
+    for (const std::string &key : images->ready()) {
+      if (!reader->read(key, &frame)) continue;
+      const auto found = by_frame.find(frame.number);
+      if (found == by_frame.end()) continue;  // no shoebox needs this one
+
+      const std::size_t height = static_cast<std::size_t>(frame.height);
+      const std::size_t width = static_cast<std::size_t>(frame.width);
+      const std::size_t bytes =
+          decompress::frame_bytes(height, width, frame.bit_depth);
+      pixels.resize(bytes);
+      decompress::image(frame.data, frame.algorithm, frame.bit_depth, height,
+                        width, {pixels.data(), bytes});
+      ++frames_read;
+
+      // The largest representable value is the detector's bad-pixel marker,
+      // not a count: 65535 on a 16-bit Eiger, which is 5.8 per cent of a frame
+      // -- module gaps and dead pixels. Reading it as data puts seventeen
+      // billion counts on a frame that has one and a half million.
+      const auto fill = [&](auto typed, std::uint32_t bad) {
+        using Pixel = decltype(typed);
+        const Pixel *const raw = reinterpret_cast<const Pixel *>(pixels.data());
+        for (std::size_t which : found->second) {
+          Shoebox &box = boxes[which];
+          const std::int32_t zi =
+              static_cast<std::int32_t>(frame.number) - box.bbox[4];
+          for (std::int32_t y = 0; y < box.ny(); ++y) {
+            const std::size_t row =
+                static_cast<std::size_t>(box.bbox[2] + y) * width;
+            for (std::int32_t x = 0; x < box.nx(); ++x) {
+              const std::size_t at =
+                  row + static_cast<std::size_t>(box.bbox[0] + x);
+              const std::size_t into = box.at(x, y, zi);
+              const std::uint32_t v = static_cast<std::uint32_t>(raw[at]);
+              if (v == bad) {
+                // Neither foreground nor background: excluded from both sums
+                // rather than counted as zero, which would drag the background
+                // down wherever a module gap crosses a shoebox.
+                box.mask[into] = 0;
+                ++bad_pixels;
+              } else {
+                box.data[into] = static_cast<float>(v);
+              }
+            }
+          }
+        }
+      };
+      if (frame.bit_depth == 16) {
+        fill(std::uint16_t{}, 0xFFFFu);
+      } else if (frame.bit_depth == 32) {
+        fill(std::uint32_t{}, 0xFFFFFFFFu);
+      } else {
+        throw std::runtime_error("unsupported bit depth " +
+                                 std::to_string(frame.bit_depth));
+      }
+    }
+    std::printf("%zu frames read, %zu bad pixels masked\n", frames_read,
+                bad_pixels);
+
+    // Integrate.
+    Table out;
+    out.nrows = boxes.size();
+    Column &miller = out.int_column("miller_index", "cctbx::miller::index<>", 3);
+    Column &panel_column = out.int_column("panel", "std::size_t", 1);
+    Column &id = out.int_column("id", "int", 1);
+    Column &imageset = out.int_column("imageset_id", "int", 1);
+    Column &flags = out.int_column("flags", "std::size_t", 1);
+    Column &entering = out.int_column("entering", "bool", 1);
+    Column &bbox = out.int_column("bbox", "int6", 6);
+    Column &n_fg = out.int_column("num_pixels.foreground", "int", 1);
+    Column &n_bg = out.int_column("num_pixels.background", "int", 1);
+    Column &n_val = out.int_column("num_pixels.valid", "int", 1);
+    Column &cal_px = out.real_column("xyzcal.px", "vec3<double>", 3);
+    Column &cal_mm = out.real_column("xyzcal.mm", "vec3<double>", 3);
+    Column &s1_column = out.real_column("s1", "vec3<double>", 3);
+    Column &isum = out.real_column("intensity.sum.value", "double", 1);
+    Column &ivar = out.real_column("intensity.sum.variance", "double", 1);
+    Column &bmean = out.real_column("background.mean", "double", 1);
+    Column &bsum = out.real_column("background.sum.value", "double", 1);
+    Column &bsumvar = out.real_column("background.sum.variance", "double", 1);
+    Column &qe_column = out.real_column("qe", "double", 1);
+
+    const Vec3 s0 = e.beam.s0();
+    const Vec3 axis = e.goniometer.lab_axis();
+    std::size_t integrated = 0;
+    for (std::size_t i = 0; i < boxes.size(); ++i) {
+      const Prediction &p = *kept[i];
+      const IntegratedReflection r =
+          integrate_shoebox(&boxes[i], integrate_options);
+      miller.ints[i * 3 + 0] = p.h;
+      miller.ints[i * 3 + 1] = p.k;
+      miller.ints[i * 3 + 2] = p.l;
+      panel_column.ints[i] = static_cast<std::int64_t>(p.panel);
+      id.ints[i] = 0;
+      imageset.ints[i] = 0;
+      flags.ints[i] =
+          flag::kPredicted | (r.valid ? flag::kIntegratedSum : 0);
+      entering.ints[i] = p.s1.dot(axis.cross(s0)) > 0.0 ? 1 : 0;
+      for (int k = 0; k < 6; ++k) bbox.ints[i * 6 + k] = boxes[i].bbox[k];
+      n_fg.ints[i] = static_cast<std::int64_t>(r.n_foreground);
+      n_bg.ints[i] = static_cast<std::int64_t>(r.n_background);
+      n_val.ints[i] = static_cast<std::int64_t>(r.n_valid);
+      cal_px.reals[i * 3 + 0] = p.px_fast;
+      cal_px.reals[i * 3 + 1] = p.px_slow;
+      cal_px.reals[i * 3 + 2] = p.z;
+      const auto mm = panel.px_to_mm(p.px_fast, p.px_slow);
+      cal_mm.reals[i * 3 + 0] = mm.first;
+      cal_mm.reals[i * 3 + 1] = mm.second;
+      cal_mm.reals[i * 3 + 2] = p.phi;
+      for (int k = 0; k < 3; ++k) s1_column.reals[i * 3 + k] = p.s1[k];
+      isum.reals[i] = r.intensity;
+      ivar.reals[i] = r.variance;
+      bmean.reals[i] = r.background_mean;
+      bsum.reals[i] = r.background_sum;
+      bsumvar.reals[i] = r.background_sum_variance;
+      qe_column.reals[i] = quantum_efficiency(panel, p.s1);
+      if (r.valid) ++integrated;
+    }
+    std::printf("%zu of %zu integrated\n", integrated, boxes.size());
+
+    if (args.has("--save-shoeboxes")) {
+      Table::Opaque column;
+      column.type = "Shoebox<>";
+      column.bytes = encode_shoeboxes(boxes);
+      column.rows = boxes.size();
+      out.set_opaque("shoebox", std::move(column));
+      std::printf("shoeboxes kept: %.1f MB\n",
+                  out.opaque().at("shoebox").bytes.size() / 1e6);
+    }
+    if (!e.identifier.empty()) out.identifiers[0] = e.identifier;
+
+    const std::string path = args.value("-o", "integrated.refl");
+    write_reflections(path, out);
+    std::printf("wrote %s\n", path.c_str());
+    return 0;
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "mxi_integrate: %s\n", error.what());
+    return 1;
+  }
+}

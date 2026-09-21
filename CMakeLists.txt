@@ -104,6 +104,7 @@ add_library(mxi
   src/mask.cc
   src/forward.cc
   src/background.cc
+  src/integrate.cc
 )
 
 if(MXI_FFTW)
@@ -216,6 +217,7 @@ add_executable(mxi_tests
   tests/test_precision.cc
   tests/test_expt_format.cc
   tests/test_background.cc
+  tests/test_integrate.cc
   tests/test_refl.cc
   tests/test_shoebox.cc
   tests/test_mask.cc

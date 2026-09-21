@@ -698,6 +698,49 @@ levels; one outlier in five hundred moves the mean by a factor of five and the
 GLM by less than a tenth; and an all-zero background is answered rather than
 iterated towards, since there is no log of zero.
 
+### Summation integration, on real images
+
+    mxi_integrate integrated.expt master.nxs -o mine.refl \
+                  --sigma-b B --sigma-m M --d-min 1.8 --save-shoeboxes
+
+Predicts, builds each measurement box, fills it from the images through the
+spot finder's NXmx reader, fits the background and sums the foreground. The
+output is a DIALS reflection table, so `intensity.sum.value` compares directly.
+On 2504 reflections of the real 30 degree sweep:
+
+    background.mean      ours 0.3042   DIALS 0.3019   correlation 0.9991
+    intensity.sum.value  ours  155.0   DIALS  160.4   correlation 0.8753
+    intensity.sum.var    ours  310.1   DIALS  348.6   correlation 0.8730
+
+    on the 1112 with I/sigma > 10 in DIALS:
+      ratio ours/DIALS   median 0.9817, 10th 0.9410, 90th 1.0038
+
+**The background is right and the intensity is two per cent low**, which is
+what the foreground mask being small predicts: 372 voxels against DIALS' 462,
+measured before any of this touched a pixel. A foreground that misses the
+skirts of a spot misses signal, and a two per cent deficit on strong
+reflections is the size of that difference. So the mask discrepancy is no
+longer a curiosity to be chased when convenient -- it is the outstanding error.
+
+Three things the pixels settled that no synthetic test would have:
+
+* **The bad-pixel marker is excluded from both sums, not counted as zero.** It
+  is 5.8 per cent of a frame, module gaps and dead pixels, and 470000 voxels of
+  the boxes here. Counting them as zero would drag the background down wherever
+  a gap crosses a shoebox.
+* **`qe` is `1 - exp(-mu t / cos theta)`**, the fraction of photons the sensor
+  stops rather than passes. Checked against the `qe` column: identical for 100
+  per cent of reflections to 2e-16. It is stored rather than applied, as DIALS
+  does, so the scaler applies it later and the two tables stay comparable.
+* **The flag bits were read from the oracle, not guessed**: 256 is
+  integrated_sum and 512 integrated_prf, from flag value 769 splitting 21972
+  and 20688 ways.
+
+`--save-shoeboxes` keeps the pixels, the mask and the fitted background in the
+output, at about a megabyte per hundred reflections. It is the difference
+between "the intensity is wrong" and "the intensity is wrong because the mask
+is here and the spot is there".
+
 ### The steps
 
 1. **Bounding boxes and masks.** Done, `mxi_mask`, and checked above.

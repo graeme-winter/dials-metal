@@ -478,6 +478,14 @@ if(SPOTFINDER_TESTS)
     target_link_libraries(bench_dials_spots
         PRIVATE spotfinder_dials_spots spotfinder_warnings)
 
+    # mxi_integrate needs pixels, so it lives here with the HDF5 guard rather
+    # than in the top-level list: everything else in apps/ builds without HDF5.
+    add_executable(mxi_integrate ${CMAKE_CURRENT_SOURCE_DIR}/apps/mxi_integrate.cc)
+    target_link_libraries(mxi_integrate
+                          PRIVATE mxi spotfinder_series spotfinder_decompress
+                                  spotfinder_warnings)
+    target_include_directories(mxi_integrate PRIVATE src src/spots apps)
+
     add_executable(test_refl tests/spots/test_refl.cc)
     target_link_libraries(test_refl PRIVATE spotfinder_refl spotfinder_warnings)
     add_test(NAME refl COMMAND test_refl)
