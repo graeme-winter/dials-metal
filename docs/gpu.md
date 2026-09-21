@@ -86,12 +86,28 @@ shoeboxes stripped:
     write    0.130 -> 0.042 s
     total    1.023 -> 0.615 s
 
-A third of the run is carrying shoeboxes from one file to another. They have to
-be carried -- dropping them would lose the pixels for everything downstream,
-which is how five format bugs got here in the first place -- but they do not
-have to be parsed into a string, copied into a table and copied out again.
-The column is already held as opaque bytes; what it wants is to be moved rather
-than copied, and on the write side streamed rather than assembled.
+A third of the run was carrying shoeboxes from one file to another, and almost
+none of it was the file. Measured against the floor:
+
+    fread of the same 100 MB       0.055 s   at 1.8 GB/s
+    memcpy of 100 MB               0.012 s
+    read_reflections               0.310 s
+
+The reader had
+
+    std::string raw((std::istreambuf_iterator<char>(in)), {});
+
+which goes through the stream one character at a time, regrowing the string as
+it goes. Sized, resized and read in one go it is 0.148 s. The writer was
+growing its output from empty to a hundred megabytes, doubling and copying
+everything it had each time; reserved, 0.138 s.
+
+    read      0.310 -> 0.148 s
+    write     0.163 -> 0.138 s
+
+A table read and written back is byte for byte what it was, which is the only
+check worth making on a change to framing: values that survive a round trip
+would survive most ways of getting the framing wrong.
 
 Which is worth saying plainly: refinement's arithmetic is now a smaller part of
 `mxi_refine` than its file handling, and no amount of threading or device work

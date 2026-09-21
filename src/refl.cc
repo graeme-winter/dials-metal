@@ -331,8 +331,26 @@ void Table::validate() const {
 Table read_reflections(const std::string &path) {
   std::ifstream in(path, std::ios::binary);
   if (!in) throw ReflError("cannot open " + path);
-  std::string raw((std::istreambuf_iterator<char>(in)),
-                  std::istreambuf_iterator<char>());
+  // Size, resize, one read. The obvious
+  //
+  //   std::string raw((std::istreambuf_iterator<char>(in)), {});
+  //
+  // goes through the stream a character at a time and regrows the string as it
+  // goes: on a hundred megabyte table that is 0.25 seconds against 0.05, and
+  // it was a third of what mxi_refine spent on a scan-varying refinement.
+  in.seekg(0, std::ios::end);
+  const std::streamoff size = in.tellg();
+  if (size < 0) throw ReflError("cannot size " + path);
+  in.seekg(0, std::ios::beg);
+  std::string raw(static_cast<std::size_t>(size), '\0');
+  if (size > 0) {
+    in.read(raw.data(), size);
+    if (in.gcount() != size) {
+      throw ReflError("short read on " + path + ": " +
+                      std::to_string(in.gcount()) + " of " +
+                      std::to_string(size) + " bytes");
+    }
+  }
 
   Reader r(reinterpret_cast<const std::uint8_t *>(raw.data()), raw.size());
   const std::size_t top = r.array_header();
@@ -439,6 +457,19 @@ Table read_reflections(const std::string &path) {
 void write_reflections(const std::string &path, const Table &table) {
   table.validate();
   std::string out;
+  // Reserved rather than grown. The opaque columns alone are most of the file
+  // -- 79 MB of 100 on a table with shoeboxes -- and a string that doubles its
+  // way there copies everything it has each time it runs out.
+  {
+    std::size_t expected = 4096;
+    for (const auto &entry : table.opaque()) expected += entry.second.bytes.size();
+    for (const std::string &name : table.names()) {
+      const Column &c = table.at(name);
+      expected += name.size() + 32;
+      expected += (c.integral ? c.ints.size() : c.reals.size()) * 8;
+    }
+    out.reserve(expected);
+  }
 
   put(out, 0x93);
   put_text(out, kTag);

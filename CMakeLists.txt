@@ -210,6 +210,7 @@ add_executable(mxi_tests
   tests/test_derivatives.cc
   tests/test_precision.cc
   tests/test_expt_format.cc
+  tests/test_refl.cc
   tests/test_shoebox.cc
   tests/test_mask.cc
   tests/test_profile_model.cc
