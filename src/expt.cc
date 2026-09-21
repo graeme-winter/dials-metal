@@ -21,6 +21,13 @@ Beam read_beam(const json::Value &v) {
   b.direction = vec3(v["direction"], "beam direction");
   b.wavelength = v["wavelength"].as_number();
   if (!(b.wavelength > 0.0)) throw ExptError("beam wavelength is not positive");
+  // Absent from a file, the dxtbx defaults already on the struct stand.
+  if (v["polarization_normal"].is_array()) {
+    b.polarization_normal = vec3(v["polarization_normal"], "polarization normal");
+  }
+  if (v["polarization_fraction"].is_number()) {
+    b.polarization_fraction = v["polarization_fraction"].as_number();
+  }
   return b;
 }
 

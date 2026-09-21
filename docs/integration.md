@@ -826,6 +826,16 @@ Three things the pixels settled that no synthetic test would have:
   is 5.8 per cent of a frame, module gaps and dead pixels, and 470000 voxels of
   the boxes here. Counting them as zero would drag the background down wherever
   a gap crosses a shoebox.
+* **`lp` is `L / P`**, with `L = |s1 . (m2 x s0)| / (|s1||s0|)` and
+  `P = (1-p) + (2p-1)(u.n)^2 + p(u.s0hat)^2`. Recovered from the oracle rather
+  than recalled: the Lorentz part was identifiable as the candidate with the
+  least scatter against the column, and the three coefficients of P were then
+  solved for by least squares and came back as 0.001000, 0.998000 and 0.999000
+  with a residual of 2e-16 -- which is `(1-p)`, `(2p-1)` and `p` for the
+  `p = 0.999` in the file, not three free numbers. At `p = 0.5` it collapses to
+  the unpolarized `(1 + cos^2 2theta)/2`, which is the check that the form is
+  physics; there is a test for that limit. Against the column it agrees to
+  4e-5, the residual being our predicted `s1` rather than the formula.
 * **`qe` is `1 - exp(-mu t / cos theta)`**, the fraction of photons the sensor
   stops rather than passes. Checked against the `qe` column: identical for 100
   per cent of reflections to 2e-16. It is stored rather than applied, as DIALS

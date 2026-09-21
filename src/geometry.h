@@ -53,6 +53,12 @@ struct Beam {
   Vec3 direction{0.0, 0.0, 1.0};
   double wavelength = 1.0;
 
+  //: The normal to the polarization plane, and the fraction of the beam that
+  //: is polarized in it. The defaults are dxtbx's, for a file that says
+  //: nothing: a synchrotron beam is polarized in the horizontal plane.
+  Vec3 polarization_normal{0.0, 1.0, 0.0};
+  double polarization_fraction = 0.999;
+
   // Note the sign: see the convention block at the top of this file.
   Vec3 s0() const { return -direction.normalized() / wavelength; }
 };

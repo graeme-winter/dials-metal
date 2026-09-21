@@ -179,3 +179,65 @@ TEST(the_fitted_background_is_left_in_the_shoebox) {
     check::close(v, r.background_mean, 1e-5, "background written back");
   }
 }
+
+TEST(the_lp_factor_collapses_to_the_unpolarized_form) {
+  // P = (1-p) + (2p-1)(u.n)^2 + p(u.s0hat)^2, which at p = 0.5 must become the
+  // textbook (1 + cos^2 2theta)/2 with no dependence on the polarization
+  // normal at all. That limit is the check that the form is right rather than
+  // merely fitted to a column: the three coefficients were solved for by least
+  // squares and came back as (1-p), (2p-1) and p, and this is what says those
+  // are the physics and not three free numbers.
+  Beam beam;
+  beam.direction = {0.0, 0.0, 1.0};
+  beam.wavelength = 1.0;
+  beam.polarization_fraction = 0.5;
+  Goniometer goniometer;
+  goniometer.axis = {1.0, 0.0, 0.0};
+
+  const Vec3 s0 = beam.s0();
+  for (double angle : {0.1, 0.4, 0.9}) {
+    // A diffracted beam at 2theta = angle, in the plane containing the axis.
+    const Vec3 s1 =
+        (s0 * std::cos(angle) + Vec3{0.0, 1.0, 0.0} * std::sin(angle) * s0.norm())
+            .normalized() *
+        s0.norm();
+    const double cos_two_theta = (s1 / s1.norm()).dot(s0 / s0.norm());
+    const double lorentz =
+        std::fabs(s1.dot(goniometer.lab_axis().cross(s0))) /
+        (s1.norm() * s0.norm());
+    const double expected =
+        lorentz / (0.5 * (1.0 + cos_two_theta * cos_two_theta));
+    check::close(lorentz_polarization(beam, goniometer, s1), expected,
+                 1e-12 * std::fabs(expected), "unpolarized at p = 0.5");
+
+    // And with p = 0.5 the polarization normal cannot matter.
+    Beam turned = beam;
+    turned.polarization_normal = {0.0, 0.0, 1.0};
+    check::close(lorentz_polarization(turned, goniometer, s1),
+                 lorentz_polarization(beam, goniometer, s1), 1e-12,
+                 "and the normal makes no difference");
+  }
+}
+
+TEST(a_polarized_beam_makes_the_normal_matter) {
+  // The opposite limit: at p near one the factor must depend on where the
+  // diffracted beam sits relative to the polarization plane, or the column is
+  // constant and the correction does nothing.
+  Beam beam;
+  beam.direction = {0.0, 0.0, 1.0};
+  beam.wavelength = 1.0;
+  beam.polarization_fraction = 0.999;
+  Goniometer goniometer;
+  goniometer.axis = {1.0, 0.0, 0.0};
+  const Vec3 s0 = beam.s0();
+
+  const Vec3 along = (s0 * std::cos(0.6) +
+                      Vec3{0.0, 1.0, 0.0} * std::sin(0.6) * s0.norm())
+                         .normalized() * s0.norm();
+  Beam turned = beam;
+  turned.polarization_normal = {0.0, 0.0, 1.0};
+  check::is_true(std::fabs(lorentz_polarization(beam, goniometer, along) -
+                           lorentz_polarization(turned, goniometer, along)) >
+                     1e-6,
+                 "a polarized beam notices where the normal points");
+}

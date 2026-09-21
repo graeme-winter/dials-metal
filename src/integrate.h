@@ -73,6 +73,27 @@ struct IntegratedReflection {
 //: The fraction of photons the sensor absorbs for a beam along `s1`.
 double quantum_efficiency(const Panel &panel, const Vec3 &s1);
 
+//: The Lorentz-polarization factor, as DIALS writes it into the `lp` column.
+//:
+//:     L  = |s1 . (m2 x s0)| / (|s1| |s0|)
+//:     P  = (1 - p) + (2p - 1) (u . n)^2 + p (u . s0hat)^2
+//:     lp = L / P
+//:
+//: with `u` the unit diffracted beam, `n` the polarization normal and `p` the
+//: polarization fraction. Recovered from a DIALS `integrated.refl` rather than
+//: recalled: the Lorentz part was identifiable by having the least scatter
+//: against the column, and the three coefficients of P were then solved for by
+//: least squares and came back as 0.001000, 0.998000 and 0.999000 with a
+//: residual of 2e-16 -- which is (1-p), (2p-1) and p for the p = 0.999 in the
+//: file, not a curve fit.
+//:
+//: At p = 0.5 it collapses to the unpolarized (1 + cos^2 2theta)/2, which is
+//: the check that the form is right rather than merely fitted.
+//:
+//: Stored rather than applied, as DIALS does, so the scaler applies it later.
+double lorentz_polarization(const Beam &beam, const Goniometer &goniometer,
+                            const Vec3 &s1);
+
 //: Integrate one shoebox whose `data` holds counts and whose `mask` marks
 //: foreground and background. Fills the shoebox's `background` array with the
 //: fitted value, so that a saved shoebox carries what was subtracted.

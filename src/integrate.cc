@@ -14,6 +14,27 @@ double quantum_efficiency(const Panel &panel, const Vec3 &s1) {
   return 1.0 - std::exp(-panel.mu * panel.thickness / cosine);
 }
 
+double lorentz_polarization(const Beam &beam, const Goniometer &goniometer,
+                            const Vec3 &s1) {
+  const Vec3 s0 = beam.s0();
+  const double s1_length = s1.norm();
+  const double s0_length = s0.norm();
+  if (!(s1_length > 0.0) || !(s0_length > 0.0)) return 0.0;
+  const Vec3 m2 = goniometer.lab_axis();
+
+  const double lorentz =
+      std::fabs(s1.dot(m2.cross(s0))) / (s1_length * s0_length);
+
+  const Vec3 u = s1 / s1_length;
+  const double p = beam.polarization_fraction;
+  const double to_normal = u.dot(beam.polarization_normal);
+  const double to_beam = u.dot(s0 / s0_length);
+  const double polarization = (1.0 - p) + (2.0 * p - 1.0) * to_normal * to_normal +
+                              p * to_beam * to_beam;
+  if (!(polarization > 0.0)) return 0.0;
+  return lorentz / polarization;
+}
+
 IntegratedReflection integrate_shoebox(Shoebox *box,
                                        const IntegrateOptions &options) {
   IntegratedReflection out;

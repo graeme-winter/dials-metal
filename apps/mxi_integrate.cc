@@ -297,6 +297,7 @@ int main(int argc, char **argv) {
     Column &bsum = out.real_column("background.sum.value", "double", 1);
     Column &bsumvar = out.real_column("background.sum.variance", "double", 1);
     Column &qe_column = out.real_column("qe", "double", 1);
+    Column &lp_column = out.real_column("lp", "double", 1);
 
     const bool save = args.has("--save-shoeboxes");
     std::string shoebox_bytes;
@@ -432,6 +433,7 @@ int main(int argc, char **argv) {
         bsum.reals[i] = r.background_sum;
         bsumvar.reals[i] = r.background_sum_variance;
         qe_column.reals[i] = quantum_efficiency(panel, p.s1);
+        lp_column.reals[i] = lorentz_polarization(e.beam, e.goniometer, p.s1);
         if (r.valid) ++integrated;
       }
       if (save) shoebox_bytes += encode_shoeboxes(boxes);
