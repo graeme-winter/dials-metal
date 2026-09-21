@@ -740,6 +740,23 @@ being too small on the detector. Two errors of opposite sign look like
 agreement, and the only reason this is visible at all is that both were
 measured separately first.
 
+**The images come from the `.expt`.** Its imageset block already says where
+they are; being told the path a second time on the command line is how the two
+come to disagree. `--images` overrides it for data that have moved since the
+file was written, and the program prints which it used.
+
+That found a real bug in the NXmx reader, reproduced before it was fixed. When
+the virtual dataset maps back into the master file itself -- HDF5 writes `"."`
+for that -- the reader set the path to the master and then resolved it against
+the master's own directory a second time. A master named `../ins10_1.nxs`
+became `../../ins10_1.nxs` and failed to open.
+
+The first fixture written for it did not reproduce the failure: with the master
+at `../sub/self.h5` the doubled resolution gives `../sub/../sub/self.h5`, which
+is the same file. It only escapes when the master is one level up, which is
+exactly the case reported. A fixture that does not fail on the old code is not
+a test of anything.
+
 Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It

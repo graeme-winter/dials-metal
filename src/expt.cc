@@ -180,6 +180,15 @@ ExperimentList experiments_from_json(const json::Value &document) {
   ExperimentList list;
   list.source = document;
 
+  // Where the images are.
+  const json::Value &imagesets = document["imageset"];
+  if (imagesets.is_array() && !imagesets.as_array().empty()) {
+    const json::Value &first = imagesets.as_array()[0];
+    if (first.is_object() && first["template"].is_string()) {
+      list.image_template = first["template"].as_string();
+    }
+  }
+
   // The profile block, if the file has one. Only the first: this package has
   // no per-experiment profile model and would not know what to do with a
   // second.

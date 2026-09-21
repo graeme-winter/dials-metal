@@ -71,6 +71,14 @@ struct ExperimentList {
   //: The profile block of the first experiment, when there is one.
   ProfileBlock profile;
 
+  //: Where the images are, from the `imageset` block: the template of the
+  //: first imageset, verbatim. Empty if the file has none.
+  //:
+  //: A caller that has the experiment list should not have to be told the
+  //: image file as well -- the .expt already says, and being given both is how
+  //: they come to disagree.
+  std::string image_template;
+
   std::size_t size() const { return experiments.size(); }
   bool empty() const { return experiments.empty(); }
   Experiment &operator[](std::size_t i) { return experiments[i]; }

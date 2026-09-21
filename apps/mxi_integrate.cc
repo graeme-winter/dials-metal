@@ -44,9 +44,11 @@ namespace {
 
 void usage(const char *program) {
   std::printf(
-      "usage: %s [options] EXPT IMAGES [STRONG_REFL]\n"
+      "usage: %s [options] EXPT [STRONG_REFL]\n"
       "\n"
       "  -o FILE           where to write (integrated.refl)\n"
+      "  --images PATH     the image file; by default the .expt's own\n"
+      "                    imageset template is used\n"
       "  --sigma-b B --sigma-m M   profile model. Estimated from STRONG_REFL\n"
       "                    if given, else taken from EXPT's profile block\n"
       "  --n-sigma N       foreground spans plus and minus N sigma (3)\n"
@@ -71,7 +73,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes"};
+      "--gain",      "--save-shoeboxes", "--images"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
@@ -83,15 +85,15 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "mxi_integrate: %s\n", args.error.c_str());
     return 2;
   }
-  if (args.positional.size() < 2 || args.positional.size() > 3) {
+  if (args.positional.empty() || args.positional.size() > 2) {
     std::fprintf(stderr,
-                 "mxi_integrate: expected an .expt, an image file, and "
-                 "optionally a .refl of strong spots\n");
+                 "mxi_integrate: expected an .expt and optionally a .refl of "
+                 "strong spots\n");
     usage(argv[0]);
     return 2;
   }
   const std::string strong_path =
-      args.positional.size() == 3 ? args.positional[2] : std::string();
+      args.positional.size() == 2 ? args.positional[1] : std::string();
 
   try {
     const ExperimentList experiments = read_experiments(args.positional[0]);
@@ -175,11 +177,39 @@ int main(int argc, char **argv) {
     // The images. series::nxmx unpacks the NXmx virtual dataset so each
     // frame's compressed bytes can be read without HDF5's filter pipeline;
     // decompress::image then turns them into pixels.
-    std::unique_ptr<series::Series> images = series::nxmx(args.positional[1]);
+    // Where the images are: the .expt says, and --images overrides it. The
+    // experiment list already carries the path and being told it twice is how
+    // the two come to disagree -- but a file moved since it was written needs
+    // the override, so both exist and the program says which it used.
+    std::string image_path = args.value("--images", "");
+    const char *image_source = "--images";
+    if (image_path.empty()) {
+      image_path = experiments.image_template;
+      image_source = "the .expt's imageset template";
+      if (image_path.empty()) {
+        std::fprintf(stderr,
+                     "mxi_integrate: %s has no imageset template, so there is "
+                     "nothing to read images from; give --images\n",
+                     args.positional[0].c_str());
+        return 1;
+      }
+      if (image_path.find('#') != std::string::npos) {
+        std::fprintf(stderr,
+                     "mxi_integrate: the imageset template is %s, which names "
+                     "a numbered series rather than one file; give --images\n",
+                     image_path.c_str());
+        return 1;
+      }
+    }
+    std::printf("images: %s (from %s)\n", image_path.c_str(), image_source);
+
+    std::unique_ptr<series::Series> images = series::nxmx(image_path);
     series::Info info;
     if (!images || !images->try_open(&info)) {
-      std::fprintf(stderr, "mxi_integrate: cannot open %s\n",
-                   args.positional[1].c_str());
+      std::fprintf(stderr,
+                   "mxi_integrate: cannot open %s. If the data have moved "
+                   "since the .expt was written, give --images\n",
+                   image_path.c_str());
       return 1;
     }
     std::printf("%s\n", images->describe().c_str());
