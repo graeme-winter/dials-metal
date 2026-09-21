@@ -60,7 +60,8 @@ std::vector<Vec3> reciprocal_lattice_points(const ExperimentList &experiments,
 }
 
 std::vector<int> observation_groups(const ExperimentList &experiments,
-                                    const Table &reflections) {
+                                    const Table &reflections,
+                                    double block_degrees) {
   std::vector<int> groups(reflections.nrows, 0);
   if (!reflections.has("xyzobs.px.value")) return groups;
   const Column &obs = reflections.at("xyzobs.px.value");
@@ -75,10 +76,11 @@ std::vector<int> observation_groups(const ExperimentList &experiments,
     }
     const Scan &scan = experiments[which].scan;
     const double phi = Scan::degrees(scan.phi_from_z(obs.real(i, 2)));
-    // Which 360 degree turn, counted from zero. A sweep that does not reach a
-    // full turn puts everything in one group and nothing changes.
-    const int turn = static_cast<int>(std::floor(phi / 360.0));
-    groups[i] = static_cast<int>(which) * 4096 + turn;
+    // Which angular block, counted from zero. A sweep shorter than one block
+    // puts everything in one group and nothing changes.
+    const double width = block_degrees > 0.0 ? block_degrees : 30.0;
+    const int block = static_cast<int>(std::floor(phi / width));
+    groups[i] = static_cast<int>(which) * 100000 + block;
   }
   return groups;
 }

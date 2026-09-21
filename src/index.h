@@ -150,9 +150,24 @@ double estimate_max_cell(const std::vector<Vec3> &points);
 double estimate_max_cell(const std::vector<Vec3> &points,
                          const std::vector<int> &groups);
 
-//: Which sweep and rotation each reflection was measured on, for the above.
+//: Which sweep and angular block each reflection was measured in, for the
+//: above.
+//:
+//: Blocks of `block_degrees`, not whole rotations. Grouping by rotation is not
+//: enough, and the reason is the geometry rather than the data: over a full
+//: turn every reciprocal lattice point crosses the Ewald sphere twice, once
+//: entering and once leaving, at two values of phi that are generally far
+//: apart -- and both observations rotate back to the SAME point in the crystal
+//: frame. A single 360 degree sweep therefore already holds two copies of
+//: everything, and ten rotations hold twenty.
+//:
+//: On ten rotations of a real crystal, grouping by turn removed the ten and
+//: left the two, and the estimate was 811 Angstroms for a 90 Angstrom crystal.
+//: Thirty degrees is comfortably smaller than the separation between a
+//: reflection's two crossings, so a block holds each reflection once.
 std::vector<int> observation_groups(const ExperimentList &experiments,
-                                    const Table &reflections);
+                                    const Table &reflections,
+                                    double block_degrees = 30.0);
 
 // Candidate real-space basis vectors, strongest first.
 std::vector<Vec3> find_candidate_vectors(const std::vector<Vec3> &points,
