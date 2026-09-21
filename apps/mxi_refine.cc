@@ -31,6 +31,9 @@ void usage() {
       "  --strong-only     build the model from the stronger half only\n"
       "  --analytic        analytical derivatives, not finite differences\n"
       "  --timing          where the time went, by phase\n"
+      "  --normal-threads N  threads for the normal equations; 0 is one per\n"
+      "                   core (0). A reduction, so a threaded run differs from\n"
+      "                   a serial one in the last bits; 1 to avoid that\n"
       "  --detector-in-scan-varying  keep refining the detector during the\n"
       "                    scan-varying pass; it is degenerate with the cell\n"
       "  --min-volume V    drop reflections whose rotation angle is not\n"
@@ -59,13 +62,15 @@ int main(int argc, char **argv) {
       "--no-crystal",   "--no-detector",  "--beam",         "--separate",
       "--macrocycles",  "--outlier-sigma", "--output-expt", "--output-refl",
       "--conditional-depth", "--scan-varying", "--unit-weights",
-      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying", "--jacobian-threads", "--timing"};
+      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying", "--jacobian-threads", "--timing", "--normal-threads"};
   const std::set<std::string> takes_value = {
       "--macrocycles", "--outlier-sigma", "--output-expt", "--output-refl",
-      "--scan-varying", "--z-weight", "--min-volume", "--jacobian-threads"};
+      "--scan-varying", "--z-weight", "--min-volume", "--jacobian-threads", "--normal-threads"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   // 0 means one per core, 1 means none. Exposed because a threading change
   // that cannot be switched off cannot be measured against its absence.
+  g_normal_threads =
+      static_cast<std::size_t>(args.number("--normal-threads", 0.0));
   g_jacobian_threads =
       static_cast<std::size_t>(args.number("--jacobian-threads", 0.0));
   if (args.help) {

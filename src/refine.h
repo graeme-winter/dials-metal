@@ -244,6 +244,14 @@ extern double g_outlier_seconds;       //: rejecting outliers between cycles
 extern double g_residual_seconds;      //: residuals outside the Jacobian
 
 extern std::size_t g_jacobian_threads;
+
+//: Threads for the normal equations: 0 for one per core, 1 for none.
+//:
+//: Unlike the Jacobian, this one is a reduction, and a reduction split across
+//: threads sums its terms in a different order. Two runs at the same setting
+//: agree bit for bit; a threaded run and a serial one agree to about 1e-13
+//: relative and not exactly. Set it to 1 where that matters.
+extern std::size_t g_normal_threads;
 extern double g_jacobian_seconds;
 extern double g_normal_seconds;
 

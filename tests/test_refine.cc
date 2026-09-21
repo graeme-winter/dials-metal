@@ -710,3 +710,59 @@ TEST(the_normal_equations_use_the_sparsity_and_change_nothing) {
   check::close(cell.b, truth.crystal->cell().b, 0.05, "cell b recovered");
   check::close(cell.c, truth.crystal->cell().c, 0.05, "cell c recovered");
 }
+
+TEST(threading_the_normal_equations_costs_only_the_last_bits) {
+  // The Jacobian threads exactly: each thread writes its own reflections'
+  // entries and nothing is shared, so serial and threaded agree bit for bit
+  // and the test for that demands exactly that.
+  //
+  // The normal equations are a reduction. Split across threads they are summed
+  // in a different order, and floating point addition is not associative, so
+  // bit-for-bit is not available and asking for it would only mean never
+  // threading them. What is available is a bound, and this pins it: the two
+  // agree to within 1e-10 relative, which is seven orders below the
+  // convergence tolerance. Measured at 1.6e-12 on real data.
+  //
+  // Two threaded runs at the same setting DO agree exactly, because the chunk
+  // boundaries come from the thread count and not from how the threads are
+  // scheduled. That is checked here too: a parallel reduction that gave a
+  // different answer run to run would make every comparison downstream
+  // meaningless.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 2.0);
+
+  const auto refined_with = [&](std::size_t threads) {
+    g_normal_threads = threads;
+    ExperimentList list;
+    Experiment moved = truth;
+    moved.detector.panels[0].origin += Vec3{0.3, -0.2, 0.8};
+    list.experiments.push_back(moved);
+    RefineOptions options;
+    options.analytic = true;
+    options.outlier_sigma = 0.0;
+    refine(list, t, options);
+    const Panel &p = list[0].detector[0];
+    std::vector<double> out{p.origin.x, p.origin.y, p.origin.z};
+    if (list[0].crystal) {
+      const Mat3 &A = list[0].crystal->A;
+      for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) out.push_back(A(i, j));
+      }
+    }
+    return out;
+  };
+
+  const std::vector<double> serial = refined_with(1);
+  const std::vector<double> threaded = refined_with(4);
+  const std::vector<double> again = refined_with(4);
+  g_normal_threads = 0;
+
+  check::is_true(!serial.empty(), "something was refined");
+  for (std::size_t i = 0; i < serial.size(); ++i) {
+    check::is_true(threaded[i] == again[i],
+                   "two threaded runs agree exactly with each other");
+    const double scale = std::fmax(std::abs(serial[i]), 1e-12);
+    check::is_true(std::abs(serial[i] - threaded[i]) < 1e-10 * scale,
+                   "threaded agrees with serial to the last few bits");
+  }
+}

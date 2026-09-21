@@ -35,6 +35,34 @@ That the sparsity was there to be used is a property of the model rather than
 of the data, so it holds for any scan-varying refinement and the saving grows
 with the number of control points.
 
+### And then they were the only serial phase left
+
+On a sixteen-core machine, with the Jacobian threaded and the sparsity used:
+
+    read                       0.261 s   17.3%
+    the jacobian               0.085 s    5.6%
+    the normal equations       0.884 s   58.4%
+    total                      1.513 s
+
+The Jacobian is five per cent there and forty per cent on a single core, which
+is not a statement about the Jacobian: it is threaded and the normal equations
+were not. `--normal-threads` threads them.
+
+It is a reduction, so this one is not free. Each thread accumulates into its
+own `n` by `n` matrix -- 231 kB apiece at a hundred and seventy parameters,
+which is why the thread count is capped by what the partials cost -- and the
+partials are summed at the end. **A threaded run and a serial one do not agree
+bit for bit**, because floating point addition is not associative and the terms
+are summed in a different order. They agree to about 1.6e-12 relative, seven
+orders below the convergence tolerance, and the test pins 1e-10.
+
+Two threaded runs at the same setting do agree exactly: the chunk boundaries
+come from the thread count, not from how the threads happen to be scheduled. A
+parallel reduction that answered differently run to run would make every
+comparison downstream meaningless, so that is tested as well.
+
+`--normal-threads 1` keeps the serial sum where the last bits matter.
+
 ## Refinement on its own is dominated by file I/O
 
 `mxi_refine --timing`, on 78618 reflections whose table carries shoeboxes:

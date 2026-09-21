@@ -24,6 +24,7 @@ double g_solve_seconds = 0.0;
 double g_outlier_seconds = 0.0;
 double g_residual_seconds = 0.0;
 std::size_t g_jacobian_threads = 0;
+std::size_t g_normal_threads = 0;
 double g_jacobian_seconds = 0.0;
 double g_normal_seconds = 0.0;
 
@@ -290,6 +291,24 @@ double residuals_of(const ExperimentList &experiments,
 // since it differences the residual and not the prediction.
 //: How many threads to build the Jacobian with. One below a threshold, where
 //: the work is smaller than the cost of starting threads.
+//: Threads for the normal equations. Each needs its own n by n matrix, so the
+//: count is capped by what that costs: at a hundred and seventy parameters it
+//: is 231 kB apiece, at a thousand it would be 8 MB and not worth it.
+std::size_t normal_thread_count(std::size_t observations, std::size_t n) {
+  if (g_normal_threads == 1) return 1;
+  std::size_t wanted = g_normal_threads;
+  if (wanted == 0) {
+    wanted = std::thread::hardware_concurrency();
+    if (wanted == 0) wanted = 1;
+  }
+  const std::size_t by_work = observations / 2000;
+  // Keep the partial matrices under about 16 MB in total.
+  const std::size_t by_memory =
+      n * n > 0 ? std::max<std::size_t>(1, (16u << 20) / (n * n * sizeof(double)))
+                : 1;
+  return std::max<std::size_t>(1, std::min({wanted, by_work, by_memory}));
+}
+
 std::size_t jacobian_thread_count(std::size_t observations) {
   if (g_jacobian_threads == 1) return 1;
   std::size_t wanted = g_jacobian_threads;
@@ -540,32 +559,77 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       // The order of accumulation is unchanged -- a ascending, b ascending
       // within it -- so every sum is formed from the same terms in the same
       // sequence and the result is bit for bit what it was.
-      std::vector<std::size_t> nonzero;
-      std::vector<double> value;
-      nonzero.reserve(n);
-      value.reserve(n);
-      for (std::size_t i = 0; i < observations.size(); ++i) {
-        if (!observations[i].active) continue;
-        for (std::size_t k = 0; k < 3; ++k) {
-          const std::size_t row = i * 3 + k;
-          const double w = observations[i].weight[k];
-          nonzero.clear();
-          value.clear();
-          for (std::size_t a = 0; a < n; ++a) {
-            const double ja = jacobian[a][row];
-            if (ja == 0.0) continue;
-            nonzero.push_back(a);
-            value.push_back(ja);
-          }
-          for (std::size_t x = 0; x < nonzero.size(); ++x) {
-            const std::size_t a = nonzero[x];
-            const double wja = w * value[x];
-            rhs[a] -= wja * residual[row];
-            double *row_a = &normal[a * n];
-            for (std::size_t y = 0; y <= x; ++y) {
-              row_a[nonzero[y]] += wja * value[y];
+      // One chunk of observations into one matrix, then the chunks summed.
+      const auto accumulate = [&](std::size_t from, std::size_t to,
+                                  std::vector<double> *into_normal,
+                                  std::vector<double> *into_rhs) {
+        std::vector<std::size_t> nonzero;
+        std::vector<double> value;
+        nonzero.reserve(n);
+        value.reserve(n);
+        for (std::size_t i = from; i < to; ++i) {
+          if (!observations[i].active) continue;
+          for (std::size_t k = 0; k < 3; ++k) {
+            const std::size_t row = i * 3 + k;
+            const double w = observations[i].weight[k];
+            nonzero.clear();
+            value.clear();
+            for (std::size_t a = 0; a < n; ++a) {
+              const double ja = jacobian[a][row];
+              if (ja == 0.0) continue;
+              nonzero.push_back(a);
+              value.push_back(ja);
+            }
+            for (std::size_t x = 0; x < nonzero.size(); ++x) {
+              const std::size_t a = nonzero[x];
+              const double wja = w * value[x];
+              (*into_rhs)[a] -= wja * residual[row];
+              double *row_a = &(*into_normal)[a * n];
+              for (std::size_t y = 0; y <= x; ++y) {
+                row_a[nonzero[y]] += wja * value[y];
+              }
             }
           }
+        }
+      };
+
+      const std::size_t normal_threads =
+          normal_thread_count(observations.size(), n);
+      if (normal_threads <= 1) {
+        accumulate(0, observations.size(), &normal, &rhs);
+      } else {
+        // A reduction into one matrix, so each thread needs its own. At a
+        // hundred and seventy parameters that is 231 kB apiece, which is why
+        // normal_thread_count stops asking for threads when n grows.
+        //
+        // The chunk boundaries are fixed by the thread count, so two runs with
+        // the same setting sum the same terms in the same order and agree bit
+        // for bit. They do NOT agree with the serial version, which sums them
+        // in one sequence: floating point addition is not associative and this
+        // is the one place in refinement where parallelism costs the last bits.
+        // The difference is far below the convergence tolerance and the test
+        // pins how far below.
+        std::vector<std::vector<double>> partial_normal(
+            normal_threads - 1, std::vector<double>(n * n, 0.0));
+        std::vector<std::vector<double>> partial_rhs(
+            normal_threads - 1, std::vector<double>(n, 0.0));
+        std::vector<std::thread> pool;
+        pool.reserve(normal_threads - 1);
+        const std::size_t each =
+            (observations.size() + normal_threads - 1) / normal_threads;
+        for (std::size_t t = 1; t < normal_threads; ++t) {
+          const std::size_t from = std::min(t * each, observations.size());
+          const std::size_t to = std::min(from + each, observations.size());
+          if (from < to) {
+            pool.emplace_back(accumulate, from, to, &partial_normal[t - 1],
+                              &partial_rhs[t - 1]);
+          }
+        }
+        accumulate(0, std::min(each, observations.size()), &normal, &rhs);
+        for (std::thread &t : pool) t.join();
+        for (std::size_t t = 0; t < partial_normal.size(); ++t) {
+          for (std::size_t a = 0; a < n * n; ++a) normal[a] += partial_normal[t][a];
+          for (std::size_t a = 0; a < n; ++a) rhs[a] += partial_rhs[t][a];
         }
       }
       for (std::size_t a = 0; a < n; ++a) {

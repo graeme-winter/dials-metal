@@ -104,6 +104,11 @@ a library can be planned wrongly, normalised differently or linked against
 another precision, and none of that shows in a result that still looks like a
 lattice.
 
+In `mxi_refine`, `--jacobian-threads` and `--normal-threads` do the same for
+refinement. The first is exact; the second is a reduction and a threaded run
+differs from a serial one in the last bits, by about 1e-12 relative. Use
+`--normal-threads 1` where that matters.
+
 `--fft-threads N` uses FFTW's own threading where FFTW was built with it: 0 is
 one per core, 1 none. The configure line says whether it found the threaded
 flavour.
