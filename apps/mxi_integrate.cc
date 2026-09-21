@@ -35,6 +35,7 @@
 #include "predict.h"
 #include "profile_model.h"
 #include "refl.h"
+#include "reference.h"
 #include "shoebox.h"
 
 #include "decompress.hh"
@@ -180,6 +181,11 @@ void usage(const char *program) {
       "                    per core, 1 is none (0)\n"
       "  --window N        frames per window (1000)\n"
       "  --max-boxes N     shoeboxes per window (4000); about 31 kB each\n"
+      "  --summation-only  skip profile fitting and its second pass\n"
+      "  --grid-points N   the profile grid is 2N+1 a side (4)\n"
+      "  --subdivisions N  pixel subdivisions per axis (5, as Kabsch uses)\n"
+      "  --regions N       detector divided N by N for reference profiles (3)\n"
+      "  --reference-signal S   learn from reflections above S sigma (10)\n"
       "  --timing          where the time went, by phase\n",
       program);
 }
@@ -197,10 +203,11 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes"};
+      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--reference-signal", "--summation-only"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
+  takes_value.erase("--summation-only");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage(argv[0]);
@@ -458,6 +465,9 @@ int main(int argc, char **argv) {
         out.real_column("xyzobs.px.variance", "vec3<double>", 3);
     Column &obs_mm = out.real_column("xyzobs.mm.value", "vec3<double>", 3);
     Column &d_column = out.real_column("d", "double", 1);
+    Column &iprf = out.real_column("intensity.prf.value", "double", 1);
+    Column &iprf_var = out.real_column("intensity.prf.variance", "double", 1);
+    Column &prf_cc = out.real_column("profile.correlation", "double", 1);
     Column &zeta_column = out.real_column("zeta", "double", 1);
     Column &part_column = out.real_column("partiality", "double", 1);
     Column &partial_id = out.int_column("partial_id", "std::size_t", 1);
@@ -623,8 +633,34 @@ int main(int argc, char **argv) {
       for (std::thread &t : pool) t.join();
     };
 
+    // TWO PASSES OVER THE IMAGES
+    //
+    // The reference profiles are learned from the reflections themselves, so
+    // they cannot exist until something has been integrated. The images are
+    // therefore read twice: once to sum and to learn, once to fit. That is the
+    // slow way round and it is the right one -- a profile learned from part of
+    // a scan and applied to the rest is a different algorithm, and one whose
+    // errors would be hard to attribute.
+    GridSpec grid_spec;
+    grid_spec.n = static_cast<int>(args.number("--grid-points", 4.0));
+    grid_spec.sigma_d = sigma_b;
+    grid_spec.sigma_m = sigma_m;
+    grid_spec.half_width = mask_options.n_sigma;
+    grid_spec.subdivisions = static_cast<int>(args.number("--subdivisions", 5.0));
+    ReferenceProfiles reference = make_reference(
+        grid_spec, static_cast<int>(args.number("--regions", 3.0)),
+        e.detector.size());
+    const bool fitting = !args.has("--summation-only");
+    // Which reflections are worth learning from: strong, nearly whole, and
+    // mostly inside the grid. DIALS marks these `reference_spot`.
+    const double least_signal = args.number("--reference-signal", 10.0);
+
     std::vector<Shoebox> boxes;
     std::size_t at = 0;
+    int pass = 0;
+    std::size_t references_used = 0;
+    std::size_t fitted = 0;
+    double t_transform = 0.0, t_fit = 0.0;
     while (at < planned.size()) {
       const std::int32_t window_start = planned[at].bbox[4];
       const std::int32_t window_end =
@@ -779,24 +815,101 @@ int main(int argc, char **argv) {
       t_decompress += summed(decompress_by_thread);
       t_fill += summed(fill_by_thread);
 
-      // Integrate, in parallel over boxes: this was 53 seconds.
-      const double t_close_start = now_wall();
-      std::atomic<std::size_t> done{0};
-      in_parallel(count, [&](std::size_t i) {
-        if (boxes[i].data.empty()) return;
-        if (close(at + i, &boxes[i])) done.fetch_add(1);
-      });
-      integrated += done.load();
-      t_integrate += now_wall() - t_close_start;
+      if (pass == 0) {
+        // Integrate, in parallel over boxes.
+        const double t_close_start = now_wall();
+        std::atomic<std::size_t> done{0};
+        in_parallel(count, [&](std::size_t i) {
+          if (boxes[i].data.empty()) return;
+          if (close(at + i, &boxes[i])) done.fetch_add(1);
+        });
+        integrated += done.load();
+        t_integrate += now_wall() - t_close_start;
+
+        // Learn from the ones worth learning from. Serial, because it
+        // accumulates into shared profiles and is a small part of the cost;
+        // threading it would need a profile per thread and a reduction, which
+        // is work to do when it shows up in the timing and not before.
+        if (fitting) {
+          const double t0 = now_wall();
+          for (std::size_t i = 0; i < count; ++i) {
+            if (boxes[i].data.empty()) continue;
+            const std::size_t row = at + i;
+            const double signal = isum.reals[row];
+            const double sigma = std::sqrt(std::max(ivar.reals[row], 1e-12));
+            if (!(signal > least_signal * sigma)) continue;
+            if (part_column.reals[row] < 0.99) continue;
+            const Prediction &q = *planned[row].prediction;
+            const Transformed t =
+                transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
+            if (!t.valid || t.outside > 0.05) continue;
+            const std::size_t region = reference.region_of(
+                panel, static_cast<std::size_t>(q.panel), q.px_fast, q.px_slow);
+            if (add_reference(&reference, region, t)) ++references_used;
+          }
+          t_transform += now_wall() - t0;
+        }
+      } else {
+        // Fit, in parallel over boxes: each writes only its own row.
+        const double t0 = now_wall();
+        std::atomic<std::size_t> done{0};
+        in_parallel(count, [&](std::size_t i) {
+          if (boxes[i].data.empty()) return;
+          const std::size_t row = at + i;
+          const Prediction &q = *planned[row].prediction;
+          // The background the GLM found in the first pass, put back so the
+          // fit subtracts the same thing the sum did.
+          boxes[i].background.assign(boxes[i].size(),
+                                     static_cast<float>(bmean.reals[row]));
+          const Transformed t =
+              transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
+          if (!t.valid) return;
+          const std::size_t region = reference.region_of(
+              panel, static_cast<std::size_t>(q.panel), q.px_fast, q.px_slow);
+          const ProfileFit fit = fit_profile(reference.profile[region], t,
+                                             integrate_options.gain);
+          if (!fit.valid) return;
+          iprf.reals[row] = fit.intensity;
+          iprf_var.reals[row] = fit.variance;
+          prf_cc.reals[row] = fit.correlation;
+          flags.ints[row] |= flag::kIntegratedPrf;
+          done.fetch_add(1);
+        });
+        fitted += done.load();
+        t_fit += now_wall() - t0;
+      }
 
       if (save) {
         for (std::size_t i = 0; i < count; ++i) saved[at + i] = std::move(boxes[i]);
       }
       boxes.clear();
       at = stop;
+      if (at >= planned.size() && pass == 0 && fitting) {
+        // Between the passes: the profiles are what they are going to be.
+        finalise_reference(&reference);
+        std::size_t empty = 0;
+        for (std::size_t r = 0; r < reference.spots.size(); ++r) {
+          if (reference.spots[r] < 10) ++empty;
+        }
+        std::printf(
+            "learned %zu reference profiles from %zu reflections (%zu of %zu "
+            "regions borrowed the detector average)\n",
+            reference.region_count() - empty, references_used, empty,
+            reference.region_count());
+        if (references_used == 0) {
+          std::printf(
+              "  nothing to learn from, so no profile fitting: raise "
+              "--reference-signal or check the summation\n");
+        } else {
+          pass = 1;
+          at = 0;
+          continue;
+        }
+      }
     }
     if (save) shoebox_bytes = encode_shoeboxes(saved);
     std::printf("at most %zu shoeboxes in a window\n", most_open);
+    if (fitting) std::printf("%zu of %zu profile fitted\n", fitted, planned.size());
 
     std::printf("%zu frames read (%zu wanted by a shoebox, each read %.2f "
                 "times), %zu bad pixels masked\n",
@@ -852,6 +965,8 @@ int main(int argc, char **argv) {
       thread_line("decompressing", t_decompress);
       thread_line("filling shoeboxes", t_fill);
       line("background and summation", t_integrate);
+      line("learning profiles", t_transform);
+      line("profile fitting", t_fit);
       line("writing", t_write);
       std::printf("  %-26s %8.3f s\n", "total", total);
     }

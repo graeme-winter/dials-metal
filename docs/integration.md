@@ -1052,6 +1052,56 @@ output, at about a megabyte per hundred reflections. It is the difference
 between "the intensity is wrong" and "the intensity is wrong because the mask
 is here and the spot is there".
 
+### Profile fitting: implemented, and not yet right
+
+`src/reference.h`, Kabsch sections 3.3 and 3.4 with Leslie section 6. Two
+passes over the images, which is the slow way round and the right one: the
+reference profiles are learned from the reflections themselves, and a profile
+learned from part of a scan and applied to the rest would be a different
+algorithm whose errors would be hard to attribute.
+
+Both learning and fitting happen on a cube in the Kabsch frame. That is what
+the frame is for: a reflection's shape is the same there wherever it sits on
+the detector, so profiles from different reflections can be averaged, which on
+the detector they cannot. A pixel maps to a region rather than a point, so each
+is subdivided five ways an axis as Kabsch does, and one image covers a range of
+`eps3` which is shared between grid planes in proportion to the overlap.
+
+**What works.** Against a DIALS `integrated.refl` on 19360 profile-fitted
+reflections:
+
+    intensity.prf.value   ours 153.1   DIALS 159.7   ratio 0.9813 on I/sig > 10
+    profile.correlation   ours 0.8141  DIALS 0.8709
+
+and the unit tests hold both of Leslie's limits: fitting a profile to itself
+returns the intensity exactly, and the fit reduces to the sum when the
+background is negligible, which is section 6.4 and is a check on the weighting
+rather than a remark.
+
+**What does not.** The per-reflection correlation with DIALS is 0.4414, against
+0.9453 for the summed intensities from the same run. So the scale is right and
+the weighting is not. And the variance is too small: on weak reflections it is
+52.7 against the summed 185.4, a factor of 3.5 where Leslie section 6.6
+predicts about 2 for a typical profile.
+
+Both point the same way. The grid is 729 points and a single pixel is spread
+over several of them, by the subdivision on the detector and by the `eps3`
+overlap across planes. Neighbouring grid points are therefore correlated, and
+`1 / sum(P^2 / v)` treats them as independent observations -- which overcounts
+the information, understates the variance, and mis-weights the fit. The pixels
+are the independent measurements, not the grid points.
+
+So the next step is to fit against the pixels with the profile transformed onto
+them, rather than against the grid with the pixels transformed onto it -- or to
+carry the covariance the transform induces. Recorded here rather than tuned
+away, because a factor of 3.5 where the theory says 2 is the kind of
+disagreement that a fudge factor would hide permanently.
+
+The timing, on the thirty degree sweep at one thread: learning 7.8 s, fitting
+20.1 s of 35.1 s total. It was 65 and 150 before the subdivided face was
+computed once per box instead of once per image -- the same optimisation, and
+the same mistake, as the mask.
+
 ### The steps
 
 1. **Bounding boxes and masks.** Done, `mxi_mask`, and checked above.
