@@ -615,6 +615,49 @@ DIALS. The rotation direction is untouched, since those extents already agreed.
 wrong size to be rounding. Recorded rather than chased, with the oracle that
 will settle it.
 
+### Real images, and what the background looks like
+
+A 30 degree sweep of insulin on a 4M detector, with its own `refined.*` and
+`integrated.*`: 300 frames of 2162 by 2068, bitshuffle compressed, 297 MB.
+`h5py` with `hdf5plugin` reads it here; one frame decompresses in 0.02 s.
+
+**65535 is the bad-pixel marker**, not a count. It is 5.8 per cent of the frame
+-- module gaps and dead pixels -- and reading it as data puts 17 billion counts
+on a frame that has 1.65 million.
+
+**The pixel addressing is `data[frame, slow, fast]`**, verified rather than
+assumed: over the forty strongest reflections, the centroid of the extracted
+box against `xyzcal.px` is
+
+    fast   median -0.046  rms 0.146 px
+    slow   median -0.145  rms 0.303 px
+    frame  median -0.150  rms 1.111 images
+
+Swapping fast and slow would have shown as a large offset in both.
+
+**The background is 0.3 counts per pixel**, which is the regime Parkhurst's
+paper is about: most pixels are 0 or 1, and a normal approximation to a Poisson
+that small is not one. On 1482 reflections, taking the outer shell of each box
+as background so the region is not chosen by value, against DIALS' robust GLM:
+
+    DIALS (robust GLM)   0.3044 counts/pixel
+    plain mean           0.2993    -1.3%
+    5 per cent truncated 0.2334   -22.5%
+    3 sigma clipped      0.2343   -14.2%
+    median               0.0000  -100.0%
+
+Which is Parkhurst's Table 1 and Figure 3 reproduced on this data: every
+traditional outlier rejection biases the background DOWN, the median collapses
+to zero because most pixels are zero, and the GLM sits beside the unrejected
+mean. Since the intensity is the foreground minus the background, a background
+biased low is an intensity biased high, for every reflection in the dataset.
+
+A first attempt at this measurement used "the lowest n pixels" as the
+background region and produced a 48 per cent bias for the plain mean. That was
+the sampling, not the estimator: selecting the low tail guarantees a low
+answer, and the median coming out at exactly zero should have been the giveaway
+before the numbers were read.
+
 ### The steps
 
 1. **Bounding boxes and masks.** Done, `mxi_mask`, and checked above.
