@@ -35,6 +35,35 @@ That the sparsity was there to be used is a property of the model rather than
 of the data, so it holds for any scan-varying refinement and the saving grows
 with the number of control points.
 
+### The search for the nonzeros was itself linear in the parameters
+
+Using the sparsity meant finding it, and the finding was done by reading every
+entry of every column of the Jacobian for each row:
+
+    for (a = 0; a < n; ++a) { ja = jacobian[a][row]; if (ja == 0) continue; ... }
+
+That is O(n) per row however sparse the row is, and each probe lands in a
+different heap allocation. At a hundred and seventy parameters it did not
+matter. On ten full rotations of a crystal, where the scan-varying model runs
+to thousands of parameters, it was 267 of the 291 seconds the refinement took.
+
+The pattern does not need finding. `build_analytic_jacobian` knows which
+parameters it is about to write -- four control points from the spline, six
+detector, two beam -- so it records the span as it goes. The accumulation then
+iterates thirty-six parameters instead of several thousand.
+
+    control points      before      after
+              18       1.748 s     1.134 s
+              60       5.180 s     1.204 s
+             120      10.602 s     1.573 s
+
+Linear in the control points before, nearly flat after. The refined crystal and
+detector are identical.
+
+The finite-difference path records nothing, because it genuinely does not know
+which parameters it touched, and falls back to the search. It is slower than
+the analytical path by a much larger factor anyway.
+
 ### And then they were the only serial phase left
 
 On a sixteen-core machine, with the Jacobian threaded and the sparsity used:

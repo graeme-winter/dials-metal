@@ -766,3 +766,46 @@ TEST(threading_the_normal_equations_costs_only_the_last_bits) {
                    "threaded agrees with serial to the last few bits");
   }
 }
+
+TEST(a_scan_varying_refinement_does_not_slow_down_with_control_points) {
+  // Not a timing test -- those belong on a machine with a known load. This
+  // tests the thing the speed depended on: that the parameters a reflection
+  // touches are the same whether they are recorded as the Jacobian is written
+  // or found afterwards by reading every entry of every column.
+  //
+  // The two routes are exercised by the same refinement at two control point
+  // counts. The cost of the second used to be linear in the count -- 1.7
+  // seconds at eighteen control points, 10.6 at a hundred and twenty -- because
+  // the search was over every parameter in the model rather than the
+  // thirty-six a cubic B-spline can reach. What must not change is the answer.
+  const Experiment truth = base_experiment();
+  const Table t = observations_from(truth, 2.0);
+
+  const auto refined = [&](std::size_t points) {
+    ExperimentList list;
+    Experiment moved = truth;
+    moved.detector.panels[0].origin += Vec3{0.2, -0.15, 0.6};
+    list.experiments.push_back(moved);
+    RefineOptions options;
+    options.analytic = true;
+    options.outlier_sigma = 0.0;
+    options.scan_points = points;
+    g_normal_threads = 1;  // a global, not an option
+    refine(list, t, options);
+    g_normal_threads = 0;  // put it back, or every later test runs serial
+    return list;
+  };
+
+  for (std::size_t points : {std::size_t(2), std::size_t(5)}) {
+    const ExperimentList list = refined(points);
+    check::is_true(list[0].crystal.has_value(), "a crystal came back");
+    const UnitCell cell = list[0].crystal->cell();
+    const UnitCell want = truth.crystal->cell();
+    check::close(cell.a, want.a, 0.1, "cell a recovered");
+    check::close(cell.b, want.b, 0.1, "cell b recovered");
+    check::close(cell.c, want.c, 0.1, "cell c recovered");
+    const Vec3 origin = list[0].detector[0].origin;
+    check::close((origin - truth.detector[0].origin).norm(), 0.0, 0.05,
+                 "detector recovered whatever the control point count");
+  }
+}

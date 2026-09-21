@@ -183,6 +183,14 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
 // The parameter vector is laid out as: the crystal blocks first (one, or one
 // per experiment), then six detector parameters per experiment, then two beam
 // parameters per experiment.
+//: The parameters one reflection can touch, as up to three ranges. Empty
+//: ranges mean the model does not have that part.
+struct ParameterSpan {
+  std::uint32_t crystal_low = 0, crystal_high = 0;
+  std::uint32_t detector_low = 0, detector_high = 0;
+  std::uint32_t beam_low = 0, beam_high = 0;
+};
+
 struct Layout {
   bool crystal = false, detector = false, beam = false;
   bool shared_crystal = true;
@@ -324,9 +332,19 @@ std::size_t jacobian_thread_count(std::size_t observations) {
 void build_analytic_jacobian(const ExperimentList &experiments,
                              const std::vector<TargetRow> &observations,
                              const Layout &layout,
-                             std::vector<std::vector<double>> *jacobian) {
+                             std::vector<std::vector<double>> *jacobian,
+                             std::vector<ParameterSpan> *span) {
   const std::size_t n = layout.size();
   jacobian->assign(n, std::vector<double>(observations.size() * 3, 0.0));
+  // Which parameters each reflection can touch, recorded as it is written
+  // rather than discovered afterwards by reading every entry of the column.
+  //
+  // With a scan-varying model the crystal parameters run to thousands and a
+  // reflection touches thirty-six of them, so a search costs a hundred times
+  // what the arithmetic does -- and each probe lands in a different heap
+  // block. On ten rotations of a real crystal that search was 267 of the 291
+  // seconds a refinement took.
+  if (span != nullptr) span->assign(observations.size(), ParameterSpan{});
 
   // One reflection per unit of work. Every thread writes only the three
   // entries belonging to its own reflection, in every parameter's row, so no
@@ -370,11 +388,30 @@ void build_analytic_jacobian(const ExperimentList &experiments,
       const auto d = crystal_derivatives(s, o.h, o.k, o.l);
       const std::size_t at = layout.crystal_at(o.experiment);
       if (layout.points < 2) {
+        if (span != nullptr) {
+          (*span)[i].crystal_low = static_cast<std::uint32_t>(at);
+          (*span)[i].crystal_high = static_cast<std::uint32_t>(at + 9);
+        }
         for (std::size_t k = 0; k < 9; ++k) place(at + k, d[k], 1.0);
       } else {
         // Only four control points are touched. This is the banding, and it
         // is the reason the B-spline was chosen over an interpolating spline.
         const SplineWeights w = spline_weights(e, o.z);
+        if (span != nullptr && w.count > 0) {
+          std::size_t low = at + w.index[0] * 9;
+          std::size_t high = low + 9;
+          for (std::size_t c = 1; c < w.count; ++c) {
+            low = std::min(low, at + w.index[c] * 9);
+            high = std::max(high, at + w.index[c] * 9 + 9);
+          }
+          // A span rather than a list: the support of a cubic B-spline is four
+          // consecutive control points, so the span is thirty-six parameters
+          // and iterating it costs the same as iterating a list would. If the
+          // support were ever not consecutive this stays correct and only
+          // iterates a little wider.
+          (*span)[i].crystal_low = static_cast<std::uint32_t>(low);
+          (*span)[i].crystal_high = static_cast<std::uint32_t>(high);
+        }
         for (std::size_t c = 0; c < w.count; ++c) {
           for (std::size_t k = 0; k < 9; ++k) {
             const std::size_t parameter = at + w.index[c] * 9 + k;
@@ -393,11 +430,19 @@ void build_analytic_jacobian(const ExperimentList &experiments,
     if (layout.detector) {
       const auto d = detector_derivatives(s, p);
       const std::size_t at = layout.detector_at(o.experiment);
+      if (span != nullptr) {
+        (*span)[i].detector_low = static_cast<std::uint32_t>(at);
+        (*span)[i].detector_high = static_cast<std::uint32_t>(at + 6);
+      }
       for (std::size_t k = 0; k < 6; ++k) place(at + k, d[k], 1.0);
     }
     if (layout.beam) {
       const auto d = beam_derivatives(s, e.beam);
       const std::size_t at = layout.beam_at(o.experiment);
+      if (span != nullptr) {
+        (*span)[i].beam_low = static_cast<std::uint32_t>(at);
+        (*span)[i].beam_high = static_cast<std::uint32_t>(at + 2);
+      }
       for (std::size_t k = 0; k < 2; ++k) place(at + k, d[k], 1.0);
     }
   }
@@ -517,9 +562,14 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       // step does not need, since the step is recomputed every iteration.
       const double t_jacobian = now_seconds();
       std::vector<std::vector<double>> jacobian(n);
+      // Empty unless the analytical path fills it; the finite-difference path
+      // has no idea which parameters it touched, so the accumulation falls
+      // back to searching the whole column there.
+      std::vector<ParameterSpan> span;
       ExperimentList trial;
       if (options.analytic) {
-        build_analytic_jacobian(experiments, observations, layout, &jacobian);
+        build_analytic_jacobian(experiments, observations, layout, &jacobian,
+                                &span);
       } else {
         std::vector<double> shift(n, 0.0);
         std::vector<double> moved(residual.size());
@@ -574,11 +624,25 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
             const double w = observations[i].weight[k];
             nonzero.clear();
             value.clear();
-            for (std::size_t a = 0; a < n; ++a) {
-              const double ja = jacobian[a][row];
-              if (ja == 0.0) continue;
-              nonzero.push_back(a);
-              value.push_back(ja);
+            const auto take = [&](std::size_t from, std::size_t to) {
+              for (std::size_t a = from; a < to; ++a) {
+                const double ja = jacobian[a][row];
+                if (ja == 0.0) continue;
+                nonzero.push_back(a);
+                value.push_back(ja);
+              }
+            };
+            if (span.empty()) {
+              take(0, n);
+            } else {
+              // In ascending order of parameter index, which the layout
+              // guarantees: crystal, then detector, then beam. The
+              // accumulation below relies on it, and on the sums being formed
+              // in the same order as before.
+              const ParameterSpan &sp = span[i];
+              take(sp.crystal_low, sp.crystal_high);
+              take(sp.detector_low, sp.detector_high);
+              take(sp.beam_low, sp.beam_high);
             }
             for (std::size_t x = 0; x < nonzero.size(); ++x) {
               const std::size_t a = nonzero[x];
@@ -799,7 +863,7 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
   }
 
   std::vector<std::vector<double>> analytic;
-  build_analytic_jacobian(base, observations, layout, &analytic);
+  build_analytic_jacobian(base, observations, layout, &analytic, nullptr);
 
   std::vector<double> residual;
   residuals_of(base, observations, &residual);
