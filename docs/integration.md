@@ -1168,3 +1168,49 @@ The join key at this boundary is (`miller_index`, `entering`, frame), and the
 metric is the pull distribution, `dI / sqrt(sigma_a^2 + sigma_b^2)` -- its mean,
 width and tails -- together with the correlation. Not percentage differences on
 intensities.
+
+## mxeq trend: where two integrations disagree, and against what
+
+    mxeq trend ours.refl theirs.refl
+    mxeq trend ours.refl theirs.refl --value intensity.prf.value --bins 5
+
+A single correlation says two columns disagree. It does not say whether the
+disagreement is with resolution, with intensity, with position on the detector,
+with how near a reflection sits to the rotation axis, or with how well the
+profile describes it -- and those point at different causes. This bins the
+ratio against each in turn.
+
+Bins hold equal populations rather than equal widths: equal widths on a
+quantity like I/sigma put almost everything in the first bin and say nothing.
+
+On the profile-fitted intensities it localised the problem straight away. The
+ratio is flat -- 0.966 to 0.989 across every variable -- so the scale is right
+everywhere. What moves is the agreement, and it moves the wrong way round:
+
+    intensity.prf.value against I/sigma
+              from         to        n       ours     theirs    ratio    corr
+            -3.729      2.539     3846      11.97      12.32   0.9720  0.3718
+             6.238      11.72     3845      150.5      155.7   0.9704  0.9008
+             23.61      357.2     3846       1693       1783   0.9873  0.2288
+
+    intensity.sum.value against I/sigma
+            -3.729      2.465     3872      13.23      12.41   0.9593 -0.0099
+             6.151      11.64     3872      154.6      158.6   0.9714  0.1163
+             23.48      357.2     3872       1731       1735   0.9994  0.9751
+
+Summation agrees with DIALS almost perfectly on the strongest reflections
+(0.9751) and hardly at all within the weak bins, which is what noise looks
+like and is unremarkable. Profile fitting does the opposite: it agrees best in
+the middle and WORST on the strongest (0.2288), where there is the least noise
+to blame.
+
+So the fit misbehaves where the signal is largest, which is the opposite of
+what a weighting error alone would do to weak data, and it is what drags the
+overall correlation to 0.42. Strong reflections are where the profile's tails
+carry the most counts and where a saturated or mismodelled pixel has the most
+leverage. That is the next thing to look at, and this tool is how.
+
+Note that within-bin correlation is not a measure of agreement on its own: a
+narrow bin of a noisy quantity correlates poorly however well two programs
+agree, which is why the summation rows read as they do. The ratio column is
+what to read for agreement and the correlation column for outliers.

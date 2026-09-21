@@ -101,10 +101,51 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--bins", type=int, default=10, help="number of resolution shells")
     c.add_argument("--json", action="store_true", help="emit JSON instead of text")
 
+    t = sub.add_parser(
+        "trend",
+        help="where two integrated files disagree, binned against what might explain it",
+    )
+    t.add_argument("a", help="ours")
+    t.add_argument("b", help="theirs, the reference")
+    t.add_argument(
+        "--value",
+        action="append",
+        help="a column to compare; repeatable. Defaults to the intensities, "
+        "their variances and the background.",
+    )
+    t.add_argument("--bins", type=int, default=10, help="bins per variable")
+    t.add_argument(
+        "--radius",
+        type=float,
+        default=0.5,
+        help="how many images apart two rows may be and still be the same observation",
+    )
+
     i = sub.add_parser("inspect", help="describe a file without assuming its layout")
     i.add_argument("path")
 
     args = parser.parse_args(argv)
+
+    if args.command == "trend":
+        from . import trends
+
+        values = args.value or [
+            "intensity.sum.value",
+            "intensity.prf.value",
+            "intensity.sum.variance",
+            "intensity.prf.variance",
+            "background.mean",
+        ]
+        print(
+            trends.compare(
+                refl.load(args.a),
+                refl.load(args.b),
+                values,
+                n_bins=args.bins,
+                radius=args.radius,
+            )
+        )
+        return 0
 
     if args.command == "inspect":
         with open(args.path, "rb") as f:
