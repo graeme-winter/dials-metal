@@ -832,6 +832,20 @@ Three things the pixels settled that no synthetic test would have:
   is 5.8 per cent of a frame, module gaps and dead pixels, and 470000 voxels of
   the boxes here. Counting them as zero would drag the background down wherever
   a gap crosses a shoebox.
+* **`d` is `1 / |A h|` from the STATIC cell.** Three nearly equal numbers were
+  candidates: the static cell agrees with the column to 1.2e-15 for every
+  reflection, while `1/|s1 - s0|` and the scan-varying `A` are both 2.6e-4 out.
+  A tolerance of a part in a thousand would have accepted any of them.
+* **`partiality` is the fraction of the rocking curve inside the BOX**, not
+  inside the scan. What was summed is what is in the box, and a box spanning
+  three sigma holds 0.9973 of the curve rather than all of it. Against DIALS:
+  0.99887 against 0.99914, with ninety per cent of differences below 0.0014,
+  and 208 reflections that both call genuinely partial. Computing it against
+  the scan instead gives 1.0000 for everything away from the ends, which is the
+  kind of small error a scale factor multiplies through a whole dataset.
+* **`zeta`, `partial_id`, `num_pixels.background_used` and
+  `xyzobs.mm.variance`** are written too. What is still missing is the three
+  profile-fitting columns, which is the next step rather than an oversight.
 * **`xyzobs.px.value` is the centre of mass of the foreground**, background
   subtracted, which `dials.scale` requires. Over the whole box instead it is
   0.15 to 0.19 pixels from DIALS'; over the foreground it is 0.07 in fast and

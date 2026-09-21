@@ -89,6 +89,32 @@ struct IntegratedReflection {
 //: The fraction of photons the sensor absorbs for a beam along `s1`.
 double quantum_efficiency(const Panel &panel, const Vec3 &s1);
 
+//: The resolution of a reflection, in Angstroms, as DIALS writes it into the
+//: `d` column.
+//:
+//: From the STATIC cell and the Miller index, `1 / |A h|`, not from `s1` and
+//: not from the scan-varying `A`. All three are nearly the same number and
+//: only one of them is the column: against a DIALS `integrated.refl`, the
+//: static cell agrees to 1.2e-15 for every reflection, `1/|s1 - s0|` to 2.6e-4
+//: and the scan-varying `A` to 2.6e-4. Redundant information, and expected
+//: anyway -- dials.scale stops with an unknown column error without it.
+double resolution(const Crystal &crystal, int h, int k, int l);
+
+//: The fraction of a reflection's rocking curve that the shoebox recorded.
+//:
+//: The box, not the scan. What was summed is what is in the box, so a
+//: reflection wholly inside the scan is still not wholly measured: the box
+//: spans n_sigma of the rocking curve and misses the tails beyond it. Against
+//: DIALS that is the difference between 1.0000 and 0.99914, which is small and
+//: is exactly the kind of small that a scale factor multiplies through a whole
+//: dataset.
+//:
+//: Kabsch section 2.4: the Gaussian in phi has width sigma_m / |zeta|, and
+//: this is the part of it between the two ends of the box, which are already
+//: clipped to the scan.
+double partiality(const Scan &scan, double phi, double zeta, double sigma_m,
+                  std::int32_t z_first, std::int32_t z_last);
+
 //: The Lorentz-polarization factor, as DIALS writes it into the `lp` column.
 //:
 //:     L  = |s1 . (m2 x s0)| / (|s1| |s0|)

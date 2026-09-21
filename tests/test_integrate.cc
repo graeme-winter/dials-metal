@@ -295,3 +295,52 @@ TEST(the_centroid_ignores_the_background_and_the_rim) {
   check::close(spoiled.centroid_fast, clean.centroid_fast, 1e-9,
                "the rim does not move the centroid");
 }
+
+TEST(the_resolution_column_comes_from_the_static_cell) {
+  // d = 1 / |A h|, from the static cell and the Miller index. Three nearly
+  // equal numbers were candidates and only one is the column: against a DIALS
+  // integrated.refl the static cell agrees to 1.2e-15 for every reflection,
+  // while 1/|s1 - s0| and the scan-varying A are both 2.6e-4 out. A tolerance
+  // of a part in a thousand would have accepted any of them.
+  const double a = 78.0;
+  const Crystal cubic = Crystal::from_real_space({a, 0.0, 0.0}, {0.0, a, 0.0},
+                                                 {0.0, 0.0, a});
+  check::close(resolution(cubic, 1, 0, 0), a, 1e-9, "the 100 is the cell edge");
+  check::close(resolution(cubic, 2, 0, 0), a / 2.0, 1e-9, "the 200 is half it");
+  check::close(resolution(cubic, 1, 1, 0), a / std::sqrt(2.0), 1e-9, "the 110");
+  check::close(resolution(cubic, 1, 1, 1), a / std::sqrt(3.0), 1e-9, "the 111");
+  check::close(resolution(cubic, 0, 0, 0), 0.0, 0.0, "and 000 is refused");
+}
+
+TEST(partiality_is_the_part_of_the_rocking_curve_inside_the_box) {
+  // The box, not the scan: what was summed is what is in the box. A box
+  // spanning plus and minus three sigma of the rocking curve holds 0.9973 of
+  // it, not all of it, and dials.scale divides by this.
+  Scan scan;
+  scan.first_image = 1;
+  scan.last_image = 1000;
+  scan.osc_start = 0.0;
+  scan.osc_width = 0.1;
+  const double sigma_m = 0.1;
+  const double zeta = 1.0;  // so the rocking curve is sigma_m wide in phi
+
+  // A box of plus and minus three sigma about a reflection in the middle.
+  const double phi = scan.phi_from_z(500.0);
+  const std::int32_t half = 3;  // 3 images = 0.3 degrees = 3 sigma
+  const double full =
+      partiality(scan, phi, zeta, sigma_m, 500 - half, 500 + half);
+  check::close(full, 0.9973, 0.001, "three sigma holds 0.9973 of the curve");
+
+  // One sigma holds much less, and the difference is not a rounding error.
+  const double narrow = partiality(scan, phi, zeta, sigma_m, 499, 501);
+  check::close(narrow, 0.6827, 0.01, "one sigma holds 0.6827");
+
+  // A reflection whose box is cut off at the start of the scan is partial.
+  const double edge = partiality(scan, scan.phi_from_z(0.0), zeta, sigma_m, 0, 3);
+  check::is_true(edge > 0.45 && edge < 0.55,
+                 "half the curve when the box starts at the reflection");
+
+  // And it is never outside [0, 1], whatever it is handed.
+  check::is_true(partiality(scan, phi, 1e-9, sigma_m, 0, 1000) <= 1.0,
+                 "a diverging rocking curve does not exceed one");
+}

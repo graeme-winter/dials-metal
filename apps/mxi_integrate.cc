@@ -311,6 +311,13 @@ int main(int argc, char **argv) {
     Column &obs_px_var =
         out.real_column("xyzobs.px.variance", "vec3<double>", 3);
     Column &obs_mm = out.real_column("xyzobs.mm.value", "vec3<double>", 3);
+    Column &d_column = out.real_column("d", "double", 1);
+    Column &zeta_column = out.real_column("zeta", "double", 1);
+    Column &part_column = out.real_column("partiality", "double", 1);
+    Column &partial_id = out.int_column("partial_id", "std::size_t", 1);
+    Column &n_bg_used = out.int_column("num_pixels.background_used", "int", 1);
+    Column &obs_mm_var =
+        out.real_column("xyzobs.mm.variance", "vec3<double>", 3);
 
     const bool save = args.has("--save-shoeboxes");
     std::string shoebox_bytes;
@@ -369,6 +376,27 @@ int main(int argc, char **argv) {
       bsumvar.reals[row] = r.background_sum_variance;
       qe_column.reals[row] = quantum_efficiency(panel, p.s1);
       lp_column.reals[row] = lorentz_polarization(e.beam, e.goniometer, p.s1);
+      d_column.reals[row] = e.crystal ? resolution(*e.crystal, p.h, p.k, p.l) : 0.0;
+      const double z_of = compute_zeta(e, p.s1);
+      zeta_column.reals[row] = z_of;
+      part_column.reals[row] = partiality(e.scan, p.phi, z_of,
+                                         mask_options.sigma_m, box->bbox[4],
+                                         box->bbox[5]);
+      // Every reflection here is its own, since nothing splits one across two
+      // rows; DIALS uses this to tie the pieces of a split reflection together.
+      partial_id.ints[row] = static_cast<std::int64_t>(row);
+      // Everything not foreground was used: this integrator has no second
+      // round of rejection on top of the GLM's own weighting.
+      n_bg_used.ints[row] = static_cast<std::int64_t>(r.n_background);
+      // The centroid variance in millimetres and radians. The px values it
+      // comes from do not reproduce DIALS' and neither will these.
+      obs_mm_var.reals[row * 3 + 0] =
+          r.centroid_variance_fast * panel.pixel_size[0] * panel.pixel_size[0];
+      obs_mm_var.reals[row * 3 + 1] =
+          r.centroid_variance_slow * panel.pixel_size[1] * panel.pixel_size[1];
+      obs_mm_var.reals[row * 3 + 2] =
+          r.centroid_variance_z * Scan::radians(e.scan.osc_width) *
+          Scan::radians(e.scan.osc_width);
       const double of = r.centroid_valid ? r.centroid_fast : p.px_fast;
       const double os = r.centroid_valid ? r.centroid_slow : p.px_slow;
       const double oz = r.centroid_valid ? r.centroid_z : p.z;

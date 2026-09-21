@@ -14,6 +14,30 @@ double quantum_efficiency(const Panel &panel, const Vec3 &s1) {
   return 1.0 - std::exp(-panel.mu * panel.thickness / cosine);
 }
 
+double resolution(const Crystal &crystal, int h, int k, int l) {
+  // A rather than A_at: the static cell is what the column holds, even for a
+  // scan-varying crystal.
+  const Vec3 q = crystal.A * Vec3{static_cast<double>(h), static_cast<double>(k),
+                                  static_cast<double>(l)};
+  const double length = q.norm();
+  if (!(length > 0.0)) return 0.0;
+  return 1.0 / length;
+}
+
+double partiality(const Scan &scan, double phi, double zeta, double sigma_m,
+                  std::int32_t z_first, std::int32_t z_last) {
+  const double spread = Scan::radians(sigma_m) / std::fabs(zeta);
+  if (!(spread > 0.0)) return 1.0;
+  const double a = scan.phi_from_z(static_cast<double>(z_first));
+  const double b = scan.phi_from_z(static_cast<double>(z_last));
+  const double lo = std::fmin(a, b);
+  const double hi = std::fmax(a, b);
+  const double scale = std::sqrt(2.0) * spread;
+  const double fraction =
+      0.5 * (std::erf((hi - phi) / scale) - std::erf((lo - phi) / scale));
+  return std::fmax(0.0, std::fmin(1.0, fraction));
+}
+
 double lorentz_polarization(const Beam &beam, const Goniometer &goniometer,
                             const Vec3 &s1) {
   const Vec3 s0 = beam.s0();
