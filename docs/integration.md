@@ -826,6 +826,20 @@ Three things the pixels settled that no synthetic test would have:
   is 5.8 per cent of a frame, module gaps and dead pixels, and 470000 voxels of
   the boxes here. Counting them as zero would drag the background down wherever
   a gap crosses a shoebox.
+* **`xyzobs.px.value` is the centre of mass of the foreground**, background
+  subtracted, which `dials.scale` requires. Over the whole box instead it is
+  0.15 to 0.19 pixels from DIALS'; over the foreground it is 0.07 in fast and
+  0.10 in slow, and `xyzobs - xyzcal` comes out at [-0.001, -0.007, -0.076]
+  against DIALS' [-0.002, -0.002, -0.076] -- including that frame offset, which
+  is the part that would show a convention error.
+
+  `xyzobs.px.variance` does **not** reproduce DIALS'. The second moment alone is
+  about twenty times too large and the variance of the mean about thirty times
+  too small, and neither is a constant factor away, so DIALS is computing
+  something else; its values sit near 0.1 square pixels on every axis, which
+  looks like a quantisation term rather than anything that scales with
+  intensity. What is written is the variance of the mean, which is the standard
+  quantity, and this is recorded rather than tuned to match.
 * **`lp` is `L / P`**, with `L = |s1 . (m2 x s0)| / (|s1||s0|)` and
   `P = (1-p) + (2p-1)(u.n)^2 + p(u.s0hat)^2`. Recovered from the oracle rather
   than recalled: the Lorentz part was identifiable as the candidate with the

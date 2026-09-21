@@ -62,6 +62,22 @@ struct IntegratedReflection {
   double background_mean = 0.0;
   double background_sum = 0.0;
   double background_sum_variance = 0.0;
+  //: The observed centre of mass, in pixels and images, over the foreground
+  //: with the background taken off. dials.scale wants this; it is also the
+  //: only thing in the output that says where the spot actually was rather
+  //: than where the model put it.
+  bool centroid_valid = false;
+  double centroid_fast = 0.0, centroid_slow = 0.0, centroid_z = 0.0;
+  //: Variance of that centre of mass: the second moment of the distribution
+  //: over the square of the weight, which is the variance of a weighted mean
+  //: and falls as a spot gets stronger.
+  //:
+  //: It does not reproduce DIALS' `xyzobs.px.variance`, and the comment in
+  //: integrate.cc says what was measured. The centroid VALUE agrees to 0.07
+  //: pixels, which is what `dials.scale` uses.
+  double centroid_variance_fast = 0.0;
+  double centroid_variance_slow = 0.0;
+  double centroid_variance_z = 0.0;
   std::size_t n_foreground = 0;
   std::size_t n_background = 0;
   std::size_t n_valid = 0;

@@ -298,6 +298,10 @@ int main(int argc, char **argv) {
     Column &bsumvar = out.real_column("background.sum.variance", "double", 1);
     Column &qe_column = out.real_column("qe", "double", 1);
     Column &lp_column = out.real_column("lp", "double", 1);
+    Column &obs_px = out.real_column("xyzobs.px.value", "vec3<double>", 3);
+    Column &obs_px_var =
+        out.real_column("xyzobs.px.variance", "vec3<double>", 3);
+    Column &obs_mm = out.real_column("xyzobs.mm.value", "vec3<double>", 3);
 
     const bool save = args.has("--save-shoeboxes");
     std::string shoebox_bytes;
@@ -434,6 +438,22 @@ int main(int argc, char **argv) {
         bsumvar.reals[i] = r.background_sum_variance;
         qe_column.reals[i] = quantum_efficiency(panel, p.s1);
         lp_column.reals[i] = lorentz_polarization(e.beam, e.goniometer, p.s1);
+        // Where the spot was, as against where the model put it. Falls back to
+        // the prediction when there was no signal to find a centre of mass in,
+        // because a NaN here stops dials.scale rather than being ignored by it.
+        const double of = r.centroid_valid ? r.centroid_fast : p.px_fast;
+        const double os = r.centroid_valid ? r.centroid_slow : p.px_slow;
+        const double oz = r.centroid_valid ? r.centroid_z : p.z;
+        obs_px.reals[i * 3 + 0] = of;
+        obs_px.reals[i * 3 + 1] = os;
+        obs_px.reals[i * 3 + 2] = oz;
+        obs_px_var.reals[i * 3 + 0] = r.centroid_variance_fast;
+        obs_px_var.reals[i * 3 + 1] = r.centroid_variance_slow;
+        obs_px_var.reals[i * 3 + 2] = r.centroid_variance_z;
+        const auto obs_mm_pair = panel.px_to_mm(of, os);
+        obs_mm.reals[i * 3 + 0] = obs_mm_pair.first;
+        obs_mm.reals[i * 3 + 1] = obs_mm_pair.second;
+        obs_mm.reals[i * 3 + 2] = e.scan.phi_from_z(oz);
         if (r.valid) ++integrated;
       }
       if (save) shoebox_bytes += encode_shoeboxes(boxes);

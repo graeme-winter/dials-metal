@@ -80,6 +80,74 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
   // summed background so it can be reported on its own.
   out.background_sum_variance = options.gain * (m / n) * out.background_sum;
 
+  // The observed centre of mass, over the foreground only and with the
+  // background taken off. Over the whole box instead it is 0.15 to 0.19 pixels
+  // away from DIALS', because the rim contributes its own noise with no signal
+  // in it.
+  //
+  // Negative excesses are dropped rather than allowed to pull the centroid
+  // about: a background-subtracted pixel below zero is noise, and on a weak
+  // reflection there are enough of them to move the answer a long way.
+  {
+    double weight = 0.0, mf = 0.0, ms = 0.0, mz = 0.0;
+    for (std::int32_t z = 0; z < box->nz(); ++z) {
+      for (std::int32_t y = 0; y < box->ny(); ++y) {
+        for (std::int32_t x = 0; x < box->nx(); ++x) {
+          const std::size_t i = box->at(x, y, z);
+          if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
+          if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+          const double w = static_cast<double>(box->data[i]) - background.mean;
+          if (!(w > 0.0)) continue;
+          weight += w;
+          mf += w * (static_cast<double>(box->bbox[0] + x) + 0.5);
+          ms += w * (static_cast<double>(box->bbox[2] + y) + 0.5);
+          mz += w * (static_cast<double>(box->bbox[4] + z) + 0.5);
+        }
+      }
+    }
+    if (weight > 0.0) {
+      out.centroid_valid = true;
+      out.centroid_fast = mf / weight;
+      out.centroid_slow = ms / weight;
+      out.centroid_z = mz / weight;
+      double sf = 0.0, ss = 0.0, sz = 0.0;
+      for (std::int32_t z = 0; z < box->nz(); ++z) {
+        for (std::int32_t y = 0; y < box->ny(); ++y) {
+          for (std::int32_t x = 0; x < box->nx(); ++x) {
+            const std::size_t i = box->at(x, y, z);
+            if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
+            if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+            const double w = static_cast<double>(box->data[i]) - background.mean;
+            if (!(w > 0.0)) continue;
+            const double df =
+                static_cast<double>(box->bbox[0] + x) + 0.5 - out.centroid_fast;
+            const double ds =
+                static_cast<double>(box->bbox[2] + y) + 0.5 - out.centroid_slow;
+            const double dz =
+                static_cast<double>(box->bbox[4] + z) + 0.5 - out.centroid_z;
+            sf += w * df * df;
+            ss += w * ds * ds;
+            sz += w * dz * dz;
+          }
+        }
+      }
+      // The variance of the MEAN: the second moment of the distribution
+      // divided by the weight in it, which is the standard quantity and goes
+      // to zero as a spot gets stronger.
+      //
+      // This does NOT reproduce DIALS' xyzobs.px.variance. Measured against
+      // it, the second moment alone is about twenty times too large and the
+      // variance of the mean about thirty times too small, and neither is a
+      // constant factor away -- so DIALS is computing something else and
+      // guessing at which would be worse than saying so. DIALS' values sit
+      // near 0.1 square pixels on every axis, which is suspiciously close to a
+      // quantisation term rather than to anything that scales with intensity.
+      out.centroid_variance_fast = sf / (weight * weight);
+      out.centroid_variance_slow = ss / (weight * weight);
+      out.centroid_variance_z = sz / (weight * weight);
+    }
+  }
+
   out.intensity = foreground_sum - out.background_sum;
   // Leslie (11): G [ I + I_bg + (m/n) I_bg ]. The first two together are the
   // Poisson noise of what was actually counted in the foreground, so they are

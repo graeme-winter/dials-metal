@@ -241,3 +241,57 @@ TEST(a_polarized_beam_makes_the_normal_matter) {
                      1e-6,
                  "a polarized beam notices where the normal points");
 }
+
+TEST(the_observed_centroid_is_where_the_signal_is) {
+  // dials.scale wants xyzobs.px.value, and it is the only thing in the output
+  // that says where the spot actually was rather than where the model put it.
+  //
+  // A single lit pixel puts the answer at that pixel's centre, which is
+  // arithmetic rather than statistics; the half is the pixel centre convention
+  // and getting it wrong would bias every centroid in the dataset by half a
+  // pixel in the same direction.
+  Shoebox box = planted(2.0, 0.0, 25);
+  for (std::size_t i = 0; i < box.size(); ++i) {
+    if (box.mask[i] & shoebox_mask::kForeground) box.data[i] = 2.0f;
+  }
+  const std::size_t lit = box.at(7, 8, 1);
+  box.data[lit] = 500.0f;
+  IntegrateOptions options;
+  options.background.tuning = 1e6;
+  const IntegratedReflection r = integrate_shoebox(&box, options);
+  check::is_true(r.valid && r.centroid_valid, "there is a centroid");
+  check::close(r.centroid_fast, box.bbox[0] + 7 + 0.5, 1e-9, "fast");
+  check::close(r.centroid_slow, box.bbox[2] + 8 + 0.5, 1e-9, "slow");
+  check::close(r.centroid_z, box.bbox[4] + 1 + 0.5, 1e-9, "frame");
+  // One pixel has no spread, so the variance of its mean is zero.
+  check::close(r.centroid_variance_fast, 0.0, 1e-12, "and no variance");
+}
+
+TEST(the_centroid_ignores_the_background_and_the_rim) {
+  // Two lit pixels either side of centre weight it to the middle; a bright
+  // pixel in the BACKGROUND rim must not pull it, because the rim is not the
+  // spot. Taking the centroid over the whole box instead of the foreground put
+  // it 0.15 to 0.19 pixels away from DIALS' on real data.
+  Shoebox box = planted(1.0, 0.0, 25);
+  for (std::size_t i = 0; i < box.size(); ++i) {
+    if (box.mask[i] & shoebox_mask::kForeground) box.data[i] = 1.0f;
+  }
+  box.data[box.at(6, 7, 1)] = 101.0f;
+  box.data[box.at(8, 7, 1)] = 101.0f;
+  IntegrateOptions options;
+  options.background.tuning = 1e6;
+  const IntegratedReflection clean = integrate_shoebox(&box, options);
+  check::is_true(clean.centroid_valid, "a centroid");
+  check::close(clean.centroid_fast, box.bbox[0] + 7.5, 1e-9,
+               "midway between the two");
+
+  // Now a hot pixel in the rim, far from the spot.
+  Shoebox dirty = box;
+  const std::size_t rim = dirty.at(1, 1, 1);
+  check::is_true((dirty.mask[rim] & shoebox_mask::kBackground) != 0,
+                 "that voxel really is background");
+  dirty.data[rim] = 5000.0f;
+  const IntegratedReflection spoiled = integrate_shoebox(&dirty, options);
+  check::close(spoiled.centroid_fast, clean.centroid_fast, 1e-9,
+               "the rim does not move the centroid");
+}
