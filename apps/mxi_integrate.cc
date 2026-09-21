@@ -346,8 +346,18 @@ int main(int argc, char **argv) {
     }
     std::printf("%s\n", images->describe().c_str());
 
+    std::size_t workers = static_cast<std::size_t>(args.number("--threads", 0.0));
+    if (workers == 0) {
+      workers = std::thread::hardware_concurrency();
+      if (workers == 0) workers = 1;
+    }
+
     PredictOptions predict_options;
     predict_options.d_min = args.number("--d-min", 0.0);
+    // Prediction was 39.7 per cent of a large integration and all of it on one
+    // thread. One unit of work per h, joined in h order, so the list is the
+    // same whatever the thread count.
+    predict_options.threads = workers;
     const double t_predict_start = now_wall();
     const std::vector<Prediction> predictions = predict(e, predict_options);
     t_predict = now_wall() - t_predict_start;
@@ -475,6 +485,10 @@ int main(int argc, char **argv) {
     series::Frame frame;
     std::vector<std::uint8_t> pixels;
     std::size_t frames_read = 0;
+    std::size_t frames_missing = 0;
+    // Which frames any shoebox wanted, so "frames read" can be compared with
+    // something rather than left to be compared with the image count.
+    std::set<std::int32_t> wanted;
     std::size_t bad_pixels = 0;
     std::size_t integrated = 0;
     std::size_t most_open = 0;
@@ -572,11 +586,6 @@ int main(int argc, char **argv) {
     // reads past its own end to finish it, so a window wants to be much
     // longer than a shoebox: at a thousand frames the overhead is under one
     // per cent, and holds about ten thousand boxes, which is 320 MB.
-    std::size_t workers = static_cast<std::size_t>(args.number("--threads", 0.0));
-    if (workers == 0) {
-      workers = std::thread::hardware_concurrency();
-      if (workers == 0) workers = 1;
-    }
     const std::size_t window =
         static_cast<std::size_t>(std::max(1.0, args.number("--window", 1000.0)));
     // A safety net, not the primary bound. The window has to be long compared
@@ -663,6 +672,7 @@ int main(int argc, char **argv) {
       // never touch the same voxel.
       std::atomic<std::size_t> frames_done{0};
       std::atomic<std::size_t> bad_here{0};
+      std::atomic<std::size_t> unread{0};
       std::vector<double> fetch_by_thread(std::max<std::size_t>(workers, 1), 0.0);
       std::vector<double> decompress_by_thread(fetch_by_thread.size(), 0.0);
       std::vector<double> fill_by_thread(fetch_by_thread.size(), 0.0);
@@ -680,7 +690,14 @@ int main(int argc, char **argv) {
         if (z < 0 || static_cast<std::size_t>(z) >= keys.size()) return;
         series::Frame raw;
         const double t0 = now_wall();
-        if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) return;
+        if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) {
+          // A frame the writer never received: an unallocated chunk. Counted,
+          // because a shoebox that spans it is missing a slice and will
+          // integrate low, and silently dropping it leaves "frames read" less
+          // than the number of images with no explanation.
+          unread.fetch_add(1);
+          return;
+        }
         const double t1 = now_wall();
         const std::size_t height = static_cast<std::size_t>(raw.height);
         const std::size_t width = static_cast<std::size_t>(raw.width);
@@ -740,6 +757,8 @@ int main(int argc, char **argv) {
       });
       frames_read += frames_done.load();
       bad_pixels += bad_here.load();
+      frames_missing += unread.load();
+      for (const auto &entry : touching) wanted.insert(entry.first);
       const auto largest = [](const std::vector<double> &v) {
         double most = 0.0;
         for (double x : v) most = std::max(most, x);
@@ -769,8 +788,20 @@ int main(int argc, char **argv) {
     if (save) shoebox_bytes = encode_shoeboxes(saved);
     std::printf("at most %zu shoeboxes in a window\n", most_open);
 
-    std::printf("%zu frames read, %zu bad pixels masked\n", frames_read,
+    std::printf("%zu frames read (%zu wanted by a shoebox, each read %.2f "
+                "times), %zu bad pixels masked\n",
+                frames_read, wanted.size(),
+                wanted.empty() ? 0.0
+                               : static_cast<double>(frames_read) /
+                                     static_cast<double>(wanted.size()),
                 bad_pixels);
+    if (frames_missing > 0) {
+      std::printf(
+          "  %zu reads found no frame: an unallocated chunk is a frame the "
+          "writer never received, and a shoebox spanning one is missing a "
+          "slice\n",
+          frames_missing);
+    }
     std::printf("%zu of %zu integrated\n", integrated, planned.size());
 
     if (save) {

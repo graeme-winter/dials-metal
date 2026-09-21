@@ -47,6 +47,13 @@ struct PredictOptions {
   // Cap on the Miller index box, as a guard against a wildly wrong cell
   // turning a prediction into an out-of-memory.
   int max_index = 500;
+  //: Threads to predict on: 0 for one per core, 1 for none.
+  //:
+  //: One independent unit of work per h, and nothing in the body touches
+  //: anything outside it. The results are concatenated in h order, so the
+  //: output is identical whatever the thread count -- which matters because
+  //: everything downstream is indexed by position in this vector.
+  std::size_t threads = 0;
 };
 
 // The two rotation angles at which a reciprocal lattice point meets the Ewald

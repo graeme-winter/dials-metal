@@ -904,6 +904,34 @@ read stays near the frame count -- if it climbs, the window is too short.
 
 `--threads`, `--window` and `--max-boxes` are the knobs.
 
+### What that left, on sixteen cores
+
+    total                        65.403 s   from 310
+    user                        370       s   so 5.7 cores busy
+
+    prediction                   25.982 s   39.7%
+    decompressing                22.716 s   34.7%
+    writing                       8.203 s   12.5%
+    background and summation      5.461 s    8.4%
+    opening shoeboxes             4.792 s    7.3%
+    the profile model             4.541 s    6.9%
+    filling shoeboxes             1.825 s    2.8%
+
+Prediction became the largest item by being the only phase still serial, so it
+is threaded too: one unit of work per `h`, each collecting into its own vector,
+joined in `h` order. The order matters as much as the content -- everything
+downstream is indexed by position in that list, so a prediction list that
+reordered itself with the thread count would make every comparison between two
+runs meaningless. Checked with a checksum that depends on position: identical
+at one thread and four.
+
+The report also says how many frames a shoebox wanted and how many times each
+was read, because `27366 frames read` of a 36000 image sweep is not
+interpretable on its own -- it could be windows re-reading, or frames nothing
+needed, or reads that failed. Reads that find no frame are counted separately:
+an unallocated chunk is a frame the writer never received, and a shoebox
+spanning one is missing a slice and will integrate low.
+
 Three things the pixels settled that no synthetic test would have:Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It

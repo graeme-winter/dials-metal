@@ -1,6 +1,8 @@
 #include "predict.h"
 
 #include <algorithm>
+#include <atomic>
+#include <thread>
 #include <cmath>
 
 namespace mxi {
@@ -267,11 +269,25 @@ std::vector<Prediction> predict(const Experiment &e,
       index_bounds(*e.crystal, d_min, options.max_index);
   const Mat3 &A = e.crystal->A;
 
-  // One independent unit of work per (h, k, l). Nothing in the body touches
-  // anything outside it, which is what makes this the natural first kernel;
-  // the only shared state is the output, and on a device that becomes an
-  // atomic append or a compaction pass.
-  for (int h = -bounds[0]; h <= bounds[0]; ++h) {
+  // One independent unit of work per h, which on a large sweep is 39 per cent
+  // of an integration and was all on one thread. Each h collects into its own
+  // vector and they are joined in h order, so the output does not depend on
+  // the thread count: everything downstream is indexed by position here, and a
+  // prediction list that reorders itself would make every comparison between
+  // two runs meaningless.
+  std::size_t threads = options.threads;
+  if (threads == 0) {
+    threads = std::thread::hardware_concurrency();
+    if (threads == 0) threads = 1;
+  }
+  const int first_h = -bounds[0];
+  const std::size_t rows =
+      static_cast<std::size_t>(2 * bounds[0] + 1);
+  std::vector<std::vector<Prediction>> by_h(rows);
+
+  const auto one_h = [&](std::size_t row) {
+    const int h = first_h + static_cast<int>(row);
+    std::vector<Prediction> &out = by_h[row];
     for (int k = -bounds[1]; k <= bounds[1]; ++k) {
       for (int l = -bounds[2]; l <= bounds[2]; ++l) {
         if (h == 0 && k == 0 && l == 0) continue;
@@ -290,6 +306,34 @@ std::vector<Prediction> predict(const Experiment &e,
         }
       }
     }
+  };
+
+  if (threads <= 1 || rows < 2) {
+    for (std::size_t row = 0; row < rows; ++row) one_h(row);
+  } else {
+    std::atomic<std::size_t> next{0};
+    std::vector<std::thread> pool;
+    const std::size_t n = std::min(threads, rows);
+    pool.reserve(n - 1);
+    const auto run = [&]() {
+      for (;;) {
+        const std::size_t row = next.fetch_add(1);
+        if (row >= rows) break;
+        one_h(row);
+      }
+    };
+    for (std::size_t t = 1; t < n; ++t) pool.emplace_back(run);
+    run();
+    for (std::thread &t : pool) t.join();
+  }
+
+  std::size_t total = 0;
+  for (const std::vector<Prediction> &v : by_h) total += v.size();
+  out.reserve(total);
+  for (std::vector<Prediction> &v : by_h) {
+    out.insert(out.end(), v.begin(), v.end());
+    v.clear();
+    v.shrink_to_fit();
   }
   return out;
 }
