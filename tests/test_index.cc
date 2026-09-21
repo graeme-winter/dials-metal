@@ -454,3 +454,93 @@ TEST(the_transform_in_use_agrees_with_the_built_in) {
                    "the transform in use agrees with the built-in");
   }
 }
+
+TEST(max_cell_is_not_fooled_by_the_same_reflection_measured_again) {
+  // A sweep of several full rotations measures every reflection once per turn,
+  // and rotating s1 back by phi and by phi + 360 degrees gives the same vector
+  // -- so each point has copies of itself, separated only by the error in its
+  // centroid. Ungrouped, the nearest-neighbour spacing measures that error
+  // instead of the lattice.
+  //
+  // The numbers below are the failure, not a hypothetical: a hundred-Angstrom
+  // cubic lattice over ten turns with a 1e-4 scatter estimates at eleven
+  // thousand Angstroms, which finds no candidate vectors at all.
+  std::vector<Vec3> one;
+  const double d = 1.0 / 67.0;
+  for (int h = -8; h <= 8; ++h) {
+    for (int k = -8; k <= 8; ++k) {
+      for (int l = -8; l <= 8; ++l) {
+        if (!h && !k && !l) continue;
+        one.push_back({h * d, k * d, l * d});
+      }
+    }
+  }
+  const double truth = estimate_max_cell(one);
+  check::close(truth, 100.5, 1.0, "one turn gives the right cell");
+
+  // A deterministic scatter, so the test cannot pass or fail by luck.
+  std::uint64_t state = 4321;
+  const auto jitter = [&state](double scale) {
+    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+    const double u = static_cast<double>((state >> 11) & ((1ULL << 53) - 1)) /
+                     static_cast<double>(1ULL << 53);
+    return (u - 0.5) * 2.0 * scale;
+  };
+
+  for (double scale : {1e-4, 1e-3}) {
+    std::vector<Vec3> many;
+    std::vector<int> groups;
+    for (int turn = 0; turn < 10; ++turn) {
+      for (const Vec3 &p : one) {
+        many.push_back({p.x + jitter(scale), p.y + jitter(scale),
+                        p.z + jitter(scale)});
+        groups.push_back(turn);
+      }
+    }
+    const double ungrouped = estimate_max_cell(many);
+    const double grouped = estimate_max_cell(many, groups);
+    check::is_true(ungrouped > 3.0 * truth,
+                   "ungrouped is wrong, which is why the grouping exists");
+    check::is_true(grouped < 1.5 * truth,
+                   "grouped stays close to the one-turn answer");
+  }
+}
+
+TEST(a_sweep_shorter_than_a_turn_is_all_one_group) {
+  // The grouping must not split a sweep that never comes round again: doing so
+  // would compare each point with a fraction of the lattice and estimate a
+  // cell that is too large, which is the bug it was written to fix.
+  Experiment e;
+  e.beam.direction = {0.0, 0.0, 1.0};
+  e.beam.wavelength = 1.0;
+  e.goniometer.axis = {1.0, 0.0, 0.0};
+  e.scan.first_image = 1;
+  e.scan.last_image = 180;
+  e.scan.osc_start = 0.0;
+  e.scan.osc_width = 1.0;  // 180 degrees in total
+  ExperimentList list;
+  list.experiments.push_back(e);
+
+  Table t;
+  t.nrows = 5;
+  Column &obs = t.real_column("xyzobs.px.value", "vec3<double>", 3);
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    obs.reals[i * 3 + 2] = static_cast<double>(i) * 40.0;  // 0 to 160 degrees
+  }
+  const std::vector<int> groups = observation_groups(list, t);
+  for (std::size_t i = 1; i < groups.size(); ++i) {
+    check::equal(static_cast<long long>(groups[i]),
+                 static_cast<long long>(groups[0]),
+                 "half a turn is one group");
+  }
+
+  // And three full turns are three.
+  e.scan.last_image = 1080;
+  list.experiments[0] = e;
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    obs.reals[i * 3 + 2] = static_cast<double>(i) * 250.0;
+  }
+  const std::vector<int> spread = observation_groups(list, t);
+  check::is_true(spread.front() != spread.back(),
+                 "a thousand degrees apart is not the same turn");
+}

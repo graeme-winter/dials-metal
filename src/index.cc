@@ -59,6 +59,56 @@ std::vector<Vec3> reciprocal_lattice_points(const ExperimentList &experiments,
   return out;
 }
 
+std::vector<int> observation_groups(const ExperimentList &experiments,
+                                    const Table &reflections) {
+  std::vector<int> groups(reflections.nrows, 0);
+  if (!reflections.has("xyzobs.px.value")) return groups;
+  const Column &obs = reflections.at("xyzobs.px.value");
+  const bool has_id = reflections.has("id");
+  for (std::size_t i = 0; i < reflections.nrows; ++i) {
+    std::size_t which = 0;
+    if (has_id) {
+      const std::int64_t id = reflections.at("id").integer(i);
+      if (id >= 0 && static_cast<std::size_t>(id) < experiments.size()) {
+        which = static_cast<std::size_t>(id);
+      }
+    }
+    const Scan &scan = experiments[which].scan;
+    const double phi = Scan::degrees(scan.phi_from_z(obs.real(i, 2)));
+    // Which 360 degree turn, counted from zero. A sweep that does not reach a
+    // full turn puts everything in one group and nothing changes.
+    const int turn = static_cast<int>(std::floor(phi / 360.0));
+    groups[i] = static_cast<int>(which) * 4096 + turn;
+  }
+  return groups;
+}
+
+double estimate_max_cell(const std::vector<Vec3> &points,
+                         const std::vector<int> &groups) {
+  if (points.size() < 4) return 0.0;
+  if (groups.size() != points.size()) return estimate_max_cell(points);
+  const std::size_t sample = std::min<std::size_t>(500, points.size());
+  const std::size_t step = std::max<std::size_t>(1, points.size() / sample);
+  constexpr double kCoincident = 1e-4;
+
+  std::vector<double> nearest;
+  for (std::size_t i = 0; i < points.size(); i += step) {
+    double best = 1e30;
+    for (std::size_t j = 0; j < points.size(); ++j) {
+      if (i == j || groups[i] != groups[j]) continue;
+      const double d = (points[i] - points[j]).norm_squared();
+      if (d > kCoincident * kCoincident && d < best) best = d;
+    }
+    if (best < 1e29) nearest.push_back(std::sqrt(best));
+  }
+  if (nearest.empty()) return 0.0;
+  std::nth_element(nearest.begin(), nearest.begin() + nearest.size() / 2,
+                   nearest.end());
+  const double median = nearest[nearest.size() / 2];
+  if (!(median > 0.0)) return 0.0;
+  return 1.5 / median;
+}
+
 double estimate_max_cell(const std::vector<Vec3> &points) {
   if (points.size() < 4) return 0.0;
   // The nearest-neighbour distance between reciprocal lattice points is, for a
@@ -477,7 +527,12 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
 
   const double t_max_cell = now_seconds();
   double max_cell = options.max_cell;
-  if (max_cell <= 0.0) max_cell = estimate_max_cell(points);
+  if (max_cell <= 0.0) {
+    // Grouped by sweep and turn, so that a reflection measured again on the
+    // next rotation is not mistaken for a neighbour of itself.
+    max_cell = estimate_max_cell(points,
+                                 observation_groups(experiments, reflections));
+  }
   if (!(max_cell > 0.0)) return result;
   result.timing.max_cell = now_seconds() - t_max_cell;
 

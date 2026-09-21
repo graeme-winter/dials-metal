@@ -127,6 +127,33 @@ std::vector<Vec3> reciprocal_lattice_points(const ExperimentList &experiments,
 // reciprocal lattice points.
 double estimate_max_cell(const std::vector<Vec3> &points);
 
+//: The same, comparing each point only with others in its own group.
+//:
+//: A reflection measured on turn n and again on turn n+1 is at the same place
+//: in the crystal frame -- rotating s1 back by phi and by phi + 360 degrees
+//: gives the same vector -- so on a sweep of ten full rotations every point
+//: has nine near-copies of itself, separated only by the error in its
+//: centroid. The nearest-neighbour spacing then measures that error rather
+//: than the lattice: on a synthetic cubic lattice with a hundred-Angstrom
+//: cell and a realistic 1e-4 scatter, the estimate came out at 11231
+//: Angstroms.
+//:
+//: A distance floor cannot fix that, because the scatter and the lattice
+//: spacing are not separated by a threshold that holds for every dataset --
+//: the existing floor of 1e-4 sits exactly where the failure is worst.
+//: Grouping does fix it, by construction: points from different turns are
+//: never compared, so the copies cannot be found.
+//:
+//: `groups[i]` identifies the sweep and turn of `points[i]`; any labelling
+//: works as long as repeated observations of one reflection get different
+//: labels.
+double estimate_max_cell(const std::vector<Vec3> &points,
+                         const std::vector<int> &groups);
+
+//: Which sweep and rotation each reflection was measured on, for the above.
+std::vector<int> observation_groups(const ExperimentList &experiments,
+                                    const Table &reflections);
+
 // Candidate real-space basis vectors, strongest first.
 std::vector<Vec3> find_candidate_vectors(const std::vector<Vec3> &points,
                                          const IndexOptions &options,
