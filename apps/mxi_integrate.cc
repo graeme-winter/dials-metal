@@ -56,6 +56,8 @@ void usage(const char *program) {
       "  --d-min D         resolution limit\n"
       "  --first-image N --last-image N   restrict to part of the scan\n"
       "  --gain G          detector gain, counts per photon (1)\n"
+      "  --block-size N    images held in memory at once (50). Every shoebox\n"
+      "                    at once is 233 GB on ten rotations of insulin\n"
       "  --save-shoeboxes  keep the pixels and the mask in the output\n",
       program);
 }
@@ -73,7 +75,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images"};
+      "--gain",      "--save-shoeboxes", "--images", "--block-size"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
@@ -222,12 +224,24 @@ int main(int argc, char **argv) {
         args.number("--last-image", static_cast<double>(e.scan.num_images()));
     std::printf("%zu reflections predicted\n", predictions.size());
 
-    // Every box is built first, because a shoebox spans several frames and a
-    // frame serves many shoeboxes: the loop has to be over frames with the
-    // boxes waiting, or every frame is read as many times as it has
-    // reflections on it.
-    std::vector<Shoebox> boxes;
-    std::vector<const Prediction *> kept;
+    // TWO PASSES, AND WHY
+    //
+    // Every shoebox cannot exist at once. Ten rotations of insulin is 7.4
+    // million reflections and, at about 3500 voxels each, 233 GB of pixels. So
+    // the first pass works out every bounding box and keeps nothing but the
+    // box, and the second walks the scan in blocks of images, holding only the
+    // shoeboxes of the block it is on.
+    //
+    // A reflection belongs to the block its FIRST image falls in, and a block
+    // reads whatever frames its reflections span -- which is a few images past
+    // its own end. Splitting a reflection across two blocks would integrate
+    // half of it twice, so the blocks overlap in what they read and never in
+    // what they own.
+    struct Planned {
+      const Prediction *prediction;
+      std::int32_t bbox[6];
+    };
+    std::vector<Planned> planned;
     std::map<std::string, std::size_t> refused;
     std::size_t outside_range = 0;
     for (const Prediction &p : predictions) {
@@ -235,101 +249,35 @@ int main(int argc, char **argv) {
         ++outside_range;
         continue;
       }
-      Shoebox box;
+      Planned item;
+      item.prediction = &p;
       BoxRejection why = BoxRejection::kNone;
-      if (!build_shoebox(e, p, mask_options, &box, &why)) {
+      if (!integration_bbox(e, p, mask_options, item.bbox, &why)) {
         ++refused[describe(why)];
         continue;
       }
-      box.data.assign(box.size(), 0.0f);
-      boxes.push_back(std::move(box));
-      kept.push_back(&p);
+      planned.push_back(item);
     }
-    std::printf("%zu shoeboxes to fill\n", boxes.size());
-    // Every prediction that did not become a box, by reason. Half of them
-    // vanishing with no explanation is not something a program should make
-    // anyone guess about.
+    std::printf("%zu shoeboxes to fill\n", planned.size());
     if (outside_range > 0) {
       std::printf("  %zu outside the image range\n", outside_range);
     }
     for (const auto &entry : refused) {
       std::printf("  %zu %s\n", entry.second, entry.first.c_str());
     }
-    if (boxes.empty()) return 1;
+    if (planned.empty()) return 1;
 
-    std::map<std::int64_t, std::vector<std::size_t>> by_frame;
-    for (std::size_t i = 0; i < boxes.size(); ++i) {
-      for (std::int32_t z = boxes[i].bbox[4]; z < boxes[i].bbox[5]; ++z) {
-        by_frame[z].push_back(i);
-      }
-    }
+    // In order of first image, so a block is a contiguous run of this vector.
+    std::sort(planned.begin(), planned.end(),
+              [](const Planned &a, const Planned &b) {
+                return a.bbox[4] < b.bbox[4];
+              });
 
-    std::unique_ptr<series::Reader> reader = images->reader();
-    series::Frame frame;
-    std::vector<std::uint8_t> pixels;
-    std::size_t frames_read = 0;
-    std::size_t bad_pixels = 0;
-    for (const std::string &key : images->ready()) {
-      if (!reader->read(key, &frame)) continue;
-      const auto found = by_frame.find(frame.number);
-      if (found == by_frame.end()) continue;  // no shoebox needs this one
+    const std::size_t block_size =
+        static_cast<std::size_t>(std::max(1.0, args.number("--block-size", 50.0)));
 
-      const std::size_t height = static_cast<std::size_t>(frame.height);
-      const std::size_t width = static_cast<std::size_t>(frame.width);
-      const std::size_t bytes =
-          decompress::frame_bytes(height, width, frame.bit_depth);
-      pixels.resize(bytes);
-      decompress::image(frame.data, frame.algorithm, frame.bit_depth, height,
-                        width, {pixels.data(), bytes});
-      ++frames_read;
-
-      // The largest representable value is the detector's bad-pixel marker,
-      // not a count: 65535 on a 16-bit Eiger, which is 5.8 per cent of a frame
-      // -- module gaps and dead pixels. Reading it as data puts seventeen
-      // billion counts on a frame that has one and a half million.
-      const auto fill = [&](auto typed, std::uint32_t bad) {
-        using Pixel = decltype(typed);
-        const Pixel *const raw = reinterpret_cast<const Pixel *>(pixels.data());
-        for (std::size_t which : found->second) {
-          Shoebox &box = boxes[which];
-          const std::int32_t zi =
-              static_cast<std::int32_t>(frame.number) - box.bbox[4];
-          for (std::int32_t y = 0; y < box.ny(); ++y) {
-            const std::size_t row =
-                static_cast<std::size_t>(box.bbox[2] + y) * width;
-            for (std::int32_t x = 0; x < box.nx(); ++x) {
-              const std::size_t at =
-                  row + static_cast<std::size_t>(box.bbox[0] + x);
-              const std::size_t into = box.at(x, y, zi);
-              const std::uint32_t v = static_cast<std::uint32_t>(raw[at]);
-              if (v == bad) {
-                // Neither foreground nor background: excluded from both sums
-                // rather than counted as zero, which would drag the background
-                // down wherever a module gap crosses a shoebox.
-                box.mask[into] = 0;
-                ++bad_pixels;
-              } else {
-                box.data[into] = static_cast<float>(v);
-              }
-            }
-          }
-        }
-      };
-      if (frame.bit_depth == 16) {
-        fill(std::uint16_t{}, 0xFFFFu);
-      } else if (frame.bit_depth == 32) {
-        fill(std::uint32_t{}, 0xFFFFFFFFu);
-      } else {
-        throw std::runtime_error("unsupported bit depth " +
-                                 std::to_string(frame.bit_depth));
-      }
-    }
-    std::printf("%zu frames read, %zu bad pixels masked\n", frames_read,
-                bad_pixels);
-
-    // Integrate.
     Table out;
-    out.nrows = boxes.size();
+    out.nrows = planned.size();
     Column &miller = out.int_column("miller_index", "cctbx::miller::index<>", 3);
     Column &panel_column = out.int_column("panel", "std::size_t", 1);
     Column &id = out.int_column("id", "int", 1);
@@ -350,52 +298,156 @@ int main(int argc, char **argv) {
     Column &bsumvar = out.real_column("background.sum.variance", "double", 1);
     Column &qe_column = out.real_column("qe", "double", 1);
 
+    const bool save = args.has("--save-shoeboxes");
+    std::string shoebox_bytes;
+
+    std::unique_ptr<series::Reader> reader = images->reader();
+    const std::vector<std::string> keys = images->ready();
+    // Frame number to key, so a block can ask for the frames it needs rather
+    // than walking every key it does not.
+    std::map<std::int64_t, std::string> key_of;
+    for (const std::string &key : keys) {
+      series::Frame probe;
+      if (reader->read(key, &probe)) key_of[probe.number] = key;
+    }
+
+    series::Frame frame;
+    std::vector<std::uint8_t> pixels;
+    std::size_t frames_read = 0;
+    std::size_t bad_pixels = 0;
+    std::size_t integrated = 0;
+    std::size_t at = 0;
     const Vec3 s0 = e.beam.s0();
     const Vec3 axis = e.goniometer.lab_axis();
-    std::size_t integrated = 0;
-    for (std::size_t i = 0; i < boxes.size(); ++i) {
-      const Prediction &p = *kept[i];
-      const IntegratedReflection r =
-          integrate_shoebox(&boxes[i], integrate_options);
-      miller.ints[i * 3 + 0] = p.h;
-      miller.ints[i * 3 + 1] = p.k;
-      miller.ints[i * 3 + 2] = p.l;
-      panel_column.ints[i] = static_cast<std::int64_t>(p.panel);
-      id.ints[i] = 0;
-      imageset.ints[i] = 0;
-      flags.ints[i] =
-          flag::kPredicted | (r.valid ? flag::kIntegratedSum : 0);
-      entering.ints[i] = p.s1.dot(axis.cross(s0)) > 0.0 ? 1 : 0;
-      for (int k = 0; k < 6; ++k) bbox.ints[i * 6 + k] = boxes[i].bbox[k];
-      n_fg.ints[i] = static_cast<std::int64_t>(r.n_foreground);
-      n_bg.ints[i] = static_cast<std::int64_t>(r.n_background);
-      n_val.ints[i] = static_cast<std::int64_t>(r.n_valid);
-      cal_px.reals[i * 3 + 0] = p.px_fast;
-      cal_px.reals[i * 3 + 1] = p.px_slow;
-      cal_px.reals[i * 3 + 2] = p.z;
-      const auto mm = panel.px_to_mm(p.px_fast, p.px_slow);
-      cal_mm.reals[i * 3 + 0] = mm.first;
-      cal_mm.reals[i * 3 + 1] = mm.second;
-      cal_mm.reals[i * 3 + 2] = p.phi;
-      for (int k = 0; k < 3; ++k) s1_column.reals[i * 3 + k] = p.s1[k];
-      isum.reals[i] = r.intensity;
-      ivar.reals[i] = r.variance;
-      bmean.reals[i] = r.background_mean;
-      bsum.reals[i] = r.background_sum;
-      bsumvar.reals[i] = r.background_sum_variance;
-      qe_column.reals[i] = quantum_efficiency(panel, p.s1);
-      if (r.valid) ++integrated;
-    }
-    std::printf("%zu of %zu integrated\n", integrated, boxes.size());
 
-    if (args.has("--save-shoeboxes")) {
+    while (at < planned.size()) {
+      const std::int32_t block_start = planned[at].bbox[4];
+      const std::int32_t block_end =
+          block_start + static_cast<std::int32_t>(block_size);
+      std::size_t stop = at;
+      std::int32_t highest = block_start;
+      while (stop < planned.size() && planned[stop].bbox[4] < block_end) {
+        highest = std::max(highest, planned[stop].bbox[5]);
+        ++stop;
+      }
+
+      std::vector<Shoebox> boxes;
+      boxes.reserve(stop - at);
+      for (std::size_t i = at; i < stop; ++i) {
+        Shoebox box;
+        if (!build_shoebox(e, *planned[i].prediction, mask_options, &box)) {
+          // It had a box a moment ago, so this cannot happen; if it ever does,
+          // an empty box integrates to nothing rather than shifting every row
+          // after it.
+          box.panel = 0;
+          for (int k = 0; k < 6; ++k) box.bbox[k] = planned[i].bbox[k];
+        }
+        box.data.assign(box.size(), 0.0f);
+        boxes.push_back(std::move(box));
+      }
+
+      for (std::int32_t z = block_start; z < highest; ++z) {
+        const auto found = key_of.find(z);
+        if (found == key_of.end()) continue;
+        if (!reader->read(found->second, &frame)) continue;
+        const std::size_t height = static_cast<std::size_t>(frame.height);
+        const std::size_t width = static_cast<std::size_t>(frame.width);
+        const std::size_t bytes =
+            decompress::frame_bytes(height, width, frame.bit_depth);
+        pixels.resize(bytes);
+        decompress::image(frame.data, frame.algorithm, frame.bit_depth, height,
+                          width, {pixels.data(), bytes});
+        ++frames_read;
+
+        const auto fill = [&](auto typed, std::uint32_t bad) {
+          using Pixel = decltype(typed);
+          const Pixel *const raw =
+              reinterpret_cast<const Pixel *>(pixels.data());
+          for (std::size_t i = 0; i < boxes.size(); ++i) {
+            Shoebox &box = boxes[i];
+            if (z < box.bbox[4] || z >= box.bbox[5]) continue;
+            const std::int32_t zi = z - box.bbox[4];
+            for (std::int32_t y = 0; y < box.ny(); ++y) {
+              const std::size_t row =
+                  static_cast<std::size_t>(box.bbox[2] + y) * width;
+              for (std::int32_t x = 0; x < box.nx(); ++x) {
+                const std::size_t index =
+                    row + static_cast<std::size_t>(box.bbox[0] + x);
+                const std::size_t into = box.at(x, y, zi);
+                const std::uint32_t v = static_cast<std::uint32_t>(raw[index]);
+                // The largest representable value is the detector's bad-pixel
+                // marker, not a count: 5.8 per cent of an Eiger frame, module
+                // gaps and dead pixels. Excluded from both sums rather than
+                // counted as zero, which would drag the background down
+                // wherever a gap crosses a shoebox.
+                if (v == bad) {
+                  box.mask[into] = 0;
+                  ++bad_pixels;
+                } else {
+                  box.data[into] = static_cast<float>(v);
+                }
+              }
+            }
+          }
+        };
+        if (frame.bit_depth == 16) {
+          fill(std::uint16_t{}, 0xFFFFu);
+        } else if (frame.bit_depth == 32) {
+          fill(std::uint32_t{}, 0xFFFFFFFFu);
+        } else {
+          throw std::runtime_error("unsupported bit depth " +
+                                   std::to_string(frame.bit_depth));
+        }
+      }
+
+      for (std::size_t i = at; i < stop; ++i) {
+        Shoebox &box = boxes[i - at];
+        const Prediction &p = *planned[i].prediction;
+        const IntegratedReflection r =
+            integrate_shoebox(&box, integrate_options);
+        miller.ints[i * 3 + 0] = p.h;
+        miller.ints[i * 3 + 1] = p.k;
+        miller.ints[i * 3 + 2] = p.l;
+        panel_column.ints[i] = static_cast<std::int64_t>(p.panel);
+        id.ints[i] = 0;
+        imageset.ints[i] = 0;
+        flags.ints[i] =
+            flag::kPredicted | (r.valid ? flag::kIntegratedSum : 0);
+        entering.ints[i] = p.s1.dot(axis.cross(s0)) > 0.0 ? 1 : 0;
+        for (int k = 0; k < 6; ++k) bbox.ints[i * 6 + k] = box.bbox[k];
+        n_fg.ints[i] = static_cast<std::int64_t>(r.n_foreground);
+        n_bg.ints[i] = static_cast<std::int64_t>(r.n_background);
+        n_val.ints[i] = static_cast<std::int64_t>(r.n_valid);
+        cal_px.reals[i * 3 + 0] = p.px_fast;
+        cal_px.reals[i * 3 + 1] = p.px_slow;
+        cal_px.reals[i * 3 + 2] = p.z;
+        const auto mm = panel.px_to_mm(p.px_fast, p.px_slow);
+        cal_mm.reals[i * 3 + 0] = mm.first;
+        cal_mm.reals[i * 3 + 1] = mm.second;
+        cal_mm.reals[i * 3 + 2] = p.phi;
+        for (int k = 0; k < 3; ++k) s1_column.reals[i * 3 + k] = p.s1[k];
+        isum.reals[i] = r.intensity;
+        ivar.reals[i] = r.variance;
+        bmean.reals[i] = r.background_mean;
+        bsum.reals[i] = r.background_sum;
+        bsumvar.reals[i] = r.background_sum_variance;
+        qe_column.reals[i] = quantum_efficiency(panel, p.s1);
+        if (r.valid) ++integrated;
+      }
+      if (save) shoebox_bytes += encode_shoeboxes(boxes);
+      at = stop;
+    }
+    std::printf("%zu frames read, %zu bad pixels masked\n", frames_read,
+                bad_pixels);
+    std::printf("%zu of %zu integrated\n", integrated, planned.size());
+
+    if (save) {
       Table::Opaque column;
       column.type = "Shoebox<>";
-      column.bytes = encode_shoeboxes(boxes);
-      column.rows = boxes.size();
+      column.rows = planned.size();
+      std::printf("shoeboxes kept: %.1f MB\n", shoebox_bytes.size() / 1e6);
+      column.bytes = std::move(shoebox_bytes);
       out.set_opaque("shoebox", std::move(column));
-      std::printf("shoeboxes kept: %.1f MB\n",
-                  out.opaque().at("shoebox").bytes.size() / 1e6);
     }
     if (!e.identifier.empty()) out.identifiers[0] = e.identifier;
 

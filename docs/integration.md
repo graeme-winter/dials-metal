@@ -798,6 +798,28 @@ The patch went into `predict_indices` first and changed nothing, because
 `predict` has its own copy of the loop and is the one that runs. There is now
 one emitter that both call.
 
+**It streams the scan in blocks.** Every shoebox cannot exist at once: ten
+rotations of insulin is 7.4 million reflections and, at about 3500 voxels each,
+233 GB of pixels. Building them all and then filling them all is what the first
+version did, and it is not a thing that can be made to work by any amount of
+care elsewhere.
+
+Two passes. The first works out every bounding box and keeps nothing but the
+box -- 24 bytes a reflection, not 31 kB. The second walks the scan in blocks of
+images, holding only the shoeboxes of the block it is on. A reflection belongs
+to the block its FIRST image falls in, and a block reads whatever frames its
+own reflections span, which is usually a few images past its end: splitting a
+reflection across two blocks would integrate half of it twice, so the blocks
+overlap in what they read and never in what they own.
+
+    --block-size     peak memory
+              10         80 MB
+              50        192 MB
+            4000        872 MB   (the whole thirty degree scan at once)
+
+and the answer does not depend on it: 21032 reflections, with the Miller
+indices, intensities and variances identical between all three.
+
 Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It
