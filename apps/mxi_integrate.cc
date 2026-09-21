@@ -178,8 +178,8 @@ void usage(const char *program) {
       "  --save-shoeboxes  keep the pixels and the mask in the output\n"
       "  --threads N       threads fetching and decompressing frames; 0 is one\n"
       "                    per core, 1 is none (0)\n"
-      "  --queue-depth N   frames decompressed ahead of the loop (8). A frame\n"
-      "                    of a 16M detector is 72 MB decompressed\n"
+      "  --window N        frames per window (1000)\n"
+      "  --max-boxes N     shoeboxes per window (4000); about 31 kB each\n"
       "  --timing          where the time went, by phase\n",
       program);
 }
@@ -197,7 +197,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--queue-depth"};
+      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
@@ -482,10 +482,8 @@ int main(int argc, char **argv) {
     const Vec3 axis = e.goniometer.lab_axis();
 
     // The shoeboxes currently open, by their row in the table.
-    std::map<std::size_t, Shoebox> open;
-    std::size_t next = 0;
 
-    const auto close = [&](std::size_t row, Shoebox *box) {
+    const auto close = [&](std::size_t row, Shoebox *box) -> bool {
       const Prediction &p = *planned[row].prediction;
       const IntegratedReflection r = integrate_shoebox(box, integrate_options);
       miller.ints[row * 3 + 0] = p.h;
@@ -549,134 +547,159 @@ int main(int argc, char **argv) {
       obs_mm.reals[row * 3 + 0] = obs_mm_pair.first;
       obs_mm.reals[row * 3 + 1] = obs_mm_pair.second;
       obs_mm.reals[row * 3 + 2] = e.scan.phi_from_z(oz);
-      if (r.valid) ++integrated;
-      if (save) saved[row] = std::move(*box);
+      return r.valid;
     };
 
-    // The workers fetch and decompress; this thread does everything that
-    // touches a shoebox. The keys are handed out by an atomic counter, and
-    // each frame is labelled with its own number so the consumer can take
-    // them in order however they finish.
+    // WINDOWS, AND WHY NOT A PIPELINE
+    //
+    // Threading only the reads settles at about one core in use. The thread
+    // that owns the shoeboxes has 111 of the 310 seconds of work on it --
+    // building masks, filling, background and summation -- so the readers
+    // finish their lookahead and wait. No amount of reader threads fixes that.
+    //
+    // The in-order constraint that forced the pipeline is not actually
+    // needed. A frame writes only its own z plane of a shoebox, so two frames
+    // of the same box can be filled by two threads at once without touching
+    // the same double. What needs ordering is nothing; what needs a box to
+    // exist is everything.
+    //
+    // So the scan is cut into windows of frames. Within a window: the boxes
+    // are built in parallel, the frames are fetched, decompressed and filled
+    // in parallel, and the boxes are integrated in parallel. Nothing is
+    // serialised except the window boundary.
+    //
+    // A box belongs to the window its first frame falls in and the window
+    // reads past its own end to finish it, so a window wants to be much
+    // longer than a shoebox: at a thousand frames the overhead is under one
+    // per cent, and holds about ten thousand boxes, which is 320 MB.
     std::size_t workers = static_cast<std::size_t>(args.number("--threads", 0.0));
     if (workers == 0) {
       workers = std::thread::hardware_concurrency();
       if (workers == 0) workers = 1;
     }
-    workers = std::min(workers, keys.size());
-    const std::size_t depth =
-        static_cast<std::size_t>(std::max(1.0, args.number("--queue-depth", 8.0)));
-    FrameQueue queue(depth);
-    std::atomic<std::size_t> handed_out{0};
-    std::vector<std::thread> pool;
-    std::atomic<double> fetch_seconds{0.0};
-    std::atomic<double> decompress_seconds{0.0};
+    const std::size_t window =
+        static_cast<std::size_t>(std::max(1.0, args.number("--window", 1000.0)));
+    // A safety net, not the primary bound. The window has to be long compared
+    // with a shoebox or the frames it reads past its own end dominate: at four
+    // thousand boxes a three hundred frame sweep becomes six windows of fifty
+    // frames and reads 748 of them instead of 321, and decompression goes from
+    // 1.13 seconds to 2.66. At twenty thousand -- about 620 MB in flight --
+    // the frame count is back to 321.
+    const std::size_t max_boxes =
+        static_cast<std::size_t>(std::max(1.0, args.number("--max-boxes", 20000.0)));
+    std::printf("%zu threads, windows of %zu frames or %zu shoeboxes\n", workers,
+                window, max_boxes);
 
-    if (workers > 1) {
-      for (std::size_t t = 0; t < workers; ++t) {
-        pool.emplace_back([&, t]() {
-          // Each worker holds its own Reader: HDF5 cannot be entered from two
-          // threads at once, and the library's own mutex serialises the fetch
-          // while the decompression runs outside it.
-          std::unique_ptr<series::Reader> mine = images->reader();
-          series::Frame raw;
-          for (;;) {
-            const std::size_t which = handed_out.fetch_add(1);
-            if (which >= keys.size()) break;
-            queue.wait_for_room(which);
-            const double t0 = now_wall();
-            if (!mine->read(keys[which], &raw)) {
-              queue.skip(static_cast<std::int64_t>(which));
-              continue;
-            }
-            const double t1 = now_wall();
-            FrameQueue::Decoded decoded;
-            decoded.number = raw.number;
-            decoded.bit_depth = raw.bit_depth;
-            decoded.height = static_cast<std::size_t>(raw.height);
-            decoded.width = static_cast<std::size_t>(raw.width);
-            const std::size_t bytes = decompress::frame_bytes(
-                decoded.height, decoded.width, raw.bit_depth);
-            decoded.pixels.resize(bytes);
-            decompress::image(raw.data, raw.algorithm, raw.bit_depth,
-                              decoded.height, decoded.width,
-                              {decoded.pixels.data(), bytes});
-            const double t2 = now_wall();
-            // Relaxed adds: these are for the timing report, not for anything
-            // the result depends on.
-            for (double *acc : {static_cast<double *>(nullptr)}) (void)acc;
-            fetch_seconds.store(fetch_seconds.load() + (t1 - t0));
-            decompress_seconds.store(decompress_seconds.load() + (t2 - t1));
-            queue.put(std::move(decoded));
-          }
-        });
+    //: Run `count` units of work over the pool, by index.
+    const auto in_parallel = [&](std::size_t count, auto &&body) {
+      if (count == 0) return;
+      const std::size_t n = std::min(workers, count);
+      if (n <= 1) {
+        for (std::size_t i = 0; i < count; ++i) body(i);
+        return;
       }
-    }
-
-    std::int64_t previous = -1;
-    for (std::size_t index = 0; index < keys.size(); ++index) {
-      FrameQueue::Decoded decoded;
-      bool have = false;
-      if (workers > 1) {
-        const double t0 = now_wall();
-        have = queue.take(static_cast<std::int64_t>(index), &decoded);
-        t_fetch += now_wall() - t0;
-      } else {
-        const double t0 = now_wall();
-        if (reader->read(keys[index], &frame)) {
-          t_fetch += now_wall() - t0;
-          const double t1 = now_wall();
-          decoded.number = frame.number;
-          decoded.bit_depth = frame.bit_depth;
-          decoded.height = static_cast<std::size_t>(frame.height);
-          decoded.width = static_cast<std::size_t>(frame.width);
-          const std::size_t bytes = decompress::frame_bytes(
-              decoded.height, decoded.width, frame.bit_depth);
-          decoded.pixels.resize(bytes);
-          decompress::image(frame.data, frame.algorithm, frame.bit_depth,
-                            decoded.height, decoded.width,
-                            {decoded.pixels.data(), bytes});
-          t_decompress += now_wall() - t1;
-          have = true;
+      std::atomic<std::size_t> next_unit{0};
+      std::vector<std::thread> pool;
+      pool.reserve(n - 1);
+      const auto run = [&]() {
+        for (;;) {
+          const std::size_t i = next_unit.fetch_add(1);
+          if (i >= count) break;
+          body(i);
         }
-      }
-      if (workers > 1) queue.consumed(index);
-      if (!have) continue;
-      const std::int32_t z = static_cast<std::int32_t>(decoded.number);
-      if (decoded.number <= previous) {
-        throw std::runtime_error(
-            "the image series returned frame " + std::to_string(decoded.number) +
-            " after " + std::to_string(previous) +
-            "; this reads them in order and cannot take them out of it");
-      }
-      previous = decoded.number;
+      };
+      for (std::size_t t = 1; t < n; ++t) pool.emplace_back(run);
+      run();
+      for (std::thread &t : pool) t.join();
+    };
 
-      // Open everything that starts at or before this frame.
+    std::vector<Shoebox> boxes;
+    std::size_t at = 0;
+    while (at < planned.size()) {
+      const std::int32_t window_start = planned[at].bbox[4];
+      const std::int32_t window_end =
+          window_start + static_cast<std::int32_t>(window);
+      // Bounded by frames AND by boxes. Frames alone is not enough: a window
+      // of a thousand frames swallows a three hundred frame sweep whole, which
+      // is 21032 boxes and 650 MB, and the allocation costs more than the
+      // parallelism saves -- measured at 16.7 seconds against 4.5 for the
+      // version this replaced.
+      std::size_t stop = at;
+      std::int32_t highest = window_start;
+      while (stop < planned.size() && planned[stop].bbox[4] < window_end &&
+             stop - at < max_boxes) {
+        highest = std::max(highest, planned[stop].bbox[5]);
+        ++stop;
+      }
+      const std::size_t count = stop - at;
+
+      // The boxes, built in parallel: this is the mask, and it was 46 seconds.
       const double t_open_start = now_wall();
-      while (next < planned.size() && planned[next].bbox[4] <= z) {
-        Shoebox box;
+      boxes.assign(count, Shoebox{});
+      in_parallel(count, [&](std::size_t i) {
         BoxRejection ignored = BoxRejection::kNone;
-        if (build_shoebox(e, *planned[next].prediction, mask_options, &box,
-                          &ignored)) {
-          box.data.assign(box.size(), 0.0f);
-          open.emplace(next, std::move(box));
+        if (build_shoebox(e, *planned[at + i].prediction, mask_options,
+                          &boxes[i], &ignored)) {
+          boxes[i].data.assign(boxes[i].size(), 0.0f);
         }
-        ++next;
-      }
+      });
       t_open += now_wall() - t_open_start;
-      most_open = std::max(most_open, open.size());
+      most_open = std::max(most_open, count);
 
-      {
-        const std::size_t width = decoded.width;
-        ++frames_read;
-        const double t_fill_start = now_wall();
+      // Which boxes each frame touches, so a worker filling a frame knows
+      // what to write without searching every box in the window.
+      std::map<std::int32_t, std::vector<std::size_t>> touching;
+      for (std::size_t i = 0; i < count; ++i) {
+        for (std::int32_t z = boxes[i].bbox[4]; z < boxes[i].bbox[5]; ++z) {
+          touching[z].push_back(i);
+        }
+      }
+      std::vector<std::int32_t> frame_numbers;
+      frame_numbers.reserve(touching.size());
+      for (const auto &entry : touching) frame_numbers.push_back(entry.first);
+
+      // Fetch, decompress and fill, in parallel over frames. Each frame writes
+      // only its own z plane of each box it touches, so two frames of one box
+      // never touch the same voxel.
+      std::atomic<std::size_t> frames_done{0};
+      std::atomic<std::size_t> bad_here{0};
+      std::vector<double> fetch_by_thread(std::max<std::size_t>(workers, 1), 0.0);
+      std::vector<double> decompress_by_thread(fetch_by_thread.size(), 0.0);
+      std::vector<double> fill_by_thread(fetch_by_thread.size(), 0.0);
+      std::atomic<std::size_t> thread_slot{0};
+      in_parallel(frame_numbers.size(), [&](std::size_t which) {
+        thread_local std::unique_ptr<series::Reader> mine;
+        thread_local std::size_t slot = 0;
+        thread_local bool first = true;
+        if (first) {
+          mine = images->reader();
+          slot = thread_slot.fetch_add(1) % fetch_by_thread.size();
+          first = false;
+        }
+        const std::int32_t z = frame_numbers[which];
+        if (z < 0 || static_cast<std::size_t>(z) >= keys.size()) return;
+        series::Frame raw;
+        const double t0 = now_wall();
+        if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) return;
+        const double t1 = now_wall();
+        const std::size_t height = static_cast<std::size_t>(raw.height);
+        const std::size_t width = static_cast<std::size_t>(raw.width);
+        const std::size_t bytes =
+            decompress::frame_bytes(height, width, raw.bit_depth);
+        std::vector<std::uint8_t> pixels(bytes);
+        decompress::image(raw.data, raw.algorithm, raw.bit_depth, height, width,
+                          {pixels.data(), bytes});
+        const double t2 = now_wall();
+        frames_done.fetch_add(1);
 
         const auto fill = [&](auto typed, std::uint32_t bad) {
           using Pixel = decltype(typed);
-          const Pixel *const raw =
-              reinterpret_cast<const Pixel *>(decoded.pixels.data());
-          for (auto &entry : open) {
-            Shoebox &box = entry.second;
-            if (z < box.bbox[4] || z >= box.bbox[5]) continue;
+          const Pixel *const raw_pixels =
+              reinterpret_cast<const Pixel *>(pixels.data());
+          std::size_t bad_count = 0;
+          for (std::size_t i : touching[z]) {
+            Shoebox &box = boxes[i];
+            if (box.data.empty()) continue;
             const std::int32_t zi = z - box.bbox[4];
             for (std::int32_t y = 0; y < box.ny(); ++y) {
               const std::size_t row =
@@ -685,59 +708,67 @@ int main(int argc, char **argv) {
                 const std::size_t index =
                     row + static_cast<std::size_t>(box.bbox[0] + x);
                 const std::size_t into = box.at(x, y, zi);
-                const std::uint32_t v = static_cast<std::uint32_t>(raw[index]);
+                const std::uint32_t v =
+                    static_cast<std::uint32_t>(raw_pixels[index]);
                 // The largest representable value is the bad-pixel marker, not
-                // a count: excluded from both sums rather than counted as zero,
-                // which would drag the background down wherever a module gap
-                // crosses a shoebox.
+                // a count: excluded from both sums rather than counted as
+                // zero, which would drag the background down wherever a module
+                // gap crosses a shoebox.
                 if (v == bad) {
                   box.mask[into] = 0;
-                  ++bad_pixels;
+                  ++bad_count;
                 } else {
                   box.data[into] = static_cast<float>(v);
                 }
               }
             }
           }
+          bad_here.fetch_add(bad_count);
         };
-        if (decoded.bit_depth == 16) {
+        if (raw.bit_depth == 16) {
           fill(std::uint16_t{}, 0xFFFFu);
-        } else if (decoded.bit_depth == 32) {
+        } else if (raw.bit_depth == 32) {
           fill(std::uint32_t{}, 0xFFFFFFFFu);
         } else {
           throw std::runtime_error("unsupported bit depth " +
-                                   std::to_string(decoded.bit_depth));
+                                   std::to_string(raw.bit_depth));
         }
-        t_fill += now_wall() - t_fill_start;
-      }
+        const double t3 = now_wall();
+        fetch_by_thread[slot] += t1 - t0;
+        decompress_by_thread[slot] += t2 - t1;
+        fill_by_thread[slot] += t3 - t2;
+      });
+      frames_read += frames_done.load();
+      bad_pixels += bad_here.load();
+      const auto largest = [](const std::vector<double> &v) {
+        double most = 0.0;
+        for (double x : v) most = std::max(most, x);
+        return most;
+      };
+      // The busiest thread's share, which is what the wall clock saw.
+      t_fetch += largest(fetch_by_thread);
+      t_decompress += largest(decompress_by_thread);
+      t_fill += largest(fill_by_thread);
 
-      // Close everything that ends here.
+      // Integrate, in parallel over boxes: this was 53 seconds.
       const double t_close_start = now_wall();
-      for (auto it = open.begin(); it != open.end();) {
-        if (it->second.bbox[5] <= z + 1) {
-          close(it->first, &it->second);
-          it = open.erase(it);
-        } else {
-          ++it;
-        }
-      }
+      std::atomic<std::size_t> done{0};
+      in_parallel(count, [&](std::size_t i) {
+        if (boxes[i].data.empty()) return;
+        if (close(at + i, &boxes[i])) done.fetch_add(1);
+      });
+      integrated += done.load();
       t_integrate += now_wall() - t_close_start;
-    }
-    queue.halt();
-    for (std::thread &worker : pool) worker.join();
-    if (workers > 1) {
-      // The workers' own clocks, divided by how many of them there were: the
-      // report is wall time for this thread and their total would not fit in
-      // it.
-      t_fetch = fetch_seconds.load() / static_cast<double>(workers);
-      t_decompress = decompress_seconds.load() / static_cast<double>(workers);
-    }
 
-    // Anything still open ran past the end of the images.
-    for (auto &entry : open) close(entry.first, &entry.second);
-    open.clear();
+      if (save) {
+        for (std::size_t i = 0; i < count; ++i) saved[at + i] = std::move(boxes[i]);
+      }
+      boxes.clear();
+      at = stop;
+    }
     if (save) shoebox_bytes = encode_shoeboxes(saved);
-    std::printf("at most %zu shoeboxes open at once\n", most_open);
+    std::printf("at most %zu shoeboxes in a window\n", most_open);
+
     std::printf("%zu frames read, %zu bad pixels masked\n", frames_read,
                 bad_pixels);
     std::printf("%zu of %zu integrated\n", integrated, planned.size());

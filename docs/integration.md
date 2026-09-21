@@ -862,7 +862,7 @@ identical.
 
     21.0 s -> 8.5 s -> 3.9 s
 
-### Threading the frames
+### Threading: the reads were the wrong thing to thread
 
 On ten rotations, 310 seconds:
 
@@ -871,38 +871,40 @@ On ten rotations, 310 seconds:
     opening shoeboxes            46.137 s   14.9%
     prediction                   25.739 s    8.3%
     filling shoeboxes            11.755 s    3.8%
-    writing                       7.131 s    2.3%
-    fetching frames               2.642 s    0.9%
 
-Decompressing is half of it and is per frame with nothing shared. What does
-NOT thread is the bookkeeping: a shoebox spans several frames and is opened,
-filled and closed in frame order.
+Threading only the fetch and decompress settles at about 116 per cent of one
+core on a sixteen core machine, and the arithmetic says why: 46 + 12 + 53 is
+111 seconds of work on the thread that owns the shoeboxes, so the readers
+finish their lookahead and wait. No number of reader threads moves that.
 
-So the workers only fetch and decompress. Each holds its own `series::Reader`,
-because HDF5 cannot be entered from two threads at once and its own mutex
-serialises the fetch while the decompression runs outside it. Finished frames
-go into a buffer keyed by frame number and this thread takes them in sequence,
-which leaves every shoebox decision on one thread and needs no locking around
-the boxes at all.
+**The ordering that forced the pipeline was not needed.** A frame writes only
+its own z plane of a shoebox, so two frames of the same box can be filled by
+two threads without touching the same double. Nothing needs ordering; the boxes
+need only to exist.
 
-**Bounding the buffer deadlocks**, which it duly did on the first attempt. A
-worker holding frame zero waits for room while the buffer is full of frames one
-to eight, and the consumer waits for frame zero. The bound belongs on how far
-ahead work is handed out rather than on how much has come back: keys are handed
-out in order, so the frame the consumer wants was claimed before anything ahead
-of it, and a worker held back can never be one the consumer is waiting on.
+So the scan is cut into windows. Within one: the masks are built in parallel,
+the frames are fetched, decompressed and filled in parallel, and the boxes are
+integrated in parallel. Only the window boundary is serial.
 
-`--threads` sets the count, 0 being one per core and 1 the serial path;
-`--queue-depth` how far ahead to run, since a decompressed frame of a 16M
-detector is 72 MB.
+**The window must be long compared with a shoebox**, which the first two
+attempts were not. Bounded at a thousand frames it swallowed a three hundred
+frame sweep whole -- 21032 boxes, 650 MB, and the allocation cost more than the
+parallelism saved. Bounded at four thousand boxes instead it became six windows
+of fifty frames and read 748 frames instead of 321, with decompression going
+from 1.13 seconds to 2.66: the overlapping-block problem again, in a new place.
+Frames are the bound and boxes are a safety net, at twenty thousand.
 
-This container has one core, so the results are identical at 1, 2 and 4 threads
-and all three are the same speed or slower -- 4.5 seconds serial against 5.3
-with four threads, which is the queue's overhead with nothing to overlap. The
-speedup has to be measured where there are cores. The default degrades
-correctly: `hardware_concurrency` of one takes the serial path, byte for byte.
+**What this costs and what it cannot show.** This container has one core, where
+the window version is 5.2 seconds against the streaming version's 4.5 and peaks
+at 843 MB against 86. Both are real and neither is offset here; the case for it
+is that three phases now parallelise instead of one, and that is an argument
+rather than a measurement. The results are identical at every thread count, and
+the numbers to watch elsewhere are the total, the CPU share, and whether frames
+read stays near the frame count -- if it climbs, the window is too short.
 
-Three things the pixels settled that no synthetic test would have:
+`--threads`, `--window` and `--max-boxes` are the knobs.
+
+Three things the pixels settled that no synthetic test would have:Three things the pixels settled that no synthetic test would have:
 
 * **The bad-pixel marker is excluded from both sums, not counted as zero.** It
   is 5.8 per cent of a frame, module gaps and dead pixels, and 470000 voxels of
