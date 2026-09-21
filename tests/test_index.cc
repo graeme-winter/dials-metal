@@ -663,3 +663,73 @@ TEST(a_sweep_of_several_turns_predicts_each_reflection_once_per_turn) {
     check::equal(static_cast<long long>(off), 0, "and none is off the scan");
   }
 }
+
+TEST(a_scan_varying_crystal_also_predicts_once_per_turn) {
+  // The test above uses a scan-static crystal and passed while this was
+  // broken. converge_root answers with a crossing from ewald_intersections,
+  // which is in a principal 2 pi interval whatever it was seeded with, so the
+  // turn was lost on the way out -- and build then wrapped phi into the first
+  // turn anyway, because wrap_from returns a value in [lo, lo + 2 pi).
+  //
+  // On ten rotations of real data every shoebox landed in the first 3627
+  // frames of 36000 and the same pixels were integrated ten times over. What
+  // caught it was a diagnostic, not a test: "frames read (N wanted by a
+  // shoebox, each read 7.55 times)".
+  //
+  // So this asserts what the other test asserts, on a crystal that varies --
+  // which is every real one.
+  const auto sweep = [](int turns) {
+    Experiment e;
+    e.beam.direction = {0.0, 0.0, 1.0};
+    e.beam.wavelength = 0.9537;
+    Panel p;
+    p.fast = {1.0, 0.0, 0.0};
+    p.slow = {0.0, -1.0, 0.0};
+    p.pixel_size[0] = p.pixel_size[1] = 0.075;
+    p.image_size[0] = 2068;
+    p.image_size[1] = 2162;
+    p.origin = {-77.5, 81.1, -168.5};
+    e.detector.panels.push_back(p);
+    e.goniometer.axis = {1.0, 0.0, 0.0};
+    e.scan.first_image = 1;
+    e.scan.last_image = 3600 * turns;
+    e.scan.osc_start = 0.0;
+    e.scan.osc_width = 0.1;
+    const Mat3 r = rotation({0.3, -0.5, 0.81}, 0.7);
+    e.crystal = Crystal::from_real_space(r * Vec3{78, 0, 0}, r * Vec3{0, 78, 0},
+                                         r * Vec3{0, 0, 78});
+    // A scan-varying crystal: the same A at every point, so the geometry is
+    // identical to the static case and only the code path differs. Any
+    // difference in the answer is then the code path and nothing else.
+    e.crystal->A_points.assign(static_cast<std::size_t>(3600 * turns) + 1,
+                               e.crystal->A);
+    check::is_true(e.crystal->scan_varying(), "the crystal really does vary");
+    return e;
+  };
+
+  PredictOptions options;
+  options.d_min = 3.0;
+  const std::size_t one = predict(sweep(1), options).size();
+  check::is_true(one > 1000, "a single turn predicts something");
+
+  for (int turns : {2, 5, 10}) {
+    const Experiment e = sweep(turns);
+    const std::vector<Prediction> v = predict(e, options);
+    check::equal(static_cast<long long>(v.size()),
+                 static_cast<long long>(one) * turns,
+                 "one prediction per reflection per turn, scan-varying");
+
+    // And they are spread over the whole scan rather than piled into its
+    // first turn, which is the failure this is here for. Every turn should
+    // hold about the same number.
+    std::vector<std::size_t> per_turn(static_cast<std::size_t>(turns), 0);
+    for (const Prediction &p : v) {
+      const int turn = static_cast<int>(p.z / 3600.0);
+      if (turn >= 0 && turn < turns) ++per_turn[static_cast<std::size_t>(turn)];
+    }
+    for (std::size_t t = 0; t < per_turn.size(); ++t) {
+      check::is_true(per_turn[t] > one / 2,
+                     "every turn has its own share of the predictions");
+    }
+  }
+}

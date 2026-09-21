@@ -904,6 +904,39 @@ read stays near the frame count -- if it climbs, the window is too short.
 
 `--threads`, `--window` and `--max-boxes` are the knobs.
 
+### Every turn collapsed into the first, and a diagnostic found it
+
+    27366 frames read (3627 wanted by a shoebox, each read 7.55 times)
+
+3627 frames of a 36000 image sweep is one rotation. Every shoebox of all ten
+turns was landing in the first turn's frames, so the same pixels were
+integrated ten times over and every intensity of that run was wrong.
+
+Two faults, and the second hid behind the first.
+
+`wrap_from` returns a value in `[lo, lo + 2 pi)`, and `build` called it
+unconditionally -- so a phi correctly placed in turn nine was wrapped straight
+back to turn zero. It now wraps only a phi that is OUTSIDE the scan; one
+already inside it is already in the turn its caller meant.
+
+And `converge_root` answers with a crossing from `ewald_intersections`, which
+is in a principal 2 pi interval whatever it was seeded with, so the turn was
+lost on the way out too. `emit_turns` now puts it back, taking the turn nearest
+the seed.
+
+**The test that should have caught this used a scan-static crystal**, where the
+turn was restored by hand with `c.phi = seed` -- so it passed, while every real
+experiment, all of which have scan-varying crystals, was broken. There is now a
+test on a scan-varying crystal with the same `A` at every scan point, so the
+geometry is identical to the static case and only the code path differs; it
+fails on the old predictor and asserts that every turn holds its own share of
+the predictions rather than only that the count is right. A count can be right
+while every one of them is in the wrong place.
+
+The diagnostic that found it exists because `27366 frames read` was not
+interpretable on its own, which was itself a complaint about the output rather
+than a hypothesis about the code.
+
 ### What that left, on sixteen cores
 
     total                        65.403 s   from 310

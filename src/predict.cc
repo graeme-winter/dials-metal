@@ -152,14 +152,17 @@ bool build(const Experiment &e, const PredictOptions &options, int h, int k,
     // Wrapped into the scan's own interval, so a scan crossing 360 degrees and
     // a reflection predicted at -179 still meet.
     //
-    // A scan of a full turn or more used to skip this entirely, on the grounds
-    // that everything is inside it. Everything is -- but only after wrapping,
-    // and the caller needs phi in the scan's own coordinates or z_from_phi
-    // puts it in the wrong turn. On ten rotations that left 378278 of 749786
-    // predictions with a z off the end of the scan.
-    const double wrapped = wrap_from(phi, lo);
-    if (wrapped > lo + span) return false;
-    phi = wrapped;
+    // Only wrap a phi that is OUTSIDE the scan. wrap_from returns a value in
+    // [lo, lo + 2 pi), so wrapping unconditionally collapses every turn of a
+    // multi-turn sweep into the first one -- which it did: on ten rotations,
+    // every shoebox landed in the first 3627 frames of 36000 and the same
+    // pixels were integrated ten times over. A phi already in the scan is
+    // already in the turn its caller meant it to be in.
+    if (phi < lo || phi > lo + span) {
+      const double wrapped = wrap_from(phi, lo);
+      if (wrapped > lo + span) return false;
+      phi = wrapped;
+    }
   }
 
   const Mat3 r = e.goniometer.rotation_at(phi);
@@ -222,7 +225,16 @@ void emit_turns(const Experiment &e, const PredictOptions &options, int h, int k
     if (turn > 0) {
       c = converge_root(e, hkl, seed, entering);
       if (!c.any) continue;
-      if (!e.crystal->scan_varying()) c.phi = seed;
+      // converge_root answers with a crossing from ewald_intersections, which
+      // is in a principal 2 pi interval whatever it was seeded with, so the
+      // turn is lost on the way out. Put it back: the nearest turn to the
+      // seed, which is the turn this iteration is for.
+      //
+      // Doing this only for a scan-static crystal is what hid the bug. The
+      // synthetic test used one and passed; every real experiment has a
+      // scan-varying crystal and every turn collapsed into the first.
+      const double two_pi = 2.0 * kPi;
+      c.phi += two_pi * std::round((seed - c.phi) / two_pi);
     }
     Prediction p;
     if (build(e, options, h, k, l, c.r0, c.phi, c.entering, &p)) {
