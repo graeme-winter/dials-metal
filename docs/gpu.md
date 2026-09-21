@@ -64,6 +64,30 @@ The finite-difference path records nothing, because it genuinely does not know
 which parameters it touched, and falls back to the search. It is slower than
 the analytical path by a much larger factor anyway.
 
+### The Jacobian threads at 1.29x, and that is an allocation
+
+On sixteen cores, a scan-varying refinement of ten rotations:
+
+    --jacobian-threads 1     the jacobian  17.714 s
+    --jacobian-threads 16    the jacobian  13.722 s
+
+The inner loop is one reflection per thread with nothing shared, so 1.29x is
+not a threading problem. It is what surrounds the loop:
+
+    jacobian->assign(n, std::vector<double>(observations.size() * 3, 0.0));
+
+Parameters by reflections by three doubles, allocated and zeroed every
+iteration. At a million reflections that is gigabytes of serial memory traffic
+wrapped around a parallel inner loop, and no thread count touches it.
+
+The fix is not to allocate it. Every entry is written once and read once, by
+the accumulation that immediately follows, so the two can be fused: compute a
+reflection's derivatives and accumulate them into the normal equations there
+and then, and the array never exists. That removes the allocation, the traffic
+in both directions, and the parameter-major layout already noted as wrong for a
+device. It is what a device port has to do anyway, since gigabytes an iteration
+is not a thing to move across a bus.
+
 ### And then they were the only serial phase left
 
 On a sixteen-core machine, with the Jacobian threaded and the sparsity used:

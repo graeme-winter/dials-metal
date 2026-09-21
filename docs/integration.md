@@ -1,561 +1,683 @@
-# Computing the refinement target on a device
-
-## Scan-varying refinement, where the normal equations were the cost
-
-The static case below is not the command anyone actually runs. This is:
-
-    mxi_refine indexed.expt indexed.refl --scan-varying 18 --beam --analytic
-
-Eighteen control points takes the parameter count from about ten to about a
-hundred and seventy, and the normal equations are quadratic in it. Measured:
-
-    the jacobian               1.791 s   23.5%
-    the normal equations       4.848 s   63.6%
-    total                      7.629 s
-
-A scan-varying crystal is a cubic B-spline, so a reflection touches four
-control points and no more: about forty of those hundred and seventy
-parameters have a nonzero derivative and the rest are structurally zero. The
-accumulation skipped the zeros in its outer index and not its inner one, so
-each nonzero was multiplied against every parameter below it, and
-`jacobian[b][row]` walked across a hundred and seventy separate heap
-allocations -- one load per parameter, which is the worse half of the cost.
-
-Gathering the nonzero entries of a row once and using them against each other:
-
-    the normal equations       4.848 -> 1.517 s
-    total                      7.629 -> 4.204 s
-
-The order of accumulation is unchanged, ascending in both indices, so every sum
-is formed from the same terms in the same sequence. The refined crystal,
-detector and beam are identical, compared as written files rather than to a
-tolerance.
-
-That the sparsity was there to be used is a property of the model rather than
-of the data, so it holds for any scan-varying refinement and the saving grows
-with the number of control points.
-
-### The search for the nonzeros was itself linear in the parameters
-
-Using the sparsity meant finding it, and the finding was done by reading every
-entry of every column of the Jacobian for each row:
-
-    for (a = 0; a < n; ++a) { ja = jacobian[a][row]; if (ja == 0) continue; ... }
-
-That is O(n) per row however sparse the row is, and each probe lands in a
-different heap allocation. At a hundred and seventy parameters it did not
-matter. On ten full rotations of a crystal, where the scan-varying model runs
-to thousands of parameters, it was 267 of the 291 seconds the refinement took.
-
-The pattern does not need finding. `build_analytic_jacobian` knows which
-parameters it is about to write -- four control points from the spline, six
-detector, two beam -- so it records the span as it goes. The accumulation then
-iterates thirty-six parameters instead of several thousand.
-
-    control points      before      after
-              18       1.748 s     1.134 s
-              60       5.180 s     1.204 s
-             120      10.602 s     1.573 s
-
-Linear in the control points before, nearly flat after. The refined crystal and
-detector are identical.
-
-The finite-difference path records nothing, because it genuinely does not know
-which parameters it touched, and falls back to the search. It is slower than
-the analytical path by a much larger factor anyway.
-
-### The Jacobian threads at 1.29x, and that is an allocation
-
-On sixteen cores, a scan-varying refinement of ten rotations:
-
-    --jacobian-threads 1     the jacobian  17.714 s
-    --jacobian-threads 16    the jacobian  13.722 s
-
-The inner loop is one reflection per thread with nothing shared, so 1.29x is
-not a threading problem. It is what surrounds the loop:
-
-    jacobian->assign(n, std::vector<double>(observations.size() * 3, 0.0));
-
-`parameters x reflections x 3` doubles, allocated and zeroed every iteration.
-At a million reflections that is gigabytes of serial memory traffic wrapped
-around a parallel inner loop, and no thread count touches it.
-
-The fix is not to allocate it. Every entry is written once and read once, by
-the accumulation that immediately follows, so the two can be fused: compute a
-reflection's derivatives and accumulate them into the normal equations there
-and then, and the array never exists. That removes the allocation, the memory
-traffic in both directions, and the parameter-major layout that was already
-noted as wrong for a device.
-
-It is also what a device port has to do anyway, since gigabytes per iteration
-is not a thing to move across a bus. Written down rather than done, because the
-next thing is integration and this is refinement's problem.
-
-### And then they were the only serial phase left
-
-On a sixteen-core machine, with the Jacobian threaded and the sparsity used:
-
-    read                       0.261 s   17.3%
-    the jacobian               0.085 s    5.6%
-    the normal equations       0.884 s   58.4%
-    total                      1.513 s
-
-The Jacobian is five per cent there and forty per cent on a single core, which
-is not a statement about the Jacobian: it is threaded and the normal equations
-were not. `--normal-threads` threads them.
-
-It is a reduction, so this one is not free. Each thread accumulates into its
-own `n` by `n` matrix -- 231 kB apiece at a hundred and seventy parameters,
-which is why the thread count is capped by what the partials cost -- and the
-partials are summed at the end. **A threaded run and a serial one do not agree
-bit for bit**, because floating point addition is not associative and the terms
-are summed in a different order. They agree to about 1.6e-12 relative, seven
-orders below the convergence tolerance, and the test pins 1e-10.
-
-Two threaded runs at the same setting do agree exactly: the chunk boundaries
-come from the thread count, not from how the threads happen to be scheduled. A
-parallel reduction that answered differently run to run would make every
-comparison downstream meaningless, so that is tested as well.
-
-`--normal-threads 1` keeps the serial sum where the last bits matter.
-
-## Refinement on its own is dominated by file I/O
-
-`mxi_refine --timing`, on 78618 reflections whose table carries shoeboxes:
-
-    read                       0.293 s   28.7%
-    build the target rows      0.032 s    3.1%
-    the jacobian               0.251 s   24.5%
-    the normal equations       0.111 s   10.9%
-    the solve                  0.000 s    0.0%
-    the trial residuals        0.110 s   10.7%
-    outlier rejection          0.008 s    0.8%
-    write                      0.130 s   12.7%
-    total                      1.023 s
-
-**Reading and writing are 41 per cent of it**, more than the Jacobian, and
-nine tenths of that is pixel data refinement never looks at. The file is
-100 MB, of which the shoebox column is 79. The same run on a table with the
-shoeboxes stripped:
-
-    read     0.293 -> 0.049 s
-    write    0.130 -> 0.042 s
-    total    1.023 -> 0.615 s
-
-A third of the run was carrying shoeboxes from one file to another, and almost
-none of it was the file. Measured against the floor:
-
-    fread of the same 100 MB       0.055 s   at 1.8 GB/s
-    memcpy of 100 MB               0.012 s
-    read_reflections               0.310 s
-
-The reader had
-
-    std::string raw((std::istreambuf_iterator<char>(in)), {});
-
-which goes through the stream one character at a time, regrowing the string as
-it goes. Sized, resized and read in one go it is 0.148 s. The writer was
-growing its output from empty to a hundred megabytes, doubling and copying
-everything it had each time; reserved, 0.138 s.
-
-    read      0.310 -> 0.148 s
-    write     0.163 -> 0.138 s
-
-A table read and written back is byte for byte what it was, which is the only
-check worth making on a change to framing: values that survive a round trip
-would survive most ways of getting the framing wrong.
-
-Which is worth saying plainly: refinement's arithmetic is now a smaller part of
-`mxi_refine` than its file handling, and no amount of threading or device work
-on the Jacobian will change that. The cheapest remaining second is in the
-reader.
-
-The solve is 0.000 s and that is not a broken timer: it is a Cholesky of a ten
-by ten matrix, done a handful of times.
-
-## The transform, and the half of it that is not needed
-
-With analytical derivatives in use the transform is the largest phase of
-indexing, 42.5 per cent of a 1.069 second run. Two things are left in it.
-
-**FFTW's own threading**, which `--fft-threads` now turns on where FFTW was
-built with it. Debian ships `libfftw3_omp` and Homebrew `libfftw3_threads`;
-either will do and the build reports which it found, or says it found neither
-and runs on one thread.
-
-**A real-to-complex transform.** The grid is filled by adding 1.0 at each
-reciprocal lattice point and nothing else, so its imaginary part is zero
-everywhere. A complex-to-complex transform of real data does twice the
-arithmetic and holds twice the memory for an output that is Hermitian
-symmetric: `F(-k)` is the conjugate of `F(k)`, so half of the 16.7 million
-points computed are a reflection of the other half.
-
-`fftw_plan_dft_r2c_3d` computes the `n * n * (n/2 + 1)` that are independent.
-The obstacle is not the transform, it is the peak search, which walks the full
-cube and compares each point with its twenty-six neighbours. On the half grid
-some of those neighbours are the conjugates of points on the other side, and
-the wrapping that the search already does for periodicity would have to become
-a wrapping that also conjugates. That is a change to the part of this code
-where an error would be least visible -- a peak list that is subtly wrong still
-indexes, as the FFTW sign convention showed -- so it wants the agreement test
-extended to the peak list itself before it is attempted, not afterwards.
-
-## Where refinement's time goes, measured
-
-With the transform handed to FFTW, the rounding instruction enabled and the
-clock out of the peak search, refinement is what is left. On a fast machine it
-is 47.7 per cent of indexing; measured here, split three ways:
-
-    macrocycles                 2.462 s   37.5%
-      copy and select           0.181 s    2.8%
-      refinement                2.239 s   34.1%
-      reassignment              0.035 s    0.5%
-        the jacobian            1.888 s   28.7%
-        the normal equations    0.111 s    1.7%
-
-**The Jacobian is 84 per cent of refinement**, which is what the rest of this
-document assumed and had not shown. The normal equations are five per cent, and
-the remaining eleven is residuals, outlier rejection and the solve.
-
-So the thing to move is the Jacobian, and it has the right shape: one thread
-per reflection and parameter, no communication, the analytical derivatives
-already written and already validated against finite differences.
-
-Two things about its current form that a port should not inherit:
-
-* it is allocated fresh every iteration -- ten vectors of 118797 doubles on
-  this data, 9.5 MB freed and reallocated per iteration -- where one buffer
-  reused across iterations would do, and on a device must;
-* it is parameter-major, a vector per parameter over all reflections. That is
-  the wrong way round for a device, where the reflection is the thread and the
-  parameters of one reflection want to be adjacent.
-
-Neither is worth changing on the host for its own sake without measuring what
-the allocation costs. Both are worth knowing before writing the device version,
-because the layout is the part that is expensive to change afterwards.
-
-## Where indexing's time actually goes
-
-Measured with `mxi_index --timing` on 78618 reflections of insulin, a 256^3
-grid, one core:
-
-    reciprocal points        0.008 s    0.1%
-    max cell                 0.059 s    0.4%
-    candidate vectors        6.676 s   50.2%
-      the transform          3.213 s   24.2%
-      the peak search        3.246 s   24.4%
-      the rest of it         0.217 s    1.6%
-    choose basis             4.097 s   30.8%
-    fit and reduce           0.013 s    0.1%
-    macrocycles              2.446 s   18.4%
-    indexing total          13.304 s
-
-**Both tables below were taken with a broken instrument** and the peak search
-figures in them are about four times too large: the timer's closing assignment
-had been placed inside the grid accessor, which the peak search calls some four
-hundred and fifty million times, so every call read the clock. Corrected, on
-the slower machine, the peak search is 0.598 s rather than 3.2 and the
-transform and the basis search dominate. The tables are kept because the
-reasoning built on them is instructive and because the correction is the point.
-
-On another machine, same code and the same number of reflections:
-
-    candidate vectors        3.843 s   78.8%
-      the transform          2.783 s   57.1%
-      the peak search        1.045 s   21.4%
-    choose basis             0.183 s    3.8%
-    macrocycles              0.788 s   16.2%
-    indexing total           4.875 s
-
-**The two runs disagree about which phase is largest**, and the disagreement is
-not noise: `choose basis` is 3.8 per cent of one and 30.8 per cent of the
-other, a factor of twenty-two, while the transform differs by fifteen per cent.
-
-The reason is in the code. Choosing a basis scores every triple of candidate
-vectors whose volume clears a degeneracy filter, so its cost is the number of
-triples that clear it times the number of reflections. `--timing` reports the
-count: 3743 of 4060 scored in the slow run, and something near 170 in the fast
-one. How many survive depends on how nearly parallel the candidate vectors are,
-which depends on the data. **The phase is data-dependent by more than an order
-of magnitude and no single measurement of it means anything.**
-
-The transform and the peak search are not: they are fixed work for a given grid
-size, 16.7 million points either way, and they are 78.8 and 44.6 per cent of
-the two runs. Those are the phases to attack.
-
-What each is worth on the faster machine if it cost nothing:
-
-    without the transform     2.33x
-    without the peak search   1.27x
-    without choose basis      1.04x
-    without macrocycles       1.19x
-
-### What each phase is, as work
-
-* **The transform**, a 256^3 complex FFT: 16.7 million points. A device library
-  call -- cuFFT, or vDSP and MPS on Apple -- and milliseconds there. The one
-  phase where the device version is someone else's code.
-* **The peak search**: the modulus of 16.7 million voxels, then each compared
-  with its twenty-six neighbours, then a sort. One thread per voxel, no
-  communication, a reduction at the end. As good a fit for a device as exists.
-* **Choosing the basis**: every triple of thirty candidate vectors scored
-  against every reflection. Four thousand triples by seventy-eight thousand
-  reflections, each independent. The same shape as the peak search and,
-  measured here, the biggest single piece.
-* **The macrocycles**: assignment, which is a pass over the reflections, and
-  refinement, whose device port is designed in the rest of this document.
-
-### Threads before devices, and the transform is the one that matters
-
-All of this is one core. From 4.875 s, with the peak search, the basis search
-and the macrocycles threaded -- all three are embarrassingly parallel -- and
-the transform treated two ways:
-
-    4 threads, transform threads perfectly   1.28 s  3.8x
-    4 threads, transform threads 2x only     1.97 s  2.5x
-    8 threads, transform threads perfectly   0.68 s  7.2x
-    8 threads, transform threads 2x only     1.72 s  2.8x
-
-Threading everything except the transform hits a floor at about 1.7 s however
-many cores are thrown at it, because the transform is 57 per cent of the run.
-**Under a second needs the transform.** A threaded radix-2 will not get there
-on its own; the realistic options are a library on the host -- vDSP, FFTW,
-MKL -- or the device.
-
-All of which is `std::thread` and no device, no memory transfers and no second
-implementation to keep in step. The device is worth doing after that rather
-than instead of it, and the honest comparison for any device backend is against
-the threaded host version and not against this one.
-
-
-
-An exploration, with the measurements that motivate it. Nothing here is
-implemented yet.
-
-## It is the only thing worth moving
-
-Measured on insulin, 13072 indexed reflections, single-threaded:
-
-    one target evaluation        4.0 ms        0.31 us per reflection
-    static refinement            0.62 s        15 parameters, 10 steps
-    scan-varying, 9 points       5.22 s        87 parameters, 13 steps
-
-A numerical Jacobian needs one evaluation per parameter plus one for the base,
-so the scan-varying refinement does 88 x 13 = 1144 evaluations, about 15
-million reflection-evaluations. Multiplying that out gives 4.58 s of the 5.22 s
-measured, **88 per cent**; for the static case the same estimate comes to 106
-per cent, which is to say everything and a little measurement noise.
-
-There is no point accelerating anything else. The normal equations are 87 x 87,
-the outlier rejection is a median, and the I/O happens once.
-
-## The shape of the work
-
-One reflection-evaluation is: build the reciprocal lattice point from the
-setting matrix, solve the Ewald condition for the rotation angle, rotate,
-intersect the panel plane, apply the parallax correction, subtract the
-observation. Around a hundred flops and five to ten transcendentals -- `atan2`,
-`acos`, `exp`, a `sin`/`cos` pair.
-
-Every one of them is independent. The natural decomposition is two-dimensional,
-one thread per (reflection, parameter): 13072 x 88 = 1.15 million for insulin,
-and 11000 x 200 = 2.2 million for a four-sweep scan-varying l-cysteine. That is
-enough parallelism to saturate anything.
-
-**Do not materialise the Jacobian.** At 13072 x 3 x 87 doubles it is 27 MB per
-iteration, and the only thing it is used for is `J^T W J` and `J^T W r`. Each
-thread should accumulate its reflection's contribution into the normal matrix
-directly, leaving a reduction over reflections of an 87 x 87 symmetric matrix --
-3828 upper-triangle entries, small enough to hold in shared memory per
-threadgroup and combine at the end.
-
-## The B-spline makes the Jacobian banded
-
-This is the part that connects to the choice of interpolation. A cubic
-B-spline has local support: the setting matrix at scan position t depends on
-exactly four control points. So a reflection's residual depends on 4 x 9 = 36
-crystal parameters, not on all 9N of them, plus the 6 detector parameters.
-
-At 9 control points that is 42 of 87 parameters per reflection, a saving of
-half. At 30 control points it would be 42 of 276, a saving of six sevenths. An
-interpolating spline would not have this property -- its global solve couples
-every control point to every observation -- which is a concrete reason to
-prefer the B-spline beyond its smoothness.
-
-The banding is by scan position, so reflections sort naturally into bands by
-image number, and a threadgroup covering one band touches a contiguous slice of
-the parameter vector.
-
-## Precision: measured, and the earlier estimate was wrong
-
-Apple GPUs have no double precision at all. `src/target.h` is the whole target
-written once and templated on the scalar type, so the same code compiles at
-both precisions -- which matters, because a separate float implementation
-disagreeing with the double one could be the precision or could be a
-transcription error, and the measurement could not tell them apart. Compiled
-with `double` it reproduces `centroid_residual` to 5e-13 px; only then does the
-`float` result mean anything.
-
-**The residual survives float32.** Median difference 2.2e-4 px against
-residuals of 0.32 px -- under a tenth of a per cent, random per reflection, and
-averaging away over thirteen thousand of them.
-
-**A finite-difference derivative does not.** Compared against the analytical
-derivative, on real insulin:
-
-    double, step 1e-6 relative          median error 4.4e-07     6.4 digits
-    float,  step 1e-6 relative          median error 1.00        none at all
-    float,  step 3e-4 (near sqrt eps)   median error 1.4e-02     1.8 digits
-
-At the step the refinement uses, a float finite difference is entirely noise.
-At the best step available to float it does not reach two digits, and its
-ninety-ninth percentile is above five, meaning some entries have the wrong
-sign.
-
-### The estimate that was wrong, and why
-
-An earlier entry in this file claimed float32 would leave 4.1 digits in a
-numerical derivative. The reasoning was: a 1e-6 relative parameter step changes
-the residual by 1.5e-3 of its own size, float epsilon is 1.2e-7, so four digits
-survive.
-
-That compares the change against the *residual*. But the residual is a
-difference of detector positions of order two thousand pixels, so its absolute
-error in float32 is epsilon times the position, about 2.4e-4 px -- not epsilon
-times the residual. The change being measured is 1.5e-3 x 0.32 px, about
-5e-4 px. Signal and noise are the same size, which is exactly the 1.00 relative
-error measured.
-
-The general form of the mistake: **relative precision belongs to the quantity
-the arithmetic is carried in, not to the quantity you are interested in.**
-
-### What follows
-
-Analytical derivatives are not a nicety for a device port, they are a
-precondition. That reverses the earlier plan, which had them fourth on the list
-as an optimisation.
-
-`tests/test_precision.cc` asserts the failure as well as the success, so that
-nobody later assumes numerical differentiation would port as it stands.
-
-### The analytical derivative in float32: measured
-
-`src/derivatives_t.h` is the same treatment applied to the derivatives.
-Compiled with `double` it reproduces `crystal_derivatives`,
-`detector_derivatives` and `beam_derivatives` **bit for bit** -- the same
-operations in the same order -- so the float number is not confounded by a
-transcription difference.
-
-    finite difference, float, step 1e-6    median relative error  1.00
-    finite difference, float, step 3e-4    median relative error  1.4e-02
-    analytical,        float               median relative error  1.3e-07
-
-Seven orders of magnitude, and structural rather than lucky: an analytical
-derivative never forms the difference of two nearly equal positions, so there
-is no cancellation to spend the significance on. The ninety-ninth percentile is
-1.2e-5 and the worst case 3.5e-2, the latter on the same near-tangential
-reflections that trouble everything else.
-
-So the whole target and its Jacobian can be computed in single precision. The
-device port is not blocked on precision, provided the derivatives are
-analytical -- which is the conclusion the earlier estimate had exactly
-backwards.
-
-## Analytical derivatives: written, and validated
-
-`src/derivatives.h` implements Appendix A of Waterman et al. (2016) for the
-crystal parameters. They matter more for a device than for a CPU, and for a
-reason that is not speed: a finite difference is a difference of two nearly
-equal residuals, and on a float32 device some of the significance is spent on
-the cancellation however carefully the step is chosen. Measured earlier, float32
-leaves about four digits in a numerical derivative; an analytical one leaves
-seven. They also remove the per-parameter factor entirely -- one evaluation per
-reflection instead of forty-two.
-
-The chain, with this code's parameterisation:
-
-    dphi/dp   = -(R_phi dr0/dp . s1) / ((e x r_phi) . s0)      eqn (40)
-    dr_phi/dp = (e x r_phi) dphi/dp + R_phi dr0/dp             eqn (46)
-    dv/dp     = D dr_phi/dp                                    eqn (45)
-    dX/dp     = (w du/dp - u dw/dp) / w^2                      eqn (43)
-
-Refining the nine elements of A directly pays for itself here: since r0 = A h,
-the derivative with respect to element A(i, j) is just h_j sitting in row i and
-zero elsewhere. Through U and B it would be a chain through the metrical
-matrix. And the derivative with respect to a B-spline control point is that
-same vector times the control point's weight -- so `spline_weights` returns the
-four indices and weights, and the banding falls out with no extra work.
-
-**They are checked against central finite differences on the real refined
-insulin geometry**, element by element, in `tests/test_derivatives.cc`: median
-relative agreement below 1e-8 and the 99th percentile below 1e-5. That test is
-the reason they are allowed to exist. A wrong analytical derivative does not
-crash; it converges smoothly to the wrong answer and reports a small residual
-doing it, so the numerical version stays in the tree as the oracle.
-
-Detector and beam follow Appendix B. Neither the detector nor the beam appears
-in r0, and the detector does not appear in s0 either, so `dphi` for a detector
-parameter is exactly zero rather than merely small -- asserted, because a
-nonzero value there would mean the chain rule had picked up a term that does
-not exist.
-
-One piece is not in the paper. DIALS measures its residual in millimetres and
-radians; this code measures it in pixels and images, and the parallax
-correction sits between the two, so the conversion is a 2x2 Jacobian rather
-than a division by the pixel size. It is worth 7e-4 relative on the diagonal at
-the corner of an Eiger2 panel, which is small and is a hundred times the
-tolerance the derivatives are held to. `Panel::mm_to_px_jacobian` computes it
-analytically, for the same reason as everything else here.
-
-**Available as `mxi_refine --analytic`.** On insulin it reaches the same model
-to five decimal places in detector distance and four in cell, six times faster;
-on four sweeps of l-cysteine with about two hundred parameters, 12 s against
-33 s.
-
-### Where the two Jacobians disagree, and why it is not the analytical one
-
-Compared entry by entry over the whole Jacobian -- crystal, detector and beam,
-static and scan-varying:
-
-    median               1.5e-9 to 3.6e-8
-    99th percentile      1.4e-2 to 1.5e-1
-    grossly different    0.07 to 0.3 per cent of entries
-
-The tail is not a gradual loss of accuracy. It is a small set of entries where
-the two disagree completely, often in sign. Those are reflections where the
-perturbation moves which Ewald root lies nearest the observation, so the finite
-difference compares two different branches of the prediction and its value is
-meaningless. **The analytical derivative is the correct one there.** That is
-worth knowing beyond precision: it means the numerical path has been feeding
-refinement a fraction of a per cent of invalid derivatives all along.
-
-Still to do:
-
-1. Port, accumulating the normal matrix on the device, exploiting the banding.
-   `target.h` and `derivatives_t.h` are written to be compiled as they stand;
-   what is missing is the dispatch, the reduction and the host side.
-2. Check the normal matrix itself in float32. Every measurement so far is of a
-   single reflection's contribution; accumulating thirteen thousand of them is
-   a sum of positive quantities of widely differing size, which is a different
-   question and deserves its own measurement rather than an assumption.
-
-## The volume cutoff, and a guess it did not support
-
-Eqn (40) divides by the volume of the parallelepiped formed by the rotation
-axis, the reciprocal lattice vector and the beam, which vanishes for
-reflections near the rotation axis. DIALS discards any below 0.05. Those are
-the reflections with large Lorentz factors and genuinely ill determined phi,
-and the analytical derivative makes the reason explicit rather than empirical:
-the measured rotation-angle derivative per unit |h| is 3.9 times larger in the
-smallest-volume quartile than the largest.
-
-It is **not**, however, the four per cent of reflections whose forward and
-reverse maps disagree under a scan-varying model, which is what this code had
-previously guessed. Tested: at a cutoff of 0.05 the volume criterion removes
-5.4 per cent of reflections and only 12 per cent of the disagreements, leaving
-the rate essentially unchanged at 3.97 per cent. Nor is it the iteration count
-in the forward map -- three, six and twelve passes all give 4.27 per cent -- nor
-reflections whose two Ewald roots are close, which show the same 4.2 per cent as
-those whose roots are ninety degrees apart. **That population is unexplained.**
-Outlier rejection removes it and refinement then works, which is a workaround
-rather than an answer.
+# Integration
+
+**Read `## Order of work, revised` first.** Several sections above it reach
+conclusions that later work overturned; they are marked as superseded and kept
+because the reasoning is instructive.
+
+Not started. This is the plan, what it is bound by, and what is missing before
+parts of it can be written at all.
+
+## Where this stands
+
+Not started. The profile model is implemented and the tools to judge it exist;
+nothing integrates yet.
+
+| | |
+| --- | --- |
+| profile model | implemented, `mxi_profile`; does not yet match DIALS |
+| the region | implemented, `mxi_mask`; box and ellipsoid |
+| forward model | implemented, `mxi_forward`; agrees with the data to four per cent |
+| background | not started; needs Parkhurst et al. (2016) |
+| summation | not started; needs Leslie (1999) |
+| profile fitting | not started; needs the reference profiles of Kabsch section 3.3 |
+
+Neither sigma agrees with DIALS. **Run `mxi_profile` for the numbers**: it
+prints both, and the disagreement with each, every time. They are not repeated
+here or in the README, because a number copied into prose is wrong from the
+first time either estimator changes and nothing checks it.
+
+What the forward model says about them is the most useful reading: rendered
+onto the pixels, the observed spot is about three per cent narrower than the
+model on the detector and five per cent narrower in rotation, so both sigmas
+are a little large and by far less than the raw comparisons suggested.
+
+Read `## Rendering the model onto the pixels` before anything below it. Several
+earlier sections reach conclusions it overturns, and they are marked.
+
+## What this follows
+
+DIALS, transcribed, as the spot finder transcribes `DispersionExtendedThreshold`
+window for window. That decision was taken earlier and it still holds: a
+transcription can stand in for `dials.integrate`, while an integrator built on
+this project's own ideas would be a fast pipeline that agrees with nothing
+anyone runs.
+
+Its cost is real and worth restating. Every entry in the diff checklist from
+`dials_algorithm_map.md` becomes a specification rather than an interesting
+divergence -- the 2D-disc foreground mask, the inert `filter.threshold`
+parameter, LP and QE stored as columns and applied at scaling rather than at
+integration, the GLM background. Some of those are things a research pipeline
+would deliberately do differently. Divergences go in as run-time options that
+default off, each with its reason recorded, so that a disagreement with DIALS is
+always a choice and never a drift.
+
+## What integration is, per Winter et al. (2018), §3.4
+
+Three steps, in order:
+
+1. **Profile parameters.** A three-dimensional Gaussian in a local
+   reciprocal-space frame, with two parameters: `sigma_D`, the extent on the
+   detector face, and `sigma_M`, the extent over images. Estimated from the
+   indexed strong spots, per Kabsch (2010a).
+2. **Background.** Shoeboxes are read from the images, and the background under
+   the peak is modelled from the non-peak pixels around it. The default is a
+   robust generalised linear model that assumes the counts are Poisson, which
+   matters below one count per pixel where a normal approximation is biased
+   (Parkhurst et al., 2016).
+3. **Intensity.** Summation of background-subtracted pixels in the peak region,
+   with errors from Poisson statistics (Leslie, 1999); and profile fitting,
+   where the shoebox is transformed into the local reciprocal-space frame and
+   fitted against a reference profile (Kabsch, 2010a).
+
+Two details from the paper that are choices rather than consequences, and so
+have to be copied deliberately:
+
+* **DIALS differs from XDS in the transform.** Counts are distributed onto the
+  reciprocal-space grid by computing the overlap of each detector pixel with
+  the transformed grid point using Sutherland–Hodgman polygon clipping, rather
+  than by XDS' assignment. This changes the profile and therefore the fitted
+  intensity.
+* **Blocks overlap by half.** Images are integrated in blocks whose start is
+  aligned with the centre of the preceding block, so that most reflections are
+  whole within one block. Reference profiles are built per block, at several
+  points across the detector, each strong reflection contributing to its
+  nearest profiles with a Gaussian weight by distance.
+
+## What is still missing
+
+Winter et al. (2018) defers to others for everything numerical. Two of those
+are still not here, and each blocks one stage:
+
+| | for | blocks |
+| --- | --- | --- |
+| Parkhurst et al. (2016) | the Poisson GLM background | background |
+| Leslie (1999) | summation error estimates | summation |
+
+Kabsch (2010a) and DIALS' own `calculator.py` are here, and between them they
+settled the profile model. From the paper:
+
+* §2.3, the `{e1, e2, e3}` frame and the mapping of a pixel to `(eps1, eps2,
+  eps3)`, with `zeta = m2 . e1` correcting for the path length through the
+  Ewald sphere;
+* §3.1, the reflection mask `|eps1| <= delta_D/2`, `|eps2| <= delta_D/2`,
+  `|eps3| <= delta_M/2`, and the estimators: `sigma_D^2` as the mean of the
+  per-spot variances of the intensity-weighted beam directions, and `sigma_M`
+  by maximising the likelihood of the observed offsets under `R(Delta,
+  sigma_M/zeta)`;
+* §3.3, the profile grid, the `f_3j` fractions that split a frame's counts
+  between grid planes, and the 5x5 subdivision of each pixel that DIALS
+  replaces with polygon clipping;
+* §3.4, the fitted intensity `I = sum (c - b) p / v / sum p^2 / v`, with
+  `v = b + I p` iterated from `v = b`, three cycles.
+
+**Pixels: this package had them all along and was skipping them.** A
+`strong.refl` carries a `Shoebox<>` column -- 13.6 MB of it for insulin -- and
+the reader dropped it as an undecoded type. `src/shoebox.h` now decodes it. The
+layout was derived from a real `dials.find_spots` file and checked against all
+13766 of its records:
+
+    int32          panel
+    int32 x 6      bbox as x0, x1, y0, y1, z0, z1, half open
+    uint8          a flag, 2 in every record seen
+    float32 x N    data          N = (x1-x0)(y1-y0)(z1-z0)
+    uint8  x N     mask          0 and 5, which is Valid | Foreground
+    float32 x N    background    all zero out of dials.find_spots
+
+Every bounding box agrees with the table's own `bbox` column and the records
+consume the blob to the byte: 1467208 voxels holding 14163216 counts.
+
+So the profile model can be estimated here, on real data, with no images and no
+HDF5. What still needs the images is integration proper -- the shoeboxes of the
+*predicted* reflections, which are a superset of the strong ones and are not in
+any file this package has.
+
+## sigma_D and sigma_M, against DIALS' own source
+
+    mxi_profile refined.expt refined.refl
+
+With `calculator.py` to hand the recipe is no longer guesswork. Three things it
+settled, all of which had been wrong here:
+
+**The reflections.** DIALS does not use every strong spot. It selects those
+flagged `used_in_refinement`, then cuts on `|zeta| >= 0.05`. On 1800 images of
+insulin that is 70425 of 78618, and it moves sigma_b from -4.2 per cent of the
+DIALS value to -2.9 and sigma_M from a factor of three to twenty per cent.
+
+**zeta uses the CROSS product.** `e1 = s1 x s0`, normalised -- the axis about
+which the point would cross the Ewald sphere by the shortest route, Kabsch
+section 2.3 after Schutt & Winkler. This had `s1 - s0`, which is the reciprocal
+lattice vector and points somewhere else entirely. Correcting it moved sigma_M
+from +50 to +21 per cent.
+
+**Two places DIALS departs from Kabsch**, both followed here because standing
+in for `dials.integrate` is the point:
+
+* the background is NOT subtracted before the angular spread is measured, where
+  Kabsch section 3.1 step (v) says to. DIALS' source carries a note saying so.
+  It costs nothing on a table out of `dials.find_spots`, where the background is
+  zero, and it would matter on one where it is not;
+* an image contributes to the reflecting range if the spot finder marked any
+  pixel on it as valid foreground, whatever the counts. Requiring counts as
+  well is a different criterion that happens to select the same images here.
+
+DIALS' `R` is a partiality rather than a density -- it is not divided by the
+oscillation width as Kabsch writes it -- but that is a constant in the log and
+the argument of the maximum is identical.
+
+Both still disagree; `mxi_profile` prints by how much. The figure quoted here
+was 0.030786 for sigma_b until the pixel-to-millimetre conventions were matched
+two sections below, which moved it -- which is the argument for not quoting it
+at all.
+
+The remaining candidate is in code this has not read: `Shoebox::beam_vectors`,
+which decides exactly which lab coordinate a pixel maps to. Parallax applied
+the other way is not it -- that moves sigma_b to +24 per cent and inverting it
+to -14, so DIALS is doing neither.
+
+The estimators themselves are checked against planted values rather than
+against DIALS: a known angular spread comes back exactly, and samples drawn
+from the reflecting-range model with a known sigma come back within five per
+cent at 0.05, 0.1 and 0.3 degrees.
+
+## Where the centre is, and the half pixel that was hiding in it
+
+Every measurement here maps a pixel into the frame of a reflection:
+
+    lab   = origin + mm_fast * fast + mm_slow * slow
+    s'    = lab * |s1| / |lab|                       elastic, so |s'| = |s1|
+    eps1  = degrees( e1 . (s' - s1) / |s1| )
+    eps2  = degrees( e2 . (s' - s1) / |s1| )
+    eps3  = degrees( zeta * (phi_image - phi_calculated) )
+
+The inputs are the panel geometry, the beam, the rotation axis, `s1`, and
+`phi`. What was wrong was the first line: `mm` came from a plain multiplication
+by the pixel size, while the `s1` it is compared against was built from
+`xyzobs.mm`, which is parallax corrected. Two conventions, differing by about
+half a pixel radially.
+
+A width cannot see that, which is why it survived every test here. Comparing
+each spot's centroid with its own centre in the frame does see it:
+
+    eps1   mean -0.000007 deg   -0.000 sigma      sd 0.014 sigma
+    eps2   mean +0.013506 deg   +0.439 sigma      sd 0.110 sigma
+    eps3   mean +0.000176 deg   +0.001 sigma      sd 0.127 sigma
+
+A systematic 0.44 sigma in the radial direction and nothing in the other two --
+which is the signature of a radial displacement, not of anything physical.
+Mapping the pixel through `px_to_mm` instead takes all three to zero within a
+millionth of a degree.
+
+**It costs agreement with DIALS.** sigma_D moves from 0.0308 to 0.0274 degrees,
+from -2.9 per cent of the DIALS value to -13.6. That is recorded rather than
+tuned away: a mapping that is demonstrably inconsistent cannot be the right one
+however well its number happens to agree, and the remaining difference is now a
+cleaner question than it was.
+
+It also means `s1` in a DIALS reflection table is the OBSERVED scattering
+vector, not the predicted one -- computed from `xyzobs.mm`. So these
+measurements are centred on the observation, and the centroid sitting at zero
+is a check on the arithmetic rather than a result. The mask in `mxi_mask` is a
+different matter: it is built on the PREDICTED `s1`, which is what it must be,
+since the point of a mask is to say where the model expects the signal.
+
+## Rendering the model onto the pixels
+
+    mxi_forward refined.expt refined.refl --out forward.txt
+
+Every comparison before this one took a number from the data through a pixel
+grid that truncates and quantises it, and a number from the model in closed
+form. At widths below a pixel that difference is most of what was being
+measured, which is why every conclusion carried the same caveat.
+
+This renders instead. The model is integrated over the same pixels, the same
+images and inside the same mask as the observation, and both are reduced the
+same way, in pixels and images. Whatever the grid does to the data it does to
+the model. What is left is the model being wrong.
+
+The answer is that it is barely wrong at all, over 61047 spots:
+
+    sensor model            shift fast   shift slow   obs/model fast  slow    z
+    depth distribution        -0.008      -0.002          0.967     0.964   0.948
+    mean depth, no smear      -0.008      -0.002          0.979     0.987   0.946
+    no sensor                 -0.007      -0.051          0.984     1.004   0.946
+
+**The positions agree to a hundredth of a pixel** once the sensor is in.
+Leaving it out leaves a systematic 0.05 pixel shift in the slow direction and
+nothing in fast, which is the parallax displacement and is the size it should
+be.
+
+**The widths agree to within four per cent**, not the factors that every
+earlier measurement suggested. The captured-fraction test said one sigma held
+0.74 where a Gaussian holds 0.47; rendered onto the grid, the observed spot is
+3.3 per cent narrower than the model on the detector and 5 per cent narrower in
+rotation. Nearly all of that apparent disagreement was the comparison, not the
+model.
+
+Taken at face value it says `sigma_D` should be about 0.0265 rather than 0.0274
+and `sigma_M` about 0.113 rather than 0.119 -- small corrections in the same
+direction as everything else, and much smaller than they looked.
+
+### And the anisotropy is predicted
+
+    anisotropy slow / fast    observed 1.074
+                              model    1.092   with the depth distribution
+                              model    1.076   with the mean depth only
+                              model    1.062   with no sensor
+
+The model predicts an anisotropy of the same size as the observed one, and
+gets closer as more of the sensor goes in. So the elongation is geometry and
+absorption acting on an isotropic Gaussian, not a missing physical effect: the
+projection onto a flat detector and the depth at which a photon stops are
+enough to produce it.
+
+That is the answer to a question asked several ways in this document and
+answered wrongly twice. The cubic crystal does argue for isotropy, and the
+spots are consistent with an isotropic model -- once the model is compared with
+the data on the data's own terms.
+
+## Superseded: the anisotropy hunt
+
+Everything from here to the end of this section was measured by comparing a
+number taken from the data with a number taken from the model in closed form.
+At widths of two pixels that comparison is dominated by the grid, and its
+conclusions did not survive rendering the model onto the pixels instead: the
+spots are consistent with an isotropic Gaussian once model and data are reduced
+the same way.
+
+It is kept because the reasoning is sound given what was measured, and because
+three separate hypotheses were tested and rejected on evidence that turned out
+to be an artefact of the method. That is worth being able to recognise again.
+
+### The anisotropy, remeasured
+
+With the pixel-to-millimetre conventions matched, over 61047 spots with more
+than fifty counts:
+
+    in the reflection frame   tangential 0.017363   radial 0.021149   ratio 1.237
+    in the laboratory         along axis 0.018159   across   0.019496  ratio 1.051
+
+**It survives the fix.** The earlier figure was about 1.5 from the aggregate
+profile and 1.20 from the per-spot moments; it is now 1.24. The half-pixel
+convention error was not the cause.
+
+**It is not the sensor.** The ratio is flat with obliquity -- 1.248, 1.249,
+1.236, 1.226, 1.216, 1.253 from 2 to 31 degrees -- and an absorption-depth
+smear must grow with obliquity. This is the third measurement to say so, and
+the cleanest.
+
+**It is not the beam either.** A synchrotron beam is routinely wider in one
+direction than the other, which would be fixed in the laboratory; resolved
+along and across the rotation axis the ratio is 1.05, against 1.24 in the
+reflection's own frame. Whatever it is prefers the radial direction, not a
+laboratory one. Worth saying because the cubic crystal argues for isotropic
+mosaicity, which is `sigma_M`, and says nothing about `sigma_D`, which is the
+beam.
+
+**Nor is it the crystal.** Diffraction from the front and the back of the
+crystal starts from points separated along the beam, and at a scattering angle
+those rays land `extent * tan(2 theta)` apart -- a hundred micrometres at thirty
+degrees is fifty-eight, purely radial. The difficulty is that seen from the
+crystal this goes as `sin(2 theta) cos(2 theta) / distance`, which is exactly
+the sensor's dependence, so the two cannot be separated by this data; only
+their sum can be tested, and only if the excess follows that shape.
+
+It does not. Fitting a single source extent to `w2^2 - w1^2` gives an answer
+that is not single:
+
+    two-theta     excess      implied extent (T = sigma sqrt 12)
+      2 - 11    8.27e-05        593 um
+     11 - 15    1.51e-04        577 um
+     15 - 17    1.56e-04        492 um
+     17 - 19    1.64e-04        454 um
+     19 - 20    1.54e-04        406 um
+     20 - 22    1.50e-04        375 um
+     22 - 24    1.47e-04        348 um
+     24 - 31    1.59e-04        337 um
+
+The excess is nearly flat while `sin(2 theta) cos(2 theta)` rises sixfold, so
+the implied extent falls from 593 to 337 micrometres across the range. A real
+source extent is a property of the crystal and cannot do that.
+
+The magnitudes are worth having anyway. At the widest angle a 100 micrometre
+crystal would contribute 1.4e-05 square degrees, the sensor alone predicts
+2.5e-04, and 1.6e-04 is measured. So the crystal term is about a tenth of what
+is seen and the sensor term alone already overshoots it.
+
+**And it is not simply radial.** Split by azimuth around the beam centre the
+radial ratio runs from 1.01 to 1.42, which a purely radial effect cannot do.
+That may be confounded with radius, since the azimuth bins cover different
+parts of the face, and it is not resolved.
+
+The caveat from before still holds and still matters: the widths are 0.69 and
+0.84 pixels. A second moment below the sampling interval is not a reliable
+shape, and none of these numbers should be modelled until they can be
+reproduced on data where a spot is several pixels across.
+
+### Is the model any good? Ask the data, not DIALS
+
+The Gaussian is supposed to hold essentially all of a spot's density by three
+sigma. So measure it: over the flagged shoeboxes, what fraction of the counts
+lies within n sigma, for n from one to four, in the detector directions and the
+rotation direction separately.
+
+    mxi_profile --compare --compare-sigma-b 0.031698 --compare-sigma-m 0.097667 \
+                refined.expt refined.refl
+
+On 1800 images of insulin, 70425 spots. A one-dimensional Gaussian holds
+0.6827, 0.9545, 0.9973; two independent directions hold the square of that,
+0.466, 0.911, 0.995.
+
+                          1       2       3       4
+    ours     detector  0.7578  0.9768  0.9990  1.0000
+    ours     rotation  0.8653  0.9848  0.9988  0.9999
+    DIALS    detector  0.7726  0.9801  0.9993  1.0000
+    DIALS    rotation  0.8017  0.9668  0.9952  0.9995
+
+**Both models hold by three sigma**, which is the first thing the test was for
+and both pass: 0.999 against an expected 0.995 on the detector, 0.999 and 0.995
+in rotation.
+
+**The rotation direction says DIALS is right and we are not.** A correct sigma
+would hold 0.6827 at one sigma. DIALS holds 0.8017 and this holds 0.8653 -- both
+too concentrated, meaning both sigmas are larger than a Gaussian fitted to the
+core, and ours is the further out. That is the same +21 per cent seen against
+DIALS' number, now confirmed against the data rather than against DIALS.
+
+**The detector direction says ours is marginally better**, 0.7578 against
+0.7726 where 0.466 is expected, which matches being 2.9 per cent smaller.
+
+Two things this does not say. The expected fractions assume the spot really is
+Gaussian, and 0.76 where 0.47 is expected is far too large to be a small
+sigma error: the real profile is much more peaked than a Gaussian, which is
+why profile fitting uses learned reference profiles rather than the analytic
+form. And the shoeboxes are the spot finder's, cut at its threshold, so the
+density outside the box is not in the denominator at all and every fraction
+here is an overestimate. Neither affects the comparison between the two sets of
+sigmas, which is over identical pixels.
+
+### Looking at the spots
+
+    mxi_grid  refined.expt refined.refl --out grids.txt --n 5 --neighbours 300
+    python3   docs/plot_grid.py grids.txt kabsch.png
+
+Each strong spot's density on a grid in `(eps1, eps2, eps3)`, beside the
+average of the spots nearest it on the detector, beside the average of all of
+them. A single spot is a handful of pixels across and its grid is coarse and
+noisy; the reference is what says whether a feature belongs to the spot or to
+the sampling.
+
+Two departures from Kabsch section 3.3, both because this measures the data
+rather than applies the model. A pixel is subdivided in the detector plane and
+its counts shared between the subdivisions, five ways per axis as Kabsch does,
+because the data are badly undersampled and assigning a whole pixel to one grid
+point turns the result into a staircase -- `--subdivisions 1` shows that. And
+along `e3` an image's counts are shared between grid planes by the plain
+geometric overlap of its angular range with theirs, NOT by the Gaussian weights
+of Kabsch's `f_3j`: placing the counts with the model would beg the question
+the picture is asked to answer.
+
+The picture as a number. The average profile falls to a tenth of its peak at
+
+    eps1   1.20 sigma_b        a Gaussian falls to a tenth at 2.146 sigma
+    eps2   1.80 sigma_b
+    eps3   1.20 sigma_m
+
+So the spots are far narrower than the model that is supposed to describe
+them, in every direction, and `eps3` worst -- which is the same conclusion the
+captured-fraction test reached and the same one the comparison with DIALS
+reached, now visible.
+
+`eps1` and `eps2` differ from each other by half again, which a single
+`sigma_D` cannot express: the model is isotropic on the detector face and the
+spots are not.
+
+### Is the anisotropy the sensor? Apparently not, and everything here is a pixel wide
+
+    mxi_grid refined.expt refined.refl --out grids.txt --map map.txt
+    python3 docs/plot_anisotropy.py map.txt anisotropy.png 0.0253
+
+`e2` lies in the scattering plane, radially on the detector, and `e1` across
+it. A photon absorbed at a random depth in the sensor is recorded further out
+than where its ray entered, so that smear is radial: it belongs to `eps2`
+alone. That makes it testable -- the excess `w2^2 - w1^2` should equal the
+predicted smear squared and grow with obliquity as absorption says.
+
+It does not. Over 61047 spots with more than fifty counts, binned by obliquity:
+
+    obliquity     w2^2 - w1^2     predicted^2     ratio
+     2 - 11 deg     8.3e-05         4.2e-05        1.98
+    14 - 17         1.6e-04         1.1e-04        1.36
+    19 - 20         1.5e-04         1.7e-04        0.93
+    24 - 31         1.6e-04         2.5e-04        0.64
+
+The measured excess is flat at about 1.5e-4 while the prediction rises eight
+fold. At low obliquity there is twice as much anisotropy as the sensor can
+account for, and at high obliquity two thirds as much. **Whatever it is, it is
+not the depth of absorption**: that effect is real and is in there, but it has
+the wrong shape.
+
+The map of `w2/w1` across the detector face says the same thing more plainly:
+it is not radial. A sensor effect on a flat detector must be, since it depends
+only on the angle at which the ray strikes. This has large smooth patches that
+do not centre on the beam.
+
+**And the measurement sits at the sampling limit.** One pixel subtends 0.0253
+degrees at 170 mm. The measured second moments are
+
+    width1, tangential   median 0.69 pixels
+    width2, radial       median 0.84 pixels
+    sigma_b                     1.22 pixels
+    a single lit pixel          0.29 pixels
+
+So a spot is about two pixels across and its second moment is within a factor
+of three of what a single lit pixel would give on its own. At that scale a
+second moment is not a shape: it depends on where the spot centre falls within
+a pixel, and the shoebox mask truncates it. An apparent anisotropy correlated
+with position could be produced by that alone, and the non-radial map is as
+consistent with a sampling artefact as with anything physical.
+
+That caveat applies backwards as well. The earlier statement that `eps1` and
+`eps2` differ by half again, and that the profile falls to a tenth of its peak
+at 1.2 sigma, are both measurements made below the pixel scale. They are
+evidence that the model is too wide, which is corroborated independently by the
+captured fractions and by DIALS' own number; they are NOT evidence about the
+shape of the underlying spot, which this data cannot resolve.
+
+Two things worth doing before modelling any of it: repeat this on data with
+finer sampling, where the spot is several pixels across; and test the sampling
+hypothesis directly by measuring the width against the sub-pixel position of
+the spot centre, which should show nothing if the widths are real.
+
+## Seeing the model on the images
+
+    mxi_mask refined.expt refined.refl -o masked.refl \
+             --d-min 1.6 --first-image 0 --last-image 20
+    dials.image_viewer refined.expt masked.refl
+
+Predicts the reflections, works out each one's integration region, and writes a
+shoebox whose mask marks it: `Valid | Foreground` inside the n-sigma region,
+`Valid | Background` around it. **The pixel values are left at zero.** Nothing
+here has read an image, and invented counts would be worse than none -- the
+point is to see where the model says the signal is, drawn over the real image
+by the viewer.
+
+The bounding box comes from inverting the region rather than guessing a size:
+the four corners of the `(eps1, eps2)` square are offset from `s1` in the
+frame's own tangent plane and intersected with the panel, and the rotation
+half-width is `n sigma_M / |zeta|` turned into images. It is then clipped to
+the panel and the scan, so a box hanging off an edge is kept as the part of it
+that is real.
+
+An image range is not optional in practice. A whole 1800-image sweep at 1.6
+Angstrom is 129000 reflections and about a gigabyte of empty shoebox; the first
+attempt at this was killed by the machine. The boxes are also built and encoded
+one at a time rather than all held at once.
+
+### The region is a box, and the model is an ellipsoid
+
+`|eps1| <= n sigma_D` and `|eps2| <= n sigma_D` and `|eps3| <= n sigma_M` is
+what Kabsch section 3.1 writes for the mask, and what DIALS uses, so it is the
+default. But it is a BOX in Kabsch space, and the model is a three-dimensional
+Gaussian, whose surface of constant density is the ELLIPSOID
+
+    (eps1/sigma_D)^2 + (eps2/sigma_D)^2 + (eps3/sigma_M)^2 <= n^2
+
+These are not the same set and the difference is not small. At a corner of the
+box all three coordinates are at n sigma at once, so the Gaussian is at
+exp(-3n^2/2) there: 1.4e-6 of its peak at n = 3. There are eight such corners
+and they hold nothing at all.
+
+    volume          ellipsoid is pi/6 of the box, 0.5236
+    density held    0.9919 in the box, 0.9707 in the ellipsoid
+
+So the box buys two per cent more of the density with ninety per cent more
+volume, all of it in places the model says are empty. `--shape ellipsoid`
+draws the other one; on insulin it marks 23.9 per cent of the voxels where the
+box marks 43.7, a ratio of 0.546 against the 0.5236 expected, the difference
+being that a voxel is in or out as a whole and the boxes are only a dozen
+pixels across.
+
+Mapped onto the image the ellipsoid is not an ellipse: the transform from
+Kabsch space to pixels and images is not a similarity, and it varies across the
+detector with obliquity and with zeta. That distortion is the thing worth
+looking at, and it is what the box hides.
+
+What it shows on insulin, twenty images at 1.6 Angstrom: 1445 boxes, typically
+12 by 12 pixels by 8 images. Those are big boxes for spots that are two pixels
+across, which is the same conclusion as everything else in this section, in the
+form most likely to be believed.
+
+## Order of work, revised
+
+Steps 1 to 3 of the original plan are done and what they found changed the
+rest. What follows is written knowing that.
+
+### What the profile work settled
+
+**The Gaussian model is nearly right, and every measurement that said otherwise
+was measuring the pixel grid.** Spots here are two pixels across. Comparing
+their moments with a Gaussian in closed form said the model was wrong by
+factors and that the spots were anisotropic; integrating the same model over
+the same pixels, inside the same mask, put the positions within a hundredth of
+a pixel and the widths within four per cent, and predicted the anisotropy from
+projection and absorption alone.
+
+That is the thing to carry into integration, because integration is nothing but
+comparing a model with pixels. **Anything compared with the data has to be
+rendered into the data's own terms first.**
+
+**`sigma_D` and `sigma_M` do not match DIALS** and `mxi_profile` says by how
+much every time it runs. The forward model says the truth is a few per cent
+below both, so neither is exactly right and the difference between them matters
+less than it looked. Integration takes the model as a parameter rather than
+inheriting a number.
+
+**The region is a box in Kabsch space and the model is an ellipsoid.** The box
+is what Kabsch section 3.1 writes and what DIALS uses, so it is the default,
+but its eight corners hold 1.4e-6 of the peak and the ellipsoid is pi/6 of its
+volume. Once background is summed from that volume the difference stops being
+cosmetic.
+
+**The pixels were in the file all along** -- the `Shoebox<>` column -- and
+`src/shoebox.h` reads them.
+
+### Checked against a DIALS integrated.refl
+
+`integrated.refl` has no shoeboxes, DIALS discards them, but it has `bbox`,
+`num_pixels.foreground`, `num_pixels.background` and `num_pixels.valid`, which
+is enough to check the masking with no pixels at all.
+
+**Predictions agree exactly.** Over 4018 reflections on the first sixty images:
+100 per cent within half an image in `z`, 100 per cent on the `entering` flag,
+and the box `z` extents agree 99.3 per cent of the time.
+
+That only worked once it was compared against the right file. Predicting from
+`refined.expt` and joining to `integrated.refl` matched almost nothing, because
+something between them reindexes: `real_space_a` is (20.46, -14.89, 62.45) in
+one and (-20.50, 14.81, -62.46) in the other, so the Miller indices are not
+comparable across that step. It looked like a prediction bug and was a join
+bug. **Pin the geometry to the file being compared against.**
+
+**The box was wrong, and wrong in a way that blocks integration.** DIALS':
+
+    num_pixels: foreground 462, background 3094, valid 3542
+    foreground + background = valid   for 100 per cent of rows
+    valid / box volume = 1.000
+
+It is a measurement box in Leslie's sense: the foreground region plus a rim,
+the rim being 87 per cent of the volume. `mxi_mask` built the foreground alone,
+which has no background in it, and the background estimate has to come from
+somewhere. `box_scale` widens the box on the detector; at 1.9 the extents match
+DIALS. The rotation direction is untouched, since those extents already agreed.
+
+**One thing still disagrees.** Our foreground is 372 voxels where DIALS' is
+462. The `z` extents match, so it is on the detector, and 1.11 per axis is the
+wrong size to be rounding. Recorded rather than chased, with the oracle that
+will settle it.
+
+### The steps
+
+1. **Bounding boxes and masks.** Done, `mxi_mask`, and checked above.
+2. **The Kabsch transform and the grid.** Done, `mxi_grid`.
+3. **Background.** Parkhurst et al. (2016) is in hand: a robust GLM with a
+   Poisson link, Huber weights at c = 1.345, and the constant-background case
+   simplified in its Appendix B to a scalar iteration. The oracle is
+   `background.mean` in a DIALS `integrated.refl`, which is present.
+4. **Summation.** Leslie (1999) is in hand: the intensity and, more to the
+   point, the variance, `G(Is + Ibg + (m/n) Ibg)`, which says the background
+   dominates the error for weak reflections. The oracle is
+   `intensity.sum.value` and `.variance`.
+5. **Reference profiles and profile fitting.** Kabsch sections 3.3 and 3.4 and
+   Leslie section 6. The profile work says why a learned profile is necessary
+   rather than merely traditional: the real spot is more peaked than a
+   Gaussian.
+6. **Predicted shoeboxes need images.** Everything above is checkable on the
+   strong spots' own pixels or against the oracle columns. Integration proper
+   is not: predicted reflections are a superset of the strong ones.
+
+### What this will cost, before it is written
+
+Integration touches every pixel of every shoebox of every predicted reflection.
+The performance work was practice for it and three lessons apply directly.
+
+**Measure before optimising, and check the instrument first.** Two conclusions
+here were drawn from timings that were wrong: a clock inside a lambda called
+four hundred and fifty million times, and a benchmark passing the wrong kind of
+memory to a device.
+
+**Do not materialise what can be consumed.** Refinement builds a Jacobian of
+parameters by reflections by three doubles, reallocated every iteration, and
+threading its inner loop gave 1.29x on sixteen cores because the allocation is
+serial. A shoebox does not have to exist as an array to be summed.
+
+**The layout is expensive to change afterwards.** Decide whether a shoebox is
+pixel-major or reflection-major, and whether the profile grid is dense or
+sparse, before writing the loop that walks it.
+
+## The precision contract, decided in advance
+
+Settled per stage before any of it is written, not discovered afterwards:
+
+* **Summation integration sums integer counts.** Done in integers, exactly, as
+  the spot finder's window sums already are. There is no precision question and
+  there should not be one.
+* **The coordinate transform and the clipping** are geometry in double, and
+  port to float with the same argument as the refinement target: measure the
+  analytical path, do not assume it.
+* **Background and profile fitting** are least-squares, and get a tolerance
+  rather than a byte-for-byte test.
+
+## How it will be compared
+
+Both modes, from the start:
+
+* **Pinned** -- this stage gets DIALS' upstream output. Isolates it. Without
+  this, a hundredth of a degree of orientation difference shifts every shoebox
+  and a correct integrator looks broken.
+* **Cascade** -- this stage gets our own upstream output. The number that
+  matters.
+
+The join key at this boundary is (`miller_index`, `entering`, frame), and the
+metric is the pull distribution, `dI / sqrt(sigma_a^2 + sigma_b^2)` -- its mean,
+width and tails -- together with the correlation. Not percentage differences on
+intensities.
