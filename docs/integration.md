@@ -658,6 +658,46 @@ the sampling, not the estimator: selecting the low tail guarantees a low
 answer, and the median coming out at exactly zero should have been the giveaway
 before the numbers were read.
 
+### Background: implemented and checked against DIALS
+
+`src/background.h`, Parkhurst's robust GLM with a Poisson link and Huber
+weights at c = 1.345. Against DIALS' own `background.mean` on 2000 reflections
+of the real 30 degree sweep:
+
+    DIALS       median 0.2997 counts/pixel
+    ours        median 0.2963
+    difference  median -1.35 per cent, rms 3.8, all within 20
+    correlation 0.9972, converged 100 per cent, median 4 iterations
+
+**The remaining difference is the region, not the estimator**, which was
+checked rather than assumed. Widening the background region towards the number
+of pixels DIALS uses moves it monotonically towards zero:
+
+    pixels used   1120    1596    2016    2380     (DIALS 2936)
+    difference   -1.46%  -1.40%  -0.89%  -0.54%
+    correlation  0.9946  0.9973  0.9986  0.9991
+
+So the estimator agrees and what is left is that the background region here is
+a shell of the box rather than everything outside the foreground mask. That is
+`mxi_mask`'s job and is the next thing to connect.
+
+**The expectations are summed, not solved.** Appendix B gives closed forms for
+C1 and C2 in regularized gamma functions, to avoid summing over the
+distribution. At 0.3 counts a pixel the distribution is over by twenty, so the
+sum is a dozen terms and is exact; the closed forms are an optimisation for a
+regime this is not in, and they are the part of the paper whose exponents did
+not survive the PDF's text layer. Transcribing them from a guess would have put
+an error where no test could find it.
+
+The tests check the reason rather than the answer: with the tuning constant
+large the estimator must be the plain mean and the corrections must vanish to
+their known values, C1 to zero and C2 to sqrt(mu); C1 and C2 are compared with
+an independent summation using factorials rather than the production
+recurrence; the fit is unbiased on clean Poisson data at four background
+levels; one outlier in five hundred moves the mean by a factor of five and the
+GLM by less than a tenth; and an all-zero background is answered rather than
+iterated towards, since there is no log of zero.
+
 ### The steps
 
 1. **Bounding boxes and masks.** Done, `mxi_mask`, and checked above.

@@ -103,6 +103,7 @@ add_library(mxi
   src/profile_grid.cc
   src/mask.cc
   src/forward.cc
+  src/background.cc
 )
 
 if(MXI_FFTW)
@@ -140,6 +141,10 @@ target_compile_options(mxi_profile PRIVATE -Wall -Wextra)
 add_executable(mxi_mask apps/mxi_mask.cc)
 target_link_libraries(mxi_mask PRIVATE mxi)
 target_compile_options(mxi_mask PRIVATE -Wall -Wextra)
+
+add_executable(mxi_background apps/mxi_background.cc)
+target_link_libraries(mxi_background PRIVATE mxi)
+target_compile_options(mxi_background PRIVATE -Wall -Wextra)
 
 add_executable(mxi_forward apps/mxi_forward.cc)
 target_link_libraries(mxi_forward PRIVATE mxi)
@@ -210,6 +215,7 @@ add_executable(mxi_tests
   tests/test_derivatives.cc
   tests/test_precision.cc
   tests/test_expt_format.cc
+  tests/test_background.cc
   tests/test_refl.cc
   tests/test_shoebox.cc
   tests/test_mask.cc
