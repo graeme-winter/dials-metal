@@ -133,6 +133,28 @@ def main(argv: list[str] | None = None) -> int:
         help="how many images apart two rows may be and still be the same observation",
     )
 
+    hr = sub.add_parser(
+        "html",
+        help="an HTML report of the same comparison as trend, with graphs",
+    )
+    hr.add_argument("a", help="ours")
+    hr.add_argument("b", help="theirs, the reference")
+    hr.add_argument("-o", "--output", default="comparison.html", help="where to write")
+    hr.add_argument(
+        "--value",
+        action="append",
+        help="a column to compare; repeatable. Defaults to the intensities, "
+        "their variances and the background.",
+    )
+    hr.add_argument("--bins", type=int, default=12, help="bins per variable")
+    hr.add_argument("--title", default="integration comparison")
+    hr.add_argument(
+        "--plotly",
+        default=None,
+        help="where the page should load plotly from; by default its CDN, "
+        "which needs a network connection once to draw",
+    )
+
     pl = sub.add_parser(
         "profiles", help="draw the reference profiles mxi_integrate learned"
     )
@@ -187,6 +209,27 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("path")
 
     args = parser.parse_args(argv)
+
+    if args.command == "html":
+        from . import htmlreport
+
+        values = args.value or [
+            "intensity.sum.value",
+            "intensity.prf.value",
+            "background.mean",
+        ]
+        print(
+            htmlreport.write(
+                refl.load(args.a),
+                refl.load(args.b),
+                args.output,
+                values,
+                n_bins=args.bins,
+                title=args.title,
+                plotly_src=args.plotly or htmlreport.PLOTLY_CDN,
+            )
+        )
+        return 0
 
     if args.command == "disagree":
         from . import disagree

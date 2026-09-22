@@ -1551,3 +1551,30 @@ should show more there.
 
 What it does NOT fix is the disagreement on the strongest reflections, which is
 a separate problem and still open.
+
+## mxeq html: the same comparison, drawn
+
+    mxeq html ours.refl theirs.refl -o comparison.html
+    mxeq html ours.refl theirs.refl -o comparison.html --value intensity.prf.value
+
+The trends are numbers about numbers -- a ratio, a spread, two correlations and
+an outlier count, for nine variables and five columns, which is several hundred
+figures. What identifies a disagreement is its SHAPE: flat, trending, kinked at
+one end. A table does not convey a shape.
+
+Two panels per variable per column. The first is the median ratio with the
+robust spread as a band, against agreement at one. The second is the rank
+correlation, the Pearson correlation and the outlier count on one pair of axes,
+because the three together say which kind of disagreement it is: rho high with
+Pearson low and outliers present is a few disasters, both low is real scatter.
+Above them, ours against theirs on log axes, sampled to four thousand points,
+which shows whether a disagreement is a few reflections or all of them.
+
+Plotly is loaded from its CDN and nothing in `mxeq` imports it: this writes
+JSON into a page. So there is no new dependency, the report is one file that
+can be sent to someone, and it needs a network connection once to draw.
+`--plotly` points it somewhere else for a machine that has none.
+
+A variable that does not vary gives one bin, and a panel with one point in it
+takes up half a screen saying nothing, so those are skipped; the text report
+still lists them, where a short table costs nothing.
