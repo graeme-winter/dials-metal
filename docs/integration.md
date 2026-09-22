@@ -1238,6 +1238,189 @@ With those, summation on the thirty degree sweep reads cleanly:
 which is what agreement improving with signal actually looks like. `corr` does
 not, and never did -- it was measuring how wide each bin is.
 
+### What the outliers are: the near-axis reflections
+
+    mxeq disagree ours.refl theirs.refl -o disagree.refl --limit 200
+    dials.image_viewer imported.expt disagree.refl
+
+A table of only the reflections two integrations disagree about, so they can be
+looked at on the images. The rows are ours, because the question is what our
+boxes did; the reference's value rides along in `reference.intensity` and the
+ratio in `disagreement.ratio`, so the viewer shows both.
+
+The first guess was overlap -- a strong neighbour leaking into our foreground,
+which Leslie sections 6.3 and 6.7.1 handle and nothing here does. **It was
+wrong.** Only 6 per cent of the disagreeing reflections lie within twenty
+pixels of a very strong one, against 0 per cent of a random sample: an
+enrichment, but it accounts for a handful of 1403.
+
+What they actually have in common, against the whole run:
+
+    |zeta|              0.192  against  0.831
+    z extent           41       against 10      images
+    foreground pixels  2012     against 486
+    our intensity     997.9     against DIALS'  2.032
+
+They are the reflections near the rotation axis. Their rocking curve extent is
+`n_sigma sigma_m / |zeta|`, so at small zeta the box is forty images deep and
+its foreground is two thousand voxels of which only a few hold the reflection.
+We sum all of them and report a thousand counts; DIALS reports two.
+
+And that is the whole of the summation disagreement:
+
+    |zeta| > 0.0 :  19360 reflections, sum corr 0.9390
+    |zeta| > 0.2 :  19110 reflections, sum corr 0.9859
+    |zeta| > 0.3 :  18720 reflections, sum corr 1.0000
+
+**Summation agrees with DIALS exactly once the near-axis reflections are set
+aside.** Which leaves a real question rather than a bug: what should happen to
+them. The zeta cut is currently 0.05 and lets in boxes forty images deep; DIALS
+evidently measures them and gets nothing, which is the honest answer for a
+reflection smeared over forty images. Raising `--min-zeta` would drop them, at
+the cost of reflections near the axis that a longer sweep would measure
+properly.
+
+**Profile fitting is not the same problem.** Its correlation does not improve
+when they are removed -- 0.3786, 0.3734, 0.3494 across the same cuts, slightly
+worse -- so whatever is wrong there is wrong everywhere, and the grid-point
+independence described above remains the first suspect.
+
+### The steps
+
+1. **Bounding boxes and masks.** Done, `mxi_mask`, and checked above.
+2. **The Kabsch transform and the grid.** Done, `mxi_grid`.
+3. **Background.** Parkhurst et al. (2016) is in hand: a robust GLM with a
+   Poisson link, Huber weights at c = 1.345, and the constant-background case
+   simplified in its Appendix B to a scalar iteration. The oracle is
+   `background.mean` in a DIALS `integrated.refl`, which is present.
+4. **Summation.** Leslie (1999) is in hand: the intensity and, more to the
+   point, the variance, `G(Is + Ibg + (m/n) Ibg)`, which says the background
+   dominates the error for weak reflections. The oracle is
+   `intensity.sum.value` and `.variance`.
+5. **Reference profiles and profile fitting.** Kabsch sections 3.3 and 3.4 and
+   Leslie section 6. The profile work says why a learned profile is necessary
+   rather than merely traditional: the real spot is more peaked than a
+   Gaussian.
+6. **Predicted shoeboxes need images.** Everything above is checkable on the
+   strong spots' own pixels or against the oracle columns. Integration proper
+   is not: predicted reflections are a superset of the strong ones.
+
+### What this will cost, before it is written
+
+Integration touches every pixel of every shoebox of every predicted reflection.
+The performance work was practice for it and three lessons apply directly.
+
+**Measure before optimising, and check the instrument first.** Two conclusions
+here were drawn from timings that were wrong: a clock inside a lambda called
+four hundred and fifty million times, and a benchmark passing the wrong kind of
+memory to a device.
+
+**Do not materialise what can be consumed.** Refinement builds a Jacobian of
+parameters by reflections by three doubles, reallocated every iteration, and
+threading its inner loop gave 1.29x on sixteen cores because the allocation is
+serial. A shoebox does not have to exist as an array to be summed.
+
+**The layout is expensive to change afterwards.** Decide whether a shoebox is
+pixel-major or reflection-major, and whether the profile grid is dense or
+sparse, before writing the loop that walks it.
+
+## The precision contract, decided in advance
+
+Settled per stage before any of it is written, not discovered afterwards:
+
+* **Summation integration sums integer counts.** Done in integers, exactly, as
+  the spot finder's window sums already are. There is no precision question and
+  there should not be one.
+* **The coordinate transform and the clipping** are geometry in double, and
+  port to float with the same argument as the refinement target: measure the
+  analytical path, do not assume it.
+* **Background and profile fitting** are least-squares, and get a tolerance
+  rather than a byte-for-byte test.
+
+## How it will be compared
+
+Both modes, from the start:
+
+* **Pinned** -- this stage gets DIALS' upstream output. Isolates it. Without
+  this, a hundredth of a degree of orientation difference shifts every shoebox
+  and a correct integrator looks broken.
+* **Cascade** -- this stage gets our own upstream output. The number that
+  matters.
+
+The join key at this boundary is (`miller_index`, `entering`, frame), and the
+metric is the pull distribution, `dI / sqrt(sigma_a^2 + sigma_b^2)` -- its mean,
+width and tails -- together with the correlation. Not percentage differences on
+intensities.
+
+## mxeq trend: where two integrations disagree, and against what
+
+    mxeq trend ours.refl theirs.refl
+    mxeq trend ours.refl theirs.refl --value intensity.prf.value --bins 5
+
+A single correlation says two columns disagree. It does not say whether the
+disagreement is with resolution, with intensity, with position on the detector,
+with how near a reflection sits to the rotation axis, or with how well the
+profile describes it -- and those point at different causes. This bins the
+ratio against each in turn.
+
+Bins hold equal populations rather than equal widths: equal widths on a
+quantity like I/sigma put almost everything in the first bin and say nothing.
+
+On the profile-fitted intensities it localised the problem straight away. The
+ratio is flat -- 0.966 to 0.989 across every variable -- so the scale is right
+everywhere. What moves is the agreement, and it moves the wrong way round:
+
+    intensity.prf.value against I/sigma
+              from         to        n       ours     theirs    ratio    corr
+            -3.729      2.539     3846      11.97      12.32   0.9720  0.3718
+             6.238      11.72     3845      150.5      155.7   0.9704  0.9008
+             23.61      357.2     3846       1693       1783   0.9873  0.2288
+
+    intensity.sum.value against I/sigma
+            -3.729      2.465     3872      13.23      12.41   0.9593 -0.0099
+             6.151      11.64     3872      154.6      158.6   0.9714  0.1163
+             23.48      357.2     3872       1731       1735   0.9994  0.9751
+
+Summation agrees with DIALS almost perfectly on the strongest reflections
+(0.9751) and hardly at all within the weak bins, which is what noise looks
+like and is unremarkable. Profile fitting does the opposite: it agrees best in
+the middle and WORST on the strongest (0.2288), where there is the least noise
+to blame.
+
+So the fit misbehaves where the signal is largest, which is the opposite of
+what a weighting error alone would do to weak data, and it is what drags the
+overall correlation to 0.42. Strong reflections are where the profile's tails
+carry the most counts and where a saturated or mismodelled pixel has the most
+leverage. That is the next thing to look at, and this tool is how.
+
+Pearson within a bin is not a measure of agreement, and reading it as one is
+misleading. Two extra columns were added because of that:
+
+* **`rho`, the rank correlation.** Pearson is dominated by the largest values,
+  so a handful of gross outliers in a bin of five thousand drags it down while
+  the other four thousand nine hundred agree perfectly. Spearman cannot be
+  moved that way. Where the two disagree, the disagreement is the reading:
+  Pearson low and Spearman high means a few disasters, both low means real
+  scatter.
+* **`spread` and `out`**, the median absolute deviation of the ratio and how
+  many reflections lie beyond five of them -- or five per cent, whichever is
+  wider. The floor matters: where the bulk agrees exactly the deviation is
+  zero, and five times zero excludes nothing however wrong a value is, so a bin
+  with twenty catastrophes in it reported none.
+
+With those, summation on the thirty degree sweep reads cleanly:
+
+        from         to       n      ours    theirs   ratio  spread    corr     rho   out
+      -3.729      1.352    2420     6.055     4.655  0.9457  1.1276 -0.0125  0.5808   311
+       3.267      5.619    2420     63.53     65.69  0.9642  0.1348  0.0381  0.8369    20
+       8.588      12.57    2420     201.7     206.6  0.9741  0.0516  0.1443  0.9595     9
+       19.19      33.55    2420     819.9     824.9  0.9905  0.0212  0.3066  0.9937     7
+       33.55      357.2    2420      2854      2839  1.0013  0.0108  0.9753  0.9938    17
+
+`rho` rises monotonically to 0.994 and `spread` falls monotonically to 0.011,
+which is what agreement improving with signal actually looks like. `corr` does
+not, and never did -- it was measuring how wide each bin is.
+
 ### What the outliers are
 
 `--worst N` lists the reflections that disagree most, with their indices and

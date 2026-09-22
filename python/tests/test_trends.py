@@ -132,3 +132,50 @@ def test_the_outlier_count_finds_planted_outliers():
             break
         counts.append(int(parts[where]))
     assert sum(counts) >= 15, report
+
+
+def test_disagreeing_reflections_come_out_as_a_table():
+    from mxeq import disagree
+
+    a = table(400, seed=21)
+    b = table(400, seed=21)
+    spoiled = a.columns["intensity.sum.value"].copy()
+    spoiled[:30] *= 40.0
+    a.columns["intensity.sum.value"] = spoiled
+    out, report = disagree.select(a, b, factor=2.0, absolute=1.0)
+    assert out.nrows == 30, report
+    # The reference's value and the ratio travel with it, so the viewer's table
+    # shows both without a second file being opened.
+    assert "reference.intensity" in out.columns
+    assert "disagreement.ratio" in out.columns
+    assert np.allclose(out.columns["disagreement.ratio"], 40.0)
+    # And everything the image viewer needs to draw a box.
+    for needed in ("miller_index", "xyzcal.px", "bbox" if "bbox" in a.columns else "d"):
+        assert needed in out.columns
+
+
+def test_pairs_that_are_both_tiny_are_not_called_a_disagreement():
+    from mxeq import disagree
+
+    a = table(200, seed=22)
+    b = table(200, seed=22)
+    a.columns["intensity.sum.value"] = np.full(200, 0.6)
+    b.columns["intensity.sum.value"] = np.full(200, 0.2)
+    out, _ = disagree.select(a, b, factor=2.0, absolute=5.0)
+    assert out.nrows == 0
+    # But the same ratio between numbers that matter is a disagreement.
+    a.columns["intensity.sum.value"] = np.full(200, 600.0)
+    b.columns["intensity.sum.value"] = np.full(200, 200.0)
+    out, _ = disagree.select(a, b, factor=2.0, absolute=5.0)
+    assert out.nrows == 200
+
+
+def test_a_sign_flip_disagrees_however_small():
+    from mxeq import disagree
+
+    a = table(100, seed=23)
+    b = table(100, seed=23)
+    a.columns["intensity.sum.value"] = np.full(100, 20.0)
+    b.columns["intensity.sum.value"] = np.full(100, -20.0)
+    out, _ = disagree.select(a, b, factor=100.0, absolute=1.0)
+    assert out.nrows == 100

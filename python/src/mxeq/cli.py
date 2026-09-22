@@ -145,10 +145,58 @@ def main(argv: list[str] | None = None) -> int:
         "be more profiles than fit on a page",
     )
 
+    dg = sub.add_parser(
+        "disagree",
+        help="write a reflection table of only the reflections two "
+        "integrations disagree about, to look at in the image viewer",
+    )
+    dg.add_argument("ours", help="our integrated.refl")
+    dg.add_argument("theirs", help="the reference integrated.refl")
+    dg.add_argument("-o", "--output", default="disagree.refl", help="where to write")
+    dg.add_argument(
+        "--value", default="intensity.sum.value", help="the column to compare"
+    )
+    dg.add_argument(
+        "--factor",
+        type=float,
+        default=2.0,
+        help="how far apart counts as disagreeing, either way round (2)",
+    )
+    dg.add_argument(
+        "--absolute",
+        type=float,
+        default=5.0,
+        help="ignore pairs where both are below this, since a ratio between "
+        "two numbers near zero means nothing (5)",
+    )
+    dg.add_argument(
+        "--limit", type=int, default=0, help="keep only the N worst; 0 for all"
+    )
+
     i = sub.add_parser("inspect", help="describe a file without assuming its layout")
     i.add_argument("path")
 
     args = parser.parse_args(argv)
+
+    if args.command == "disagree":
+        from . import disagree
+
+        table, report = disagree.select(
+            refl.load(args.ours),
+            refl.load(args.theirs),
+            value=args.value,
+            factor=args.factor,
+            absolute=args.absolute,
+            limit=args.limit,
+        )
+        print(report)
+        if table.nrows == 0:
+            print("nothing to write")
+            return 0
+        refl.write(args.output, table)
+        print(f"wrote {args.output}")
+        print(f"  dials.image_viewer imported.expt {args.output}")
+        return 0
 
     if args.command == "profiles":
         from .plots import profiles as profile_plots
