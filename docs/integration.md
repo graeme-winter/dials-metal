@@ -1617,3 +1617,45 @@ drawing cannot disagree about it.
 A variable that does not vary gives one bin, and a panel with one point in it
 takes up half a screen saying nothing, so those are skipped; the text report
 still lists them, where a short table costs nothing.
+
+## The background is one per cent high at low resolution, and why
+
+Binned against resolution, our `background.mean` against DIALS':
+
+    4.33 - 55.1 A   0.6564  0.6524  1.0047
+    3.36 -  4.33    0.6349  0.6292  1.0097
+    2.94 -  3.36    0.5009  0.4958  1.0083
+    ...
+    1.80 -  1.99    0.1740  0.1736  1.0013
+
+An overestimate, not an underestimate, and it is worst where the background is
+largest. An overestimated background makes the intensity too LOW, which is the
+direction the summed intensities are wrong in.
+
+**The cause is spot signal in the background region.** Widening the foreground
+so that the skirts fall inside it moves the background ratio straight through
+one:
+
+      n-sigma   fg px   bg ratio   sum ratio (I>50)   sum corr
+      3.0        450    1.0073     0.9920            0.9373
+      3.5        720    0.9935     1.0196            0.9360
+      4.0       1078    0.9873     1.0378            0.9352
+
+    DIALS' foreground: 476 pixels
+
+**But n_sigma is the wrong lever.** At 3.0 our foreground is 450 pixels against
+DIALS' 476, which is close; by 3.5 it is 720, half as large again, and the
+summed intensities have gone from 0.8 per cent low to 2 per cent high. The
+foreground is very nearly the right size already and the background region is
+still eating signal, so the two cannot both be fixed by one number.
+
+What that points to is a gap between the two regions rather than a bigger
+foreground: a guard ring, whose pixels are neither summed nor used for the
+background. Nothing here has one -- `mxi_mask` marks every valid voxel either
+foreground or background, and `foreground + background = valid` exactly. DIALS'
+boxes have the same property, so if DIALS avoids this some other way the
+difference is in where its foreground boundary falls, not in a gap.
+
+Worth measuring before building: the background as a function of distance from
+the foreground boundary would say how far out the signal actually reaches, and
+that is a shoebox and an afternoon rather than a design decision.
