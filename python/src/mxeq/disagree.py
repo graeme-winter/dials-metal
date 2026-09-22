@@ -34,18 +34,40 @@ def select(
     theirs: refl.ReflectionTable,
     value: str = "intensity.sum.value",
     value_b: str | None = None,
-    factor: float = 2.0,
-    absolute: float = 0.0,
+    factor: float | None = None,
+    difference: float | None = None,
+    sigmas: float | None = None,
+    floor: float = 0.0,
     radius: float = 0.5,
     limit: int = 0,
 ) -> tuple[refl.ReflectionTable, str]:
-    """Rows of `ours` whose `value` disagrees with `theirs` by more than
-    `factor`, either way round.
+    """Rows of `ours` whose `value` disagrees with `theirs`.
 
-    `absolute` skips pairs where both are small, since a ratio between two
-    numbers near zero is meaningless and there are a great many of them: a
-    reflection of 0.6 against 0.2 is a factor of three and is nothing at all.
+    Three ways of asking, because they find different things:
+
+    * `factor` -- a RELATIVE difference, `a/b` outside [1/factor, factor].
+      Finds what is proportionally wrong, which is most things, and is
+      dominated by weak reflections where a ratio means least.
+    * `difference` -- an ABSOLUTE difference, `|a - b|` in counts.  Finds what
+      is wrong by a lot, which on a constant offset is the strong reflections
+      and on a scale error the strong ones too.  A background biased by a
+      fraction of a count costs every reflection the same number of counts, and
+      only this sees it as one thing.
+    * `sigmas` -- the difference in units of the two variances added, which is
+      the only one of the three that knows whether a disagreement is larger
+      than the measurement.  Needs the matching variance column.
+
+    Each given criterion must be exceeded, so passing two narrows rather than
+    widens.  With none given, `factor` defaults to 2.
+
+    `floor` skips pairs where both values are below it: a ratio between two
+    numbers near zero means nothing and there are a great many of them, a
+    reflection of 0.6 against 0.2 being a factor of three and nothing at all.
+    It does not apply to `difference` or `sigmas`, which are not confused by
+    small numbers in the first place.
     """
+    if factor is None and difference is None and sigmas is None:
+        factor = 2.0
     # A different column on each side, so one file can be compared with itself:
     # our summed intensity against our fitted one is the comparison that says
     # which of the two is misbehaving, and it needs no second program.
@@ -80,16 +102,43 @@ def select(
     vb = theirs.columns[other].ravel()[ib]
     with np.errstate(invalid="ignore", divide="ignore"):
         ratio = va / vb
-    big_enough = (np.abs(va) > absolute) | (np.abs(vb) > absolute)
-    # Either way round, and a sign flip counts: a reflection one program calls
-    # positive and the other negative disagrees however small the numbers.
-    apart = (
-        ~np.isfinite(ratio)
-        | (ratio > factor)
-        | (ratio < 1.0 / factor)
-        | (np.sign(va) != np.sign(vb))
-    )
-    chosen = np.where(apart & big_enough)[0]
+
+    apart = np.ones(va.shape, dtype=bool)
+    asked = []
+    if factor is not None:
+        big_enough = (np.abs(va) > floor) | (np.abs(vb) > floor)
+        # Either way round, and a sign flip counts: a reflection one program
+        # calls positive and the other negative disagrees however small the
+        # numbers.
+        relative = (
+            ~np.isfinite(ratio)
+            | (ratio > factor)
+            | (ratio < 1.0 / factor)
+            | (np.sign(va) != np.sign(vb))
+        )
+        apart &= relative & big_enough
+        asked.append(f"a factor of {factor:g}")
+    if difference is not None:
+        apart &= np.abs(va - vb) > difference
+        asked.append(f"{difference:g} counts")
+    if sigmas is not None:
+        variance_a = value.replace(".value", ".variance")
+        variance_b = other.replace(".value", ".variance")
+        if variance_a not in ours.columns or variance_b not in theirs.columns:
+            raise ValueError(
+                f"--sigma needs {variance_a} in ours and {variance_b} in "
+                "theirs, and one of them is missing"
+            )
+        combined = np.sqrt(
+            np.maximum(ours.columns[variance_a].ravel()[ia], 0.0)
+            + np.maximum(theirs.columns[variance_b].ravel()[ib], 0.0)
+        )
+        with np.errstate(invalid="ignore", divide="ignore"):
+            pull = np.abs(va - vb) / combined
+        apart &= np.isfinite(pull) & (pull > sigmas)
+        asked.append(f"{sigmas:g} sigma")
+
+    chosen = np.where(apart)[0]
     if limit and len(chosen) > limit:
         # The worst, not the first: an arbitrary truncation would hide whatever
         # is at the far end of the scan.
@@ -116,7 +165,7 @@ def select(
         + (f", {duplicates} duplicate keys" if duplicates else "")
         + f"\n{len(rows)} disagree on {value}"
         + (f" against {other}" if other != value else "")
-        + f" by more than {factor}x"
+        + " by more than " + " and ".join(asked)
         + (f" (of {int((apart & big_enough).sum())} found)" if limit else "")
     )
     if len(rows):

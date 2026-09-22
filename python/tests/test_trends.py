@@ -142,7 +142,7 @@ def test_disagreeing_reflections_come_out_as_a_table():
     spoiled = a.columns["intensity.sum.value"].copy()
     spoiled[:30] *= 40.0
     a.columns["intensity.sum.value"] = spoiled
-    out, report = disagree.select(a, b, factor=2.0, absolute=1.0)
+    out, report = disagree.select(a, b, factor=2.0, floor=1.0)
     assert out.nrows == 30, report
     # The reference's value and the ratio travel with it, so the viewer's table
     # shows both without a second file being opened.
@@ -161,12 +161,12 @@ def test_pairs_that_are_both_tiny_are_not_called_a_disagreement():
     b = table(200, seed=22)
     a.columns["intensity.sum.value"] = np.full(200, 0.6)
     b.columns["intensity.sum.value"] = np.full(200, 0.2)
-    out, _ = disagree.select(a, b, factor=2.0, absolute=5.0)
+    out, _ = disagree.select(a, b, factor=2.0, floor=5.0)
     assert out.nrows == 0
     # But the same ratio between numbers that matter is a disagreement.
     a.columns["intensity.sum.value"] = np.full(200, 600.0)
     b.columns["intensity.sum.value"] = np.full(200, 200.0)
-    out, _ = disagree.select(a, b, factor=2.0, absolute=5.0)
+    out, _ = disagree.select(a, b, factor=2.0, floor=5.0)
     assert out.nrows == 200
 
 
@@ -177,5 +177,49 @@ def test_a_sign_flip_disagrees_however_small():
     b = table(100, seed=23)
     a.columns["intensity.sum.value"] = np.full(100, 20.0)
     b.columns["intensity.sum.value"] = np.full(100, -20.0)
-    out, _ = disagree.select(a, b, factor=100.0, absolute=1.0)
+    out, _ = disagree.select(a, b, factor=100.0, floor=1.0)
     assert out.nrows == 100
+
+
+def test_absolute_and_relative_find_different_reflections():
+    from mxeq import disagree
+
+    # A constant offset of fifty counts: a huge relative error on a weak
+    # reflection and a trivial one on a strong reflection, but the same
+    # absolute error on both. The two criteria should disagree about which
+    # reflections are the problem, which is the whole reason for having both.
+    a = table(400, seed=51)
+    b = table(400, seed=51)
+    a.columns["intensity.sum.value"] = b.columns["intensity.sum.value"] + 50.0
+
+    relative, _ = disagree.select(a, b, factor=2.0, floor=1.0)
+    absolute, _ = disagree.select(a, b, difference=25.0)
+    # Every reflection is off by fifty counts, so absolute catches all of them.
+    assert absolute.nrows == 400
+    # And relative catches only the ones where fifty counts is a lot.
+    assert 0 < relative.nrows < 400
+    weak = b.columns["intensity.sum.value"] < 50.0
+    assert relative.nrows <= int(weak.sum()) + 20
+
+
+def test_the_criteria_narrow_rather_than_widen():
+    from mxeq import disagree
+
+    a = table(400, seed=52)
+    b = table(400, seed=52)
+    a.columns["intensity.sum.value"] = b.columns["intensity.sum.value"] * 3.0
+
+    only_factor, _ = disagree.select(a, b, factor=2.0, floor=1.0)
+    both, _ = disagree.select(a, b, factor=2.0, difference=500.0)
+    assert both.nrows < only_factor.nrows
+    assert both.nrows > 0
+
+
+def test_sigma_needs_the_variance_and_says_so():
+    from mxeq import disagree
+
+    a = table(100, seed=53)
+    b = table(100, seed=53)
+    del a.columns["intensity.sum.variance"]
+    with pytest.raises(ValueError, match="variance"):
+        disagree.select(a, b, sigmas=3.0)

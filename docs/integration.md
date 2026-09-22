@@ -1248,6 +1248,24 @@ looked at on the images. The rows are ours, because the question is what our
 boxes did; the reference's value rides along in `reference.intensity` and the
 ratio in `disagreement.ratio`, so the viewer shows both.
 
+Three ways of asking what disagrees, because they find different things:
+
+    mxeq disagree ours.refl theirs.refl --factor 2         1403 reflections
+    mxeq disagree ours.refl theirs.refl --difference 200    277
+    mxeq disagree ours.refl theirs.refl --sigma 5           236
+
+`--factor` is relative and finds what is proportionally wrong, which is mostly
+weak reflections, where a ratio means least. `--difference` is absolute, in
+counts: a background biased by a fraction of a count costs every reflection the
+same number of counts, and only this sees that as one thing rather than as a
+trend. `--sigma` divides by the two variances added and is the only one of the
+three that knows whether a disagreement is larger than the measurement.
+
+Each criterion given must be exceeded, so passing two narrows. `--floor`, which
+skips pairs where both values are near zero, applies only to `--factor`: the
+other two are not confused by small numbers. It was called `--absolute`, which
+meant the opposite of what it sounds like next to `--difference`.
+
 The first guess was overlap -- a strong neighbour leaking into our foreground,
 which Leslie sections 6.3 and 6.7.1 handle and nothing here does. **It was
 wrong.** Only 6 per cent of the disagreeing reflections lie within twenty

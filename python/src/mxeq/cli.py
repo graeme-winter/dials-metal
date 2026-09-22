@@ -191,15 +191,30 @@ def main(argv: list[str] | None = None) -> int:
     dg.add_argument(
         "--factor",
         type=float,
-        default=2.0,
-        help="how far apart counts as disagreeing, either way round (2)",
+        help="RELATIVE: a/b outside [1/F, F], either way round. The default "
+        "when no criterion is given, at 2",
     )
     dg.add_argument(
-        "--absolute",
+        "--difference",
+        type=float,
+        help="ABSOLUTE: |a - b| in counts. A background biased by a fraction "
+        "of a count costs every reflection the same number of counts, and only "
+        "this sees that as one thing",
+    )
+    dg.add_argument(
+        "--sigma",
+        type=float,
+        help="the difference in units of the two variances added: the only "
+        "criterion that knows whether a disagreement is larger than the "
+        "measurement. Needs the matching variance column",
+    )
+    dg.add_argument(
+        "--floor",
         type=float,
         default=5.0,
-        help="ignore pairs where both are below this, since a ratio between "
-        "two numbers near zero means nothing (5)",
+        help="with --factor, ignore pairs where both are below this, since a "
+        "ratio between two numbers near zero means nothing (5). Does not "
+        "apply to --difference or --sigma",
     )
     dg.add_argument(
         "--limit", type=int, default=0, help="keep only the N worst; 0 for all"
@@ -240,7 +255,9 @@ def main(argv: list[str] | None = None) -> int:
             value=args.value,
             value_b=args.value_b,
             factor=args.factor,
-            absolute=args.absolute,
+            difference=args.difference,
+            sigmas=args.sigma,
+            floor=args.floor,
             limit=args.limit,
         )
         print(report)
