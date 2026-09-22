@@ -157,7 +157,7 @@ TEST(the_profile_is_the_average_shape_not_the_average_spot) {
   // Contributions are normalised before they are added, so one strong
   // reflection does not outvote a hundred weak ones.
   const GridSpec spec = small_spec();
-  ReferenceProfiles reference = make_reference(spec, 1, 1);
+  ReferenceProfiles reference = make_reference(spec, 1, 1, 1, 100);
   // Ninety-nine weak spots of one shape.
   for (int i = 0; i < 99; ++i) {
     check::is_true(add_reference(&reference, 0, planted_grid(spec, 10.0, 0.0)),
@@ -186,7 +186,7 @@ TEST(the_profile_is_the_average_shape_not_the_average_spot) {
 
 TEST(a_region_with_too_few_spots_borrows_the_whole_detector_average) {
   const GridSpec spec = small_spec();
-  ReferenceProfiles reference = make_reference(spec, 3, 1);
+  ReferenceProfiles reference = make_reference(spec, 3, 1, 1, 100);
   for (int i = 0; i < 40; ++i) {
     add_reference(&reference, 4, planted_grid(spec, 100.0, 0.0));
   }
@@ -198,4 +198,118 @@ TEST(a_region_with_too_few_spots_borrows_the_whole_detector_average) {
   check::close(reference.profile[0][spec.at(3, 3, 3)],
                reference.profile[4][spec.at(3, 3, 3)], 1e-9,
                "and it is the average of what was seen");
+}
+
+TEST(the_profile_varies_smoothly_across_a_cell_boundary) {
+  // Taking the nearest cell's profile makes the model jump at a boundary, so
+  // two reflections a pixel apart either side of one are fitted with different
+  // profiles and their intensities differ by more than their positions
+  // warrant. The weights fall linearly with distance, as Leslie section 6.1
+  // describes, so the profile has to change continuously instead.
+  const GridSpec spec = small_spec();
+  Panel panel;
+  panel.image_size[0] = 900;
+  panel.image_size[1] = 900;
+  ReferenceProfiles reference = make_reference(spec, 3, 1, 1, 100);
+
+  // Two neighbouring cells with visibly different profiles.
+  for (std::size_t region = 0; region < reference.profile.size(); ++region) {
+    Transformed t = planted_grid(spec, 100.0, 0.0);
+    if (region % 3 == 1) {
+      std::rotate(t.data.begin(), t.data.begin() + 1, t.data.end());
+    }
+    for (int i = 0; i < 20; ++i) add_reference(&reference, region, t);
+  }
+  finalise_reference(&reference, 5);
+
+  // Walk across the boundary between the first and second cells in fast.
+  const double boundary = 300.0;
+  std::vector<double> before =
+      profile_at(reference, panel, 0, boundary - 1.0, 450.0, 50.0);
+  std::vector<double> after =
+      profile_at(reference, panel, 0, boundary + 1.0, 450.0, 50.0);
+  // Against the profile's OWN scale, not an absolute number. These profiles
+  // are normalised over 343 grid points so their peak is 0.0198, and an
+  // absolute threshold of 0.01 asks whether the difference is half the peak --
+  // which was this test's first version, and it failed on correct code.
+  double peak = 0.0;
+  for (double v : before) peak = std::max(peak, v);
+  check::is_true(peak > 0.0, "there is a profile at all");
+
+  double jump = 0.0;
+  for (std::size_t i = 0; i < before.size(); ++i) {
+    jump = std::max(jump, std::fabs(before[i] - after[i]));
+  }
+  check::is_true(jump < 0.05 * peak,
+                 "the profile does not jump at a cell boundary");
+
+  // And it really does change between the cell centres, or the interpolation
+  // has simply flattened everything into one profile.
+  const std::vector<double> at_first = profile_at(reference, panel, 0, 150.0, 450.0, 50.0);
+  const std::vector<double> at_second = profile_at(reference, panel, 0, 450.0, 450.0, 50.0);
+  double change = 0.0;
+  for (std::size_t i = 0; i < at_first.size(); ++i) {
+    change = std::max(change, std::fabs(at_first[i] - at_second[i]));
+  }
+  check::is_true(change > 0.2 * peak, "but it does change between cell centres");
+}
+
+TEST(the_weights_of_the_nearby_cells_sum_to_one) {
+  // Including at the corners, where fewer cells exist than the interpolation
+  // reaches for: the weights must fall back onto the cells that are there
+  // rather than quietly summing to less and scaling every profile down.
+  const GridSpec spec = small_spec();
+  Panel panel;
+  panel.image_size[0] = 900;
+  panel.image_size[1] = 900;
+  const ReferenceProfiles reference = make_reference(spec, 3, 4, 1, 400);
+  for (double x : {0.0, 1.0, 150.0, 449.0, 450.0, 899.0}) {
+    for (double y : {0.0, 450.0, 899.0}) {
+      for (double z : {0.0, 50.0, 200.0, 399.0}) {
+        const std::vector<Neighbour> near =
+            neighbours_of(reference, panel, 0, x, y, z);
+        double total = 0.0;
+        for (const Neighbour &n : near) {
+          total += n.weight;
+          check::is_true(n.region < reference.region_count(), "a real cell");
+        }
+        check::close(total, 1.0, 1e-12, "the weights sum to one");
+      }
+    }
+  }
+}
+
+TEST(the_scan_is_divided_as_well_as_the_detector) {
+  // The profile changes along the scan because the crystal does, which is why
+  // it is refined scan-varying. With one profile for a whole scan the fitted
+  // intensities drifted from 0.986 of DIALS' at the start to 0.951 at the end.
+  const GridSpec spec = small_spec();
+  Panel panel;
+  panel.image_size[0] = 900;
+  panel.image_size[1] = 900;
+  ReferenceProfiles reference = make_reference(spec, 1, 4, 1, 400);
+  check::equal(static_cast<long long>(reference.region_count()), 4,
+               "one detector region, four scan blocks");
+
+  // A different profile in the first block and the last.
+  for (int i = 0; i < 20; ++i) {
+    add_reference(&reference, reference.region_of(panel, 0, 450.0, 450.0, 10.0),
+                  planted_grid(spec, 100.0, 0.0));
+    Transformed late = planted_grid(spec, 100.0, 0.0);
+    std::rotate(late.data.begin(), late.data.begin() + 2, late.data.end());
+    add_reference(&reference,
+                  reference.region_of(panel, 0, 450.0, 450.0, 390.0), late);
+  }
+  finalise_reference(&reference, 5);
+
+  const std::vector<double> early = profile_at(reference, panel, 0, 450.0, 450.0, 10.0);
+  const std::vector<double> late = profile_at(reference, panel, 0, 450.0, 450.0, 390.0);
+  double peak = 0.0;
+  for (double v : early) peak = std::max(peak, v);
+  double change = 0.0;
+  for (std::size_t i = 0; i < early.size(); ++i) {
+    change = std::max(change, std::fabs(early[i] - late[i]));
+  }
+  check::is_true(change > 0.2 * peak,
+                 "the profile at the start of the scan is not the one at the end");
 }

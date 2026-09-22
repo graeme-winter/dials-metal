@@ -26,6 +26,7 @@ class ReferenceProfiles:
     sigma_m: float
     half_width: float
     divisions: int
+    blocks: int
     panels: int
     profiles: list[np.ndarray] = field(default_factory=list)
     spots: list[int] = field(default_factory=list)
@@ -70,6 +71,8 @@ def read_profiles(path: str) -> ReferenceProfiles:
         sigma_m=float(header["sigma_m"]),
         half_width=float(header["half_width"]),
         divisions=int(header["divisions"]),
+        # Older files have no scan blocks; one block is what they meant.
+        blocks=int(header.get("blocks", 1)),
         panels=int(header["panels"]),
         profiles=[np.asarray(p, dtype=float) for p in profiles],
         spots=spots,
@@ -84,7 +87,9 @@ def read_profiles(path: str) -> ReferenceProfiles:
     return out
 
 
-def draw_profiles(reference: ReferenceProfiles, path: str) -> str:
+def draw_profiles(
+    reference: ReferenceProfiles, path: str, block: int | None = None
+) -> str:
     """Every region's profile, as three central sections each.
 
     Sections rather than projections: a projection hides a profile that is
@@ -95,10 +100,25 @@ def draw_profiles(reference: ReferenceProfiles, path: str) -> str:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    n = len(reference.profiles)
+    # With a divided scan there can be forty-five profiles, which is a page
+    # nobody reads. One block at a time is the useful view.
+    per_panel = reference.divisions * reference.divisions
+    if block is None:
+        which = list(range(len(reference.profiles)))
+    else:
+        which = [
+            r
+            for r in range(len(reference.profiles))
+            if (r // per_panel) % max(reference.blocks, 1) == block
+        ]
+        if not which:
+            raise ValueError(
+                f"no block {block}: the file has {reference.blocks}"
+            )
+    n = len(which)
     middle = reference.side // 2
     fig, axes = plt.subplots(n, 3, figsize=(7.5, 2.5 * n), squeeze=False)
-    for r in range(n):
+    for row, r in enumerate(which):
         grid = reference.grid(r)
         sections = [
             ("e1 e2", grid[middle, :, :]),
@@ -106,14 +126,22 @@ def draw_profiles(reference: ReferenceProfiles, path: str) -> str:
             ("e2 e3", grid[:, :, middle]),
         ]
         for c, (name, plane) in enumerate(sections):
-            ax = axes[r][c]
+            ax = axes[row][c]
             ax.imshow(plane, origin="lower", interpolation="nearest")
             ax.set_xticks([])
             ax.set_yticks([])
-            if r == 0:
+            if row == 0:
                 ax.set_title(name, fontsize=9)
             if c == 0:
-                ax.set_ylabel(f"region {r}\n{reference.spots[r]} spots", fontsize=8)
+                per_panel = reference.divisions * reference.divisions
+                block = (r // per_panel) % max(reference.blocks, 1)
+                cell = r % per_panel
+                label = (
+                    f"block {block}\ncell {cell}"
+                    if reference.blocks > 1
+                    else f"region {r}"
+                )
+                ax.set_ylabel(f"{label}\n{reference.spots[r]} spots", fontsize=7)
     fig.suptitle("reference profiles, central sections", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=120)

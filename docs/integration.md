@@ -1252,11 +1252,30 @@ costs every reflection the same number of counts, which is a large fraction of
 a weak one and nothing to a strong one. Ours measured 0.3042 against DIALS'
 0.3019 on the same reflections.
 
-**Profile fitting.** The ratio drifts with FRAME, 0.986 at the start of the
-scan to 0.951 at the end. Reference profiles here are learned per detector
-region for the whole scan; XDS and MOSFLM divide the scan as well, because the
-profile changes through it -- the crystal is scan-varying and, on a long
-enough sweep, so is the sample. A profile averaged over the whole scan fits the
-middle of it and neither end, which is the shape of that drift. Dividing the
-scan is the obvious next experiment, and it is a change to `ReferenceProfiles`
-rather than to the fitting.
+**Profile fitting.** The ratio drifted with FRAME, 0.986 at the start of a
+1800 image scan to 0.951 at the end, because the profiles were learned per
+detector region for the whole scan. The crystal is refined scan-varying for the
+reason that it changes, and on a long sweep so does the sample; a profile
+averaged over a scan fits the middle of it and neither end, which is that
+drift's shape.
+
+Fixed, by doing what XDS and MOSFLM do. The scan is divided as well as the
+detector -- `--scan-blocks`, five by default -- and the profile used at a
+reflection is a WEIGHTED AVERAGE of the nearby cells rather than the nearest
+one, trilinear in fast, slow and frame, with weights falling linearly with
+distance as Leslie section 6.1 describes. Taking the nearest makes the model
+jump at a cell boundary, so two reflections a pixel apart either side of one
+are fitted with different profiles.
+
+Measured on the thirty degree sweep, where the drift was smaller to begin with:
+
+    without scan blocks   0.9789 -> 0.9731 across the scan, monotonic
+    with blocks and interpolation
+                          0.9824 -> 0.9816, flat
+
+The drift falls from 0.0058 to 0.0008 and the median ratio improves from 0.977
+to 0.982. On a scan six times longer the drift was six times larger, so this
+should show more there.
+
+What it does NOT fix is the disagreement on the strongest reflections, which is
+a separate problem and still open.

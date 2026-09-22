@@ -185,6 +185,7 @@ void usage(const char *program) {
       "  --grid-points N   the profile grid is 2N+1 a side (4)\n"
       "  --subdivisions N  pixel subdivisions per axis (5, as Kabsch uses)\n"
       "  --regions N       detector divided N by N for reference profiles (3)\n"
+      "  --scan-blocks N   the scan divided N ways as well (5)\n"
       "  --reference-signal S   learn from reflections above S sigma (10)\n"
       "  --save-profiles F the learned reference profiles, as text\n"
       "  --timing          where the time went, by phase\n",
@@ -204,7 +205,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--reference-signal", "--summation-only", "--save-profiles"};
+      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--scan-blocks", "--reference-signal", "--summation-only", "--save-profiles"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
@@ -650,7 +651,8 @@ int main(int argc, char **argv) {
     grid_spec.subdivisions = static_cast<int>(args.number("--subdivisions", 5.0));
     ReferenceProfiles reference = make_reference(
         grid_spec, static_cast<int>(args.number("--regions", 3.0)),
-        e.detector.size());
+        static_cast<int>(args.number("--scan-blocks", 5.0)), e.detector.size(),
+        static_cast<std::size_t>(std::max<std::int64_t>(e.scan.num_images(), 1)));
     const bool fitting = !args.has("--summation-only");
     // Which reflections are worth learning from: strong, nearly whole, and
     // mostly inside the grid. DIALS marks these `reference_spot`.
@@ -844,8 +846,9 @@ int main(int argc, char **argv) {
             const Transformed t =
                 transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
             if (!t.valid || t.outside > 0.05) continue;
-            const std::size_t region = reference.region_of(
-                panel, static_cast<std::size_t>(q.panel), q.px_fast, q.px_slow);
+            const std::size_t region =
+                reference.region_of(panel, static_cast<std::size_t>(q.panel),
+                                    q.px_fast, q.px_slow, q.z);
             if (add_reference(&reference, region, t)) ++references_used;
           }
           t_transform += now_wall() - t0;
@@ -865,10 +868,13 @@ int main(int argc, char **argv) {
           const Transformed t =
               transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
           if (!t.valid) return;
-          const std::size_t region = reference.region_of(
-              panel, static_cast<std::size_t>(q.panel), q.px_fast, q.px_slow);
-          const ProfileFit fit = fit_profile(reference.profile[region], t,
-                                             integrate_options.gain);
+          // A weighted average of the nearby profiles, not the nearest one:
+          // taking the nearest makes the model jump at a cell boundary, so two
+          // reflections either side of one are fitted with different profiles.
+          const std::vector<double> local =
+              profile_at(reference, panel, static_cast<std::size_t>(q.panel),
+                         q.px_fast, q.px_slow, q.z);
+          const ProfileFit fit = fit_profile(local, t, integrate_options.gain);
           if (!fit.valid) return;
           iprf.reals[row] = fit.intensity;
           iprf_var.reals[row] = fit.variance;
@@ -904,6 +910,7 @@ int main(int argc, char **argv) {
             std::fprintf(f, "sigma_m %.9g\n", grid_spec.sigma_m);
             std::fprintf(f, "half_width %.9g\n", grid_spec.half_width);
             std::fprintf(f, "divisions %d\n", reference.divisions);
+            std::fprintf(f, "blocks %d\n", reference.blocks);
             std::fprintf(f, "panels %zu\n", reference.panels);
             for (std::size_t r = 0; r < reference.profile.size(); ++r) {
               std::fprintf(f, "profile %zu spots %zu\n", r, reference.spots[r]);

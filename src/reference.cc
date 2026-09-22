@@ -1,7 +1,9 @@
 #include "reference.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <utility>
 
 #include "profile_model.h"
 
@@ -145,28 +147,139 @@ Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
   return out;
 }
 
-std::size_t ReferenceProfiles::region_of(const Panel &panel,
-                                         std::size_t which_panel,
-                                         double px_fast, double px_slow) const {
-  const double fast_size = static_cast<double>(std::max<std::int64_t>(panel.image_size[0], 1));
-  const double slow_size = static_cast<double>(std::max<std::int64_t>(panel.image_size[1], 1));
-  const double d = static_cast<double>(std::max(divisions, 1));
-  int i = static_cast<int>(px_fast / fast_size * d);
-  int j = static_cast<int>(px_slow / slow_size * d);
-  i = std::clamp(i, 0, divisions - 1);
-  j = std::clamp(j, 0, divisions - 1);
-  const std::size_t within =
-      static_cast<std::size_t>(j) * static_cast<std::size_t>(divisions) +
-      static_cast<std::size_t>(i);
-  return std::min(which_panel, panels - 1) * regions_per_panel() + within;
+namespace {
+
+//: Where a coordinate sits in a division, in units of cells, measured from the
+//: centre of the first cell. Cell centres are then at 0, 1, 2, ...
+double cell_position(double value, double size, int divisions) {
+  const double n = static_cast<double>(std::max(divisions, 1));
+  const double extent = size > 0.0 ? size : 1.0;
+  return std::clamp(value / extent * n - 0.5, 0.0, n - 1.0);
 }
 
-ReferenceProfiles make_reference(const GridSpec &spec, int divisions,
-                                 std::size_t panels) {
+}  // namespace
+
+std::size_t ReferenceProfiles::index_of(std::size_t which_panel, int block,
+                                        int j, int i) const {
+  const std::size_t d = static_cast<std::size_t>(std::max(divisions, 1));
+  const std::size_t b = static_cast<std::size_t>(std::max(blocks, 1));
+  const std::size_t panel = std::min(which_panel, panels - 1);
+  const std::size_t bl =
+      static_cast<std::size_t>(std::clamp(block, 0, std::max(blocks, 1) - 1));
+  const std::size_t jj =
+      static_cast<std::size_t>(std::clamp(j, 0, std::max(divisions, 1) - 1));
+  const std::size_t ii =
+      static_cast<std::size_t>(std::clamp(i, 0, std::max(divisions, 1) - 1));
+  return ((panel * b + bl) * d + jj) * d + ii;
+}
+
+std::size_t ReferenceProfiles::region_of(const Panel &panel,
+                                         std::size_t which_panel,
+                                         double px_fast, double px_slow,
+                                         double z) const {
+  const double fast_size =
+      static_cast<double>(std::max<std::int64_t>(panel.image_size[0], 1));
+  const double slow_size =
+      static_cast<double>(std::max<std::int64_t>(panel.image_size[1], 1));
+  const int i = static_cast<int>(std::lround(
+      cell_position(px_fast, fast_size, divisions)));
+  const int j = static_cast<int>(std::lround(
+      cell_position(px_slow, slow_size, divisions)));
+  const int b = static_cast<int>(std::lround(
+      cell_position(z, static_cast<double>(std::max<std::size_t>(images, 1)),
+                    blocks)));
+  return index_of(which_panel, b, j, i);
+}
+
+std::vector<Neighbour> neighbours_of(const ReferenceProfiles &reference,
+                                     const Panel &panel,
+                                     std::size_t which_panel, double px_fast,
+                                     double px_slow, double z) {
+  const double fast_size =
+      static_cast<double>(std::max<std::int64_t>(panel.image_size[0], 1));
+  const double slow_size =
+      static_cast<double>(std::max<std::int64_t>(panel.image_size[1], 1));
+  const double images =
+      static_cast<double>(std::max<std::size_t>(reference.images, 1));
+
+  const double x = cell_position(px_fast, fast_size, reference.divisions);
+  const double y = cell_position(px_slow, slow_size, reference.divisions);
+  const double t = cell_position(z, images, reference.blocks);
+
+  // The cell below and the one above, in each division, with the weight
+  // falling linearly between their centres. At an edge both land on the same
+  // cell and the weights add back to one there, which is the fallback rather
+  // than a special case.
+  const auto pair = [](double v, int limit) {
+    const int low = std::clamp(static_cast<int>(std::floor(v)), 0, limit - 1);
+    const int high = std::clamp(low + 1, 0, limit - 1);
+    const double up = (high == low) ? 0.0 : v - static_cast<double>(low);
+    return std::array<std::pair<int, double>, 2>{
+        std::pair<int, double>{low, 1.0 - up},
+        std::pair<int, double>{high, up}};
+  };
+
+  const auto in_x = pair(x, std::max(reference.divisions, 1));
+  const auto in_y = pair(y, std::max(reference.divisions, 1));
+  const auto in_t = pair(t, std::max(reference.blocks, 1));
+
+  std::vector<Neighbour> out;
+  out.reserve(8);
+  for (const auto &a : in_t) {
+    for (const auto &b : in_y) {
+      for (const auto &c : in_x) {
+        const double weight = a.second * b.second * c.second;
+        if (!(weight > 0.0)) continue;
+        const std::size_t region =
+            reference.index_of(which_panel, a.first, b.first, c.first);
+        // An edge can name the same cell twice; add rather than append, so the
+        // weights still sum to one.
+        bool merged = false;
+        for (Neighbour &n : out) {
+          if (n.region == region) {
+            n.weight += weight;
+            merged = true;
+            break;
+          }
+        }
+        if (!merged) out.push_back({region, weight});
+      }
+    }
+  }
+  return out;
+}
+
+std::vector<double> profile_at(const ReferenceProfiles &reference,
+                               const Panel &panel, std::size_t which_panel,
+                               double px_fast, double px_slow, double z) {
+  std::vector<double> out(reference.spec.size(), 0.0);
+  const std::vector<Neighbour> near =
+      neighbours_of(reference, panel, which_panel, px_fast, px_slow, z);
+  double total = 0.0;
+  for (const Neighbour &n : near) {
+    if (n.region >= reference.profile.size()) continue;
+    const std::vector<double> &p = reference.profile[n.region];
+    if (p.size() != out.size()) continue;
+    for (std::size_t i = 0; i < out.size(); ++i) out[i] += n.weight * p[i];
+    total += n.weight;
+  }
+  if (!(total > 0.0)) return out;
+  double sum = 0.0;
+  for (double v : out) sum += v;
+  if (sum > 0.0) {
+    for (double &v : out) v /= sum;
+  }
+  return out;
+}
+
+ReferenceProfiles make_reference(const GridSpec &spec, int divisions, int blocks,
+                                 std::size_t panels, std::size_t images) {
   ReferenceProfiles out;
   out.spec = spec;
   out.divisions = std::max(divisions, 1);
+  out.blocks = std::max(blocks, 1);
   out.panels = std::max<std::size_t>(panels, 1);
+  out.images = std::max<std::size_t>(images, 1);
   out.profile.assign(out.region_count(), std::vector<double>(spec.size(), 0.0));
   out.spots.assign(out.region_count(), 0);
   return out;

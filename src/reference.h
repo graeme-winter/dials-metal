@@ -86,34 +86,73 @@ Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
                               const Vec3 &s1, double phi_calculated,
                               const GridSpec &spec);
 
-//: Reference profiles, one per region of the detector.
+//: Reference profiles, over the detector AND over the scan.
 //:
 //: Kabsch section 3.3 and Leslie section 6.1 both divide the detector: the
-//: profile changes across it, through obliquity of incidence, the projected
-//: diffracting volume and absorption in the sensor. MOSFLM uses nine or
-//: twenty-five regions. The profile at a reflection is the nearest region's;
-//: interpolating between regions, which MOSFLM does, is not done here yet and
-//: is noted rather than hidden.
+//: profile changes across its face through obliquity of incidence, the
+//: projected diffracting volume and absorption in the sensor. MOSFLM uses nine
+//: or twenty-five regions.
+//:
+//: The profile also changes along the SCAN, because the crystal does -- it is
+//: refined scan-varying for exactly that reason, and on a long sweep the
+//: sample itself changes. Measured here: with one profile per region for a
+//: whole scan, the fitted intensities drift from 0.986 of DIALS' at the start
+//: to 0.951 at the end, which is the shape of a profile that fits the middle
+//: of a scan and neither end. So the scan is divided too.
+//:
+//: And the profile used at a reflection is a WEIGHTED AVERAGE of the nearby
+//: ones rather than the nearest, with weights falling linearly with distance,
+//: as Leslie section 6.1 describes. Taking the nearest makes the model jump at
+//: a region boundary, so two neighbouring reflections either side of one are
+//: fitted with different profiles and their intensities differ by more than
+//: their positions warrant.
 struct ReferenceProfiles {
   GridSpec spec;
-  int divisions = 3;  //: so `divisions * divisions` regions per panel
+  int divisions = 3;  //: `divisions * divisions` regions across a panel
+  int blocks = 1;     //: divisions along the scan
   std::size_t panels = 1;
+  std::size_t images = 1;
   //: `profile[region]` is one normalised profile, summing to one.
   std::vector<std::vector<double>> profile;
   std::vector<std::size_t> spots;
   bool finalised = false;
 
   std::size_t regions_per_panel() const {
-    return static_cast<std::size_t>(divisions) * static_cast<std::size_t>(divisions);
+    return static_cast<std::size_t>(divisions) *
+           static_cast<std::size_t>(divisions) *
+           static_cast<std::size_t>(blocks);
   }
   std::size_t region_count() const { return panels * regions_per_panel(); }
-  //: Which region a point on a panel falls in.
+  //: The index of one cell, by its position in the three divisions.
+  std::size_t index_of(std::size_t which_panel, int block, int j, int i) const;
+  //: Which cell a reflection falls in, for LEARNING: a contribution goes to
+  //: one cell, so that the profiles stay independent estimates.
   std::size_t region_of(const Panel &panel, std::size_t which_panel,
-                        double px_fast, double px_slow) const;
+                        double px_fast, double px_slow, double z) const;
 };
 
-ReferenceProfiles make_reference(const GridSpec &spec, int divisions,
-                                 std::size_t panels);
+struct Neighbour {
+  std::size_t region;
+  double weight;
+};
+
+//: The cells near a reflection and how much each counts, for FITTING.
+//:
+//: Trilinear in the three divisions, so the profile varies smoothly across the
+//: detector and along the scan instead of jumping at a boundary. At an edge
+//: the weights fall back onto the cells that exist rather than reaching for
+//: ones that do not.
+std::vector<Neighbour> neighbours_of(const ReferenceProfiles &reference,
+                                     const Panel &panel, std::size_t which_panel,
+                                     double px_fast, double px_slow, double z);
+
+//: The interpolated profile at a reflection, normalised to unit sum.
+std::vector<double> profile_at(const ReferenceProfiles &reference,
+                               const Panel &panel, std::size_t which_panel,
+                               double px_fast, double px_slow, double z);
+
+ReferenceProfiles make_reference(const GridSpec &spec, int divisions, int blocks,
+                                 std::size_t panels, std::size_t images);
 
 //: Add one reflection's transformed shoebox to its region's profile.
 //:

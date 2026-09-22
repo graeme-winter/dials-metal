@@ -131,6 +131,12 @@ def main(argv: list[str] | None = None) -> int:
     pl.add_argument(
         "--widths", help="also write a plot of profile width by region and axis"
     )
+    pl.add_argument(
+        "--block",
+        type=int,
+        help="draw only this block of the scan; with a divided scan there can "
+        "be more profiles than fit on a page",
+    )
 
     i = sub.add_parser("inspect", help="describe a file without assuming its layout")
     i.add_argument("path")
@@ -145,9 +151,14 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(reference.profiles)} profiles, {reference.side} a side, "
             f"{reference.divisions}x{reference.divisions} regions per panel"
         )
-        for r, spots in enumerate(reference.spots):
-            print(f"  region {r}: {spots} spots")
-        print(profile_plots.draw_profiles(reference, args.output))
+        thin = [r for r, n in enumerate(reference.spots) if n < 10]
+        if thin:
+            print(f"  {len(thin)} cells saw fewer than ten spots: {thin[:12]}")
+        print(
+            f"  {reference.blocks} scan blocks, "
+            f"{reference.divisions}x{reference.divisions} cells a panel"
+        )
+        print(profile_plots.draw_profiles(reference, args.output, args.block))
         if args.widths:
             print(profile_plots.draw_profile_widths(reference, args.widths))
         return 0
