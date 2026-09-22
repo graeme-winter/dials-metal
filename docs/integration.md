@@ -1272,6 +1272,18 @@ And that is the whole of the summation disagreement:
     |zeta| > 0.2 :  19110 reflections, sum corr 0.9859
     |zeta| > 0.3 :  18720 reflections, sum corr 1.0000
 
+`--min-zeta` is the lever, and it was recommended here before it existed on
+`mxi_integrate` -- it was on `mxi_mask` and in `MaskOptions` and had never been
+exposed by the program that needed it. On the thirty degree sweep, raising it
+from the default:
+
+    --min-zeta 0.05   15092 integrated, sum corr 0.9373, prf corr 0.9667
+    --min-zeta 0.2    14825 integrated, sum corr 0.9855, prf corr 0.9932
+
+267 reflections fewer, and both agreements improve. It costs time twice over as
+well, since a window has to read every frame its longest reflection reaches,
+which is what drives the re-read rate.
+
 **Summation agrees with DIALS exactly once the near-axis reflections are set
 aside.** Which leaves a real question rather than a bug: what should happen to
 them. The zeta cut is currently 0.05 and lets in boxes forty images deep; DIALS
