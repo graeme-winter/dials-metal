@@ -82,3 +82,47 @@ def test_a_column_missing_from_one_side_is_left_out_rather_than_crashing(tmp_pat
     )
     data, _ = payload(out)
     assert [v["value"] for v in data["values"]] == ["intensity.sum.value"]
+
+
+def test_resolution_is_drawn_against_inverse_d_squared(tmp_path):
+    # Shells of equal 1/d^2 hold equal volumes of reciprocal space, so that is
+    # the axis on which a resolution trend looks like what it is. A linear axis
+    # in d compresses every high-resolution shell into the left of the plot,
+    # which is where most of the reflections are.
+    #
+    # The ticks still read in Angstroms, because that is what anyone means by
+    # resolution.
+    a = table(600, seed=41)
+    b = table(600, seed=41)
+    out = tmp_path / "r.html"
+    htmlreport.write(a, b, str(out), ["intensity.sum.value"], n_bins=5)
+    data, _ = payload(out)
+    blocks = {block["against"]: block for block in data["values"][0]["blocks"]}
+    resolution = blocks["resolution"]
+    assert resolution["ticks"] is not None
+    # x is 1/d^2 and the labels are d, so each label squared times its x is one.
+    for x, label in zip(resolution["x"], resolution["ticks"]["text"]):
+        d = float(label)
+        assert x == pytest.approx(1.0 / (d * d), rel=1e-6)
+    # Ascending in 1/d^2, which is descending in d: low resolution on the left.
+    assert resolution["x"] == sorted(resolution["x"])
+    assert float(resolution["ticks"]["text"][0]) > float(
+        resolution["ticks"]["text"][-1]
+    )
+
+
+def test_counts_that_span_decades_are_drawn_on_a_log_axis(tmp_path):
+    a = table(600, seed=42)
+    b = table(600, seed=42)
+    # A pixel count spanning three decades, as a real one does between a
+    # reflection near the rotation axis and one far from it.
+    counts = np.geomspace(20, 20000, 600)
+    a.columns["num_pixels.foreground"] = counts.astype(np.int64)
+    b.columns["num_pixels.foreground"] = counts.astype(np.int64)
+    out = tmp_path / "r.html"
+    htmlreport.write(a, b, str(out), ["intensity.sum.value"], n_bins=5)
+    data, _ = payload(out)
+    blocks = {block["against"]: block for block in data["values"][0]["blocks"]}
+    assert blocks["foreground pixels (ours)"]["axis"] == "log"
+    # And a variable that does not span decades is left alone.
+    assert blocks["I/sigma (reference)"]["axis"] == "linear"

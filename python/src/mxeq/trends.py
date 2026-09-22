@@ -29,6 +29,16 @@ class Explanatory:
     unit: str = ""
     #: Highest first, as resolution shells are conventionally shown.
     descending: bool = False
+    #: How the axis should be drawn when this is plotted.
+    #:
+    #: "linear" for most things; "log" for a count that spans decades, where a
+    #: linear axis puts everything against the left edge; and "inverse_square"
+    #: for resolution, which is plotted against 1/d^2 because that is what
+    #: makes a resolution axis even -- shells of equal 1/d^2 hold equal volumes
+    #: of reciprocal space, so a trend that is linear in the data looks linear
+    #: on the page. The ticks still read in Angstroms, since that is what
+    #: anyone means by resolution.
+    scale: str = "linear"
 
 
 def _beam_centre(table: refl.ReflectionTable) -> tuple[float, float]:
@@ -56,7 +66,12 @@ def explanatory_variables(
 
     d = column(reference, ref_index, "d")
     if d is not None:
-        out.append(Explanatory("resolution", d.ravel(), "A", descending=True))
+        out.append(
+            Explanatory(
+                "resolution", d.ravel(), "A", descending=True,
+                scale="inverse_square",
+            )
+        )
 
     signal = column(reference, ref_index, "intensity.sum.value")
     variance = column(reference, ref_index, "intensity.sum.variance")
@@ -79,11 +94,19 @@ def explanatory_variables(
 
     fg = column(a, index, "num_pixels.foreground")
     if fg is not None:
-        out.append(Explanatory("foreground pixels (ours)", fg.ravel().astype(float)))
+        out.append(
+            Explanatory(
+                "foreground pixels (ours)", fg.ravel().astype(float), scale="log"
+            )
+        )
 
     back = column(a, index, "background.mean")
     if back is not None:
-        out.append(Explanatory("background (ours)", back.ravel(), "counts/pixel"))
+        out.append(
+            Explanatory(
+                "background (ours)", back.ravel(), "counts/pixel", scale="log"
+            )
+        )
 
     px = column(reference, ref_index, "xyzcal.px")
     if px is not None:

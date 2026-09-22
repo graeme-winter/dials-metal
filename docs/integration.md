@@ -1575,6 +1575,15 @@ JSON into a page. So there is no new dependency, the report is one file that
 can be sent to someone, and it needs a network connection once to draw.
 `--plotly` points it somewhere else for a machine that has none.
 
+**The axes are the ones the quantity is usually read on.** Resolution is drawn
+against 1/d^2 with the ticks still reading in Angstroms, because shells of
+equal 1/d^2 hold equal volumes of reciprocal space -- on a linear axis in d
+every high-resolution shell is crushed into the left of the plot, which is
+where most of the reflections are. Pixel counts and backgrounds span decades
+and are drawn on a log axis for the same reason. Which axis a variable wants is
+a property of the variable and is declared with it, so the text report and the
+drawing cannot disagree about it.
+
 A variable that does not vary gives one bin, and a panel with one point in it
 takes up half a screen saying nothing, so those are skipped; the text report
 still lists them, where a short table costs nothing.

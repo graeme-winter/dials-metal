@@ -46,12 +46,30 @@ def _figures(a, ia, b, ib, values, n_bins):
             # nothing.
             if len(rows) < 2:
                 continue
+            centres = [0.5 * (r.low + r.high) for r in rows]
+            # Resolution is drawn against 1/d^2, which is what makes a
+            # resolution axis even: shells of equal 1/d^2 hold equal volumes
+            # of reciprocal space. The ticks still read in Angstroms.
+            axis = "linear"
+            ticks = None
+            if against.scale == "inverse_square":
+                x = [1.0 / (c * c) if c > 0 else 0.0 for c in centres]
+                ticks = {
+                    "vals": x,
+                    "text": [f"{c:.2f}" for c in centres],
+                }
+            elif against.scale == "log":
+                x = centres
+                axis = "log"
+            else:
+                x = centres
             blocks.append(
                 {
                     "against": against.name,
-                    "unit": against.unit,
-                    # The bin centre, so a point sits where its data is.
-                    "x": [0.5 * (r.low + r.high) for r in rows],
+                    "unit": against.unit if against.scale != "inverse_square" else "A",
+                    "axis": axis,
+                    "ticks": ticks,
+                    "x": x,
                     "ratio": [r.median_ratio for r in rows],
                     "spread": [r.spread for r in rows],
                     "rho": [r.rank_correlation for r in rows],
@@ -105,6 +123,22 @@ PAGE = """<!doctype html>
 <script>
 const REPORT = __DATA__;
 
+// Resolution is drawn against 1/d^2 with the ticks still reading in Angstroms,
+// and counts that span decades on a log axis. A linear axis in d compresses
+// every high-resolution shell into the left of the plot, which is where most
+// of the reflections are.
+function axis(block) {
+  const unit = block.unit ? " (" + block.unit + ")" : "";
+  const out = {title: block.against + unit};
+  if (block.axis === "log") out.type = "log";
+  if (block.ticks) {
+    out.tickmode = "array";
+    out.tickvals = block.ticks.vals;
+    out.ticktext = block.ticks.text;
+  }
+  return out;
+}
+
 function panel(where, spec) {
   const d = document.createElement("div");
   where.appendChild(d);
@@ -148,7 +182,6 @@ for (const value of REPORT.values) {
   body.appendChild(grid);
 
   for (const block of value.blocks) {
-    const unit = block.unit ? " (" + block.unit + ")" : "";
     // The ratio with its robust spread as the band: what the bulk does, and
     // how widely, as against what the worst of it does.
     panel(grid, {
@@ -163,7 +196,7 @@ for (const value of REPORT.values) {
       ],
       layout: {
         height: 300, title: "ratio against " + block.against,
-        xaxis: {title: block.against + unit},
+        xaxis: axis(block),
         yaxis: {title: "ours / theirs"},
         showlegend: false, margin: {t: 40, l: 60, r: 20, b: 50}
       }
@@ -182,7 +215,7 @@ for (const value of REPORT.values) {
       ],
       layout: {
         height: 300, title: "agreement against " + block.against,
-        xaxis: {title: block.against + unit},
+        xaxis: axis(block),
         yaxis: {title: "correlation", range: [-0.05, 1.05]},
         yaxis2: {title: "outliers", overlaying: "y", side: "right",
                  showgrid: false},
