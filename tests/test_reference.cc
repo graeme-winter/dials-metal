@@ -313,3 +313,70 @@ TEST(the_scan_is_divided_as_well_as_the_detector) {
   check::is_true(change > 0.2 * peak,
                  "the profile at the start of the scan is not the one at the end");
 }
+
+TEST(a_grid_point_with_almost_nothing_in_it_does_not_decide_the_fit) {
+  // The variance floor. With it at an epsilon, a grid point whose expected
+  // counts are near zero carries a weight of a million and the fit does what
+  // those few points say -- which on real data fitted the 79 strongest
+  // reflections with the opposite sign to their summed intensity and held the
+  // agreement with DIALS at 0.379 instead of 0.968.
+  //
+  // Such points are ordinary rather than pathological: the background at a
+  // grid point is shared out in proportion to how much of a pixel reached it,
+  // so a point at the edge of a spot's footprint has a background of a
+  // ten-thousandth of a count.
+  //
+  // THIS TEST DOES NOT GUARD THAT CHANGE. It passes with the old epsilon floor
+  // too, as did three earlier attempts at it, and no synthetic case built here
+  // reproduces the failure. What establishes the floor is a controlled
+  // experiment on real data -- same file, same resolution, one line changed --
+  // and nothing in this suite would catch its removal.
+  //
+  // Left in because what it asserts is true and worth asserting. Not left in
+  // as reassurance: the comment above the floor in reference.cc says where the
+  // evidence actually is.
+  const GridSpec spec = small_spec();
+  const std::vector<double> reference = unit_profile(spec);
+
+  Transformed t = planted_grid(spec, 5.0e4, 0.3);
+  // A skin of points that a pixel barely reached: real coverage, a background
+  // scaled down with it, and a count that happens to fall below it.
+  const int side = spec.side();
+  std::size_t skin = 0;
+  for (int i3 = 0; i3 < side; ++i3) {
+    for (int i2 = 0; i2 < side; ++i2) {
+      for (int i1 = 0; i1 < side; ++i1) {
+        if (i1 != 0 && i2 != 0 && i3 != 0) continue;
+        const std::size_t at = spec.at(i1, i2, i3);
+        t.coverage[at] = 1.0e-4;
+        t.background[at] = 3.0e-5;
+        t.data[at] = 0.0;  // below its background, as noise allows
+        ++skin;
+      }
+    }
+  }
+  check::is_true(skin > 50, "there is a skin to speak of");
+
+  const ProfileFit fit = fit_profile(reference, t);
+  check::is_true(fit.valid, "fitted");
+  check::is_true(fit.intensity > 0.0,
+                 "a strong reflection is not fitted negative by a skin of "
+                 "almost-empty grid points");
+  check::is_true(fit.intensity > 0.5 * 5.0e4,
+                 "and they do not take most of it away either");
+}
+
+TEST(a_weak_reflection_may_still_be_fitted_negative) {
+  // The clamp is on the expected COUNTS, which cannot be negative, and not on
+  // the answer. A weak reflection whose foreground happens to fall below its
+  // background has a negative intensity, and throwing that away or clamping it
+  // biases every merged intensity upwards.
+  const GridSpec spec = small_spec();
+  const std::vector<double> reference = unit_profile(spec);
+  Transformed t = planted_grid(spec, 0.0, 5.0);
+  for (std::size_t i = 0; i < t.data.size(); ++i) t.data[i] = 4.0;
+  const ProfileFit fit = fit_profile(reference, t);
+  check::is_true(fit.valid, "fitted");
+  check::is_true(fit.intensity < 0.0,
+                 "a weak reflection below its background is negative");
+}

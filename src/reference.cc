@@ -344,6 +344,13 @@ void finalise_reference(ReferenceProfiles *reference, std::size_t least) {
   reference->finalised = true;
 }
 
+namespace {
+//: The least variance a grid point can have, in counts. A point with no signal
+//: still carries the background's noise; anything smaller is a weight this fit
+//: has no business trusting.
+constexpr double kLeastVariance = 0.05;
+}  // namespace
+
 ProfileFit fit_profile(const std::vector<double> &reference, const Transformed &t,
                        double gain, int iterations) {
   ProfileFit out;
@@ -368,12 +375,35 @@ ProfileFit fit_profile(const std::vector<double> &reference, const Transformed &
       // A grid point no pixel reached is not a measurement and cannot be
       // fitted to. Counting it as an observed zero pulls every intensity down.
       if (!(t.coverage[i] > 0.0)) continue;
-      const double model = t.background[i] + scale * reference[i];
-      // The Poisson variance of what the model says should be there, floored
-      // so that a point the model puts at zero still has a weight. Using the
+      // The Poisson variance of what the model says should be there. Using the
       // OBSERVED count instead biases the fit: a point that happened to record
       // nothing would be given infinite weight.
-      const double v = std::max(gain * model, 1e-6);
+      //
+      // THE FLOOR IS THE POINT. It was an epsilon, 1e-6, and a grid point whose
+      // expected counts are near zero then carries a weight of a million and
+      // the fit does what those few points say. That is not hypothetical: 79 of
+      // 19771 reflections came back fitted with the opposite sign to their
+      // summed intensity, their sums having a median of 14845 -- the strongest
+      // reflections in the dataset, fitted large and negative. Raising the
+      // floor took that to none, and the agreement with DIALS from 0.379 to
+      // 0.968, on the same data at the same resolution.
+      //
+      // Such points are ordinary here rather than pathological: the background
+      // at a grid point is shared out in proportion to how much of a pixel
+      // reached it, so a point at the edge of a spot's footprint has a
+      // background of a ten-thousandth of a count and an expected value to
+      // match.
+      //
+      // 0.05 counts is the least variance a measurement of anything is allowed
+      // to have. It is arbitrary in the way a floor must be, and it is four
+      // orders of magnitude away from the value that failed.
+      //
+      // The clamp on the scale below is NOT what fixed this -- it was measured
+      // separately and moved 79 flips to 78. It stays because a negative
+      // expected count is not a Poisson mean whatever else is true.
+      const double expected =
+          t.background[i] + std::max(scale, 0.0) * reference[i];
+      const double v = std::max(gain * expected, gain * kLeastVariance);
       numerator += reference[i] * (t.data[i] - t.background[i]) / v;
       denominator += reference[i] * reference[i] / v;
     }

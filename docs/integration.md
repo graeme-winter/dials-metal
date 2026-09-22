@@ -1280,10 +1280,54 @@ reflection smeared over forty images. Raising `--min-zeta` would drop them, at
 the cost of reflections near the axis that a longer sweep would measure
 properly.
 
-**Profile fitting is not the same problem.** Its correlation does not improve
-when they are removed -- 0.3786, 0.3734, 0.3494 across the same cuts, slightly
-worse -- so whatever is wrong there is wrong everywhere, and the grid-point
-independence described above remains the first suspect.
+**Profile fitting was a different problem, and it was the variance floor.**
+
+Its disagreement with DIALS was not spread through the data; it was 79 of 19771
+reflections, 0.40 per cent, whose fitted intensity came back with the opposite
+sign to their summed one. Their summed intensities have a median of 14845 --
+the strongest reflections in the dataset, fitted large and negative. The worst
+had a summed intensity of 128300 and a fitted one of -53610, with a
+`profile.correlation` of 0.913, so the profile described it well and the scale
+was still wrong. One extreme value of the wrong sign is what a Pearson
+correlation is least able to survive.
+
+The weights are Poisson, `1/v` with `v` the variance of the expected counts,
+and the floor under `v` was an epsilon of 1e-6. A grid point whose expected
+value is near zero then carries a weight of a million and the fit does what
+those few points say. Such points are ordinary rather than pathological: the
+background at a grid point is shared out in proportion to how much of a pixel
+reached it, so a point at the edge of a spot's footprint has a background of a
+ten-thousandth of a count.
+
+Raising the floor to 0.05 counts -- the least variance a measurement of
+anything is allowed to have:
+
+    neither             79 sign flips, prf corr 0.3786
+    clamp only          78 sign flips, prf corr 0.3782
+    clamp and floor      0 sign flips, prf corr 0.9678
+
+Profile fitting now agrees with DIALS better than summation does, which is what
+it is for.
+
+Three things about how that was established, none of them comfortable.
+
+**The first comparison was not controlled.** The two runs used different
+resolution limits, 1.8 and 2.0 Angstroms, and different numbers of reflections.
+The improvement was real but the experiment did not show it, and the doubt was
+only resolved by running both at the same limit.
+
+**The cause was not what it looked like.** The change made two things at once,
+a clamp on the scale and the floor, and the clamp was the one that looked like
+the fix. Measured separately, it moves 79 flips to 78. The floor moves 78 to
+zero. It stays because a negative expected count is not a Poisson mean, but it
+is not why this works.
+
+**There is no test for it.** Four synthetic cases were built to reproduce the
+failure and all four pass with the old epsilon floor. What establishes the
+floor is a controlled experiment on real data -- same file, same resolution,
+one line changed -- and nothing in the suite would catch its removal. The test
+that remains says so in its own comment rather than implying otherwise.
+
 
 ### The steps
 

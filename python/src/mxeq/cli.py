@@ -113,6 +113,11 @@ def main(argv: list[str] | None = None) -> int:
         help="a column to compare; repeatable. Defaults to the intensities, "
         "their variances and the background.",
     )
+    t.add_argument(
+        "--value-b",
+        help="the column to compare against, if different. Pass the same file "
+        "twice to compare our own summed and fitted intensities.",
+    )
     t.add_argument("--bins", type=int, default=10, help="bins per variable")
     t.add_argument(
         "--worst",
@@ -157,6 +162,11 @@ def main(argv: list[str] | None = None) -> int:
         "--value", default="intensity.sum.value", help="the column to compare"
     )
     dg.add_argument(
+        "--value-b",
+        help="the column to compare against, if different; pass the same file "
+        "twice to compare our own summed and fitted intensities",
+    )
+    dg.add_argument(
         "--factor",
         type=float,
         default=2.0,
@@ -185,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
             refl.load(args.ours),
             refl.load(args.theirs),
             value=args.value,
+            value_b=args.value_b,
             factor=args.factor,
             absolute=args.absolute,
             limit=args.limit,
@@ -233,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
                 refl.load(args.a),
                 refl.load(args.b),
                 values,
+                value_b=args.value_b,
                 n_bins=args.bins,
                 radius=args.radius,
                 worst=args.worst,

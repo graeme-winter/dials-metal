@@ -273,6 +273,7 @@ def compare(
     a: refl.ReflectionTable,
     b: refl.ReflectionTable,
     values: list[str],
+    value_b: str | None = None,
     n_bins: int = 10,
     radius: float = 0.5,
     worst: int = 0,
@@ -316,17 +317,20 @@ def compare(
 
     variables = explanatory_variables(a, ia, b, ib)
     for value in values:
-        if value not in a.columns or value not in b.columns:
+        other = value_b or value
+        if value not in a.columns or other not in b.columns:
             out.append("")
             out.append(f"{value}: not in both files")
             continue
         va = a.columns[value].ravel()[ia]
-        vb = b.columns[value].ravel()[ib]
+        vb = b.columns[other].ravel()[ib]
         overall, _ = stats.correlation(va, vb)
         finite = np.isfinite(va) & np.isfinite(vb) & (np.abs(vb) > 0)
         out.append("")
         out.append(
-            f"=== {value}: correlation {overall:.4f}, "
+            f"=== {value}"
+            + (f" against {other}" if other != value else "")
+            + f": correlation {overall:.4f}, "
             f"median ratio {np.median(va[finite] / vb[finite]):.4f} "
             f"over {int(finite.sum())} ==="
         )

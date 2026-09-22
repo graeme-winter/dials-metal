@@ -33,6 +33,7 @@ def select(
     ours: refl.ReflectionTable,
     theirs: refl.ReflectionTable,
     value: str = "intensity.sum.value",
+    value_b: str | None = None,
     factor: float = 2.0,
     absolute: float = 0.0,
     radius: float = 0.5,
@@ -45,8 +46,15 @@ def select(
     numbers near zero is meaningless and there are a great many of them: a
     reflection of 0.6 against 0.2 is a factor of three and is nothing at all.
     """
-    for name, table in (("ours", ours), ("theirs", theirs)):
-        for column in ("miller_index", "entering", "xyzcal.px", value):
+    # A different column on each side, so one file can be compared with itself:
+    # our summed intensity against our fitted one is the comparison that says
+    # which of the two is misbehaving, and it needs no second program.
+    other = value_b or value
+    for name, table, column_name in (
+        ("ours", ours, value),
+        ("theirs", theirs, other),
+    ):
+        for column in ("miller_index", "entering", "xyzcal.px", column_name):
             if column not in table.columns:
                 raise ValueError(f"{name} has no {column}")
 
@@ -69,7 +77,7 @@ def select(
         )
 
     va = ours.columns[value].ravel()[ia]
-    vb = theirs.columns[value].ravel()[ib]
+    vb = theirs.columns[other].ravel()[ib]
     with np.errstate(invalid="ignore", divide="ignore"):
         ratio = va / vb
     big_enough = (np.abs(va) > absolute) | (np.abs(vb) > absolute)
@@ -106,7 +114,9 @@ def select(
     report = (
         f"{ours.nrows} rows against {theirs.nrows}, matched {len(ia)}"
         + (f", {duplicates} duplicate keys" if duplicates else "")
-        + f"\n{len(rows)} disagree on {value} by more than {factor}x"
+        + f"\n{len(rows)} disagree on {value}"
+        + (f" against {other}" if other != value else "")
+        + f" by more than {factor}x"
         + (f" (of {int((apart & big_enough).sum())} found)" if limit else "")
     )
     if len(rows):
