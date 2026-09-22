@@ -32,6 +32,24 @@ def table(n, seed=0, ratio=1.0, ratio_with_d=None):
     return t
 
 
+def ratios_under(report, heading):
+    """The ratio column of one block, found by its header rather than by
+    counting from the end: adding a column to the table should not break every
+    test that reads it, and once did."""
+    after = report.split(heading)[1].splitlines()
+    header = after[1].split()
+    where = header.index("ratio")
+    out = []
+    for line in after[2:]:
+        if not line.startswith("  "):
+            break
+        parts = line.split()
+        if len(parts) != len(header):
+            break
+        out.append(float(parts[where]))
+    return out
+
+
 def test_a_flat_ratio_shows_as_flat():
     # The control: two files differing by a constant scale should show that
     # scale in every bin of every variable and no trend in any of them.
@@ -39,11 +57,7 @@ def test_a_flat_ratio_shows_as_flat():
     b = table(600, seed=1, ratio=1.0)
     report = trends.compare(a, b, ["intensity.sum.value"], n_bins=5)
     assert "matched 600" in report
-    ratios = [
-        float(line.split()[-2])
-        for line in report.splitlines()
-        if line.startswith("  ") and len(line.split()) == 7 and "from" not in line
-    ]
+    ratios = ratios_under(report, "against resolution")
     assert ratios, report
     assert all(abs(r - 0.9) < 1e-9 for r in ratios), report
 
@@ -54,19 +68,7 @@ def test_a_ratio_that_trends_with_resolution_shows_as_a_trend():
     a = table(600, seed=2, ratio_with_d=0.6)
     b = table(600, seed=2)
     report = trends.compare(a, b, ["intensity.sum.value"], n_bins=5)
-    # Only the resolution block: everything after it is another variable's
-    # table, and reading into those was this test's own first bug.
-    after = report.split("against resolution")[1].splitlines()
-    block = []
-    for line in after[1:]:
-        if not line.startswith("  "):
-            break
-        block.append(line)
-    ratios = [
-        float(line.split()[-2])
-        for line in block
-        if len(line.split()) == 7 and "from" not in line
-    ]
+    ratios = ratios_under(report, "against resolution")
     assert len(ratios) >= 4, report
     # Rows are highest resolution last, so the ratio should fall down the table.
     assert ratios[0] > ratios[-1] + 0.2, ratios
@@ -97,3 +99,36 @@ def test_bins_hold_equal_populations():
     edges = trends.bin_edges(values, 10)
     counts = np.histogram(values, edges)[0]
     assert counts.min() > 0.5 * counts.max()
+
+
+def test_spearman_survives_what_pearson_does_not():
+    # The reading this was added for: a bin where almost everything agrees and
+    # a handful of values are wildly wrong. Pearson collapses, Spearman does
+    # not, and the difference between them is the diagnosis.
+    rng = np.random.default_rng(11)
+    truth = rng.uniform(100.0, 200.0, 500)
+    same = truth * rng.normal(1.0, 0.01, 500)
+    same[:5] = truth[:5] * 400.0
+    pearson, _ = __import__("mxeq.stats", fromlist=["stats"]).correlation(truth, same)
+    rho = trends.spearman(truth, same)
+    assert pearson < 0.5, pearson
+    assert rho > 0.9, rho
+
+
+def test_the_outlier_count_finds_planted_outliers():
+    a = table(1000, seed=7)
+    b = table(1000, seed=7)
+    spoiled = a.columns["intensity.sum.value"].copy()
+    spoiled[:20] *= 50.0
+    a.columns["intensity.sum.value"] = spoiled
+    report = trends.compare(a, b, ["intensity.sum.value"], n_bins=4)
+    after = report.split("against resolution")[1].splitlines()
+    header = after[1].split()
+    where = header.index("out")
+    counts = []
+    for line in after[2:]:
+        parts = line.split()
+        if len(parts) != len(header):
+            break
+        counts.append(int(parts[where]))
+    assert sum(counts) >= 15, report

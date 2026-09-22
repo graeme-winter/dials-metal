@@ -1210,9 +1210,54 @@ overall correlation to 0.42. Strong reflections are where the profile's tails
 carry the most counts and where a saturated or mismodelled pixel has the most
 leverage. That is the next thing to look at, and this tool is how.
 
-Note that within-bin correlation is not a measure of agreement on its own: a
-narrow bin of a noisy quantity correlates poorly however well two programs
-agree, which is why the summation rows read as they do. The ratio column is
+Pearson within a bin is not a measure of agreement, and reading it as one is
+misleading. Two extra columns were added because of that:
+
+* **`rho`, the rank correlation.** Pearson is dominated by the largest values,
+  so a handful of gross outliers in a bin of five thousand drags it down while
+  the other four thousand nine hundred agree perfectly. Spearman cannot be
+  moved that way. Where the two disagree, the disagreement is the reading:
+  Pearson low and Spearman high means a few disasters, both low means real
+  scatter.
+* **`spread` and `out`**, the median absolute deviation of the ratio and how
+  many reflections lie beyond five of them -- or five per cent, whichever is
+  wider. The floor matters: where the bulk agrees exactly the deviation is
+  zero, and five times zero excludes nothing however wrong a value is, so a bin
+  with twenty catastrophes in it reported none.
+
+With those, summation on the thirty degree sweep reads cleanly:
+
+        from         to       n      ours    theirs   ratio  spread    corr     rho   out
+      -3.729      1.352    2420     6.055     4.655  0.9457  1.1276 -0.0125  0.5808   311
+       3.267      5.619    2420     63.53     65.69  0.9642  0.1348  0.0381  0.8369    20
+       8.588      12.57    2420     201.7     206.6  0.9741  0.0516  0.1443  0.9595     9
+       19.19      33.55    2420     819.9     824.9  0.9905  0.0212  0.3066  0.9937     7
+       33.55      357.2    2420      2854      2839  1.0013  0.0108  0.9753  0.9938    17
+
+`rho` rises monotonically to 0.994 and `spread` falls monotonically to 0.011,
+which is what agreement improving with signal actually looks like. `corr` does
+not, and never did -- it was measuring how wide each bin is.
+
+### What the outliers are
+
+`--worst N` lists the reflections that disagree most, with their indices and
+positions. They are not scattered noise; they have a shape:
+
+      h     k     l     fast     slow    frame        ours      theirs     ratio
+     -3    -7    22    329.7   1182.0    139.4        8712      0.5644 15435.541
+      9     7   -22   1814.4   1043.4     61.6        8312      0.6281 13233.292
+     -5    -1    16    535.7   1029.9    210.9   1.346e+04       -3.18 -4231.409
+
+Ours large, DIALS essentially nothing. That is not a measurement disagreeing;
+it is two programs integrating different things. The likeliest explanation is
+overlap: a strong neighbour leaking into our foreground, which DIALS excludes
+and this does not -- Leslie section 6.3 and section 6.7.1 are both about that,
+and nothing here implements either. A shoebox does not know that another
+reflection's pixels are inside it.
+
+That is worth confirming before it is fixed, and the confirmation is cheap:
+these reflections should each have a strong neighbour within a shoebox's reach.
+
 what to read for agreement and the correlation column for outliers.
 
 ## Looking at the profiles

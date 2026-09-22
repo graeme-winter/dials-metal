@@ -115,6 +115,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     t.add_argument("--bins", type=int, default=10, help="bins per variable")
     t.add_argument(
+        "--worst",
+        type=int,
+        default=0,
+        help="also list the N reflections that disagree most, with their "
+        "indices and positions",
+    )
+    t.add_argument(
         "--radius",
         type=float,
         default=0.5,
@@ -180,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
                 values,
                 n_bins=args.bins,
                 radius=args.radius,
+                worst=args.worst,
             )
         )
         return 0
