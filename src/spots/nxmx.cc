@@ -31,8 +31,6 @@ namespace series {
 namespace {
 
 constexpr const char *kImageData = "/entry/data/data";
-constexpr const char *kDetector = "/entry/instrument/detector";
-constexpr const char *kBeam = "/entry/instrument/beam";
 
 // HDF5 filter identifiers, as registered with The HDF Group.
 constexpr H5Z_filter_t kBitshuffle = 32008;

@@ -103,7 +103,7 @@ description of what the build does rather than against the build:
 
 `apt-get install libhdf5-dev` fixes all of that, and should have been the first
 thing tried rather than the last. The whole tree now builds here, including
-`dials-metal-find-spots`, and `ctest` runs eight suites.
+`mxi_find`, and `ctest` runs eight suites.
 
 What still cannot be checked here is anything needing a device -- the Metal and
 CUDA kernels compile only on a machine that has them -- and anything needing
@@ -147,3 +147,13 @@ The tests build both layouts and run the real binary. On the old code the
 whole-run test fails and the slice-file test passes, which is the point of
 having both: one catches this, the other catches breaking the case that
 already worked.
+
+
+## The name
+
+The spot finder is `mxi_find`, like the rest of the pipeline's programs. It was
+`dials-metal-find-spots`, from when it was a separate project. Nothing writes
+the program's name into a file it produces -- it appears only in `--version`
+-- so tables written under the old name read exactly as before. A binary built
+under the old name is not removed by rebuilding and should be deleted by hand,
+or it will go on being found first on a PATH.

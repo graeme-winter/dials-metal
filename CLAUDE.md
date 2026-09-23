@@ -60,6 +60,15 @@ to demonstrate the precision it achieves against this reference rather than
 assume it — the summation-order differences already seen in the spot finder's
 centroids are the floor, not the ceiling.
 
+**Build with Clang as well as GCC before calling a change warning-free.** The
+maintainer builds on macOS with Clang, and GCC's -Wall does not enable
+-Wunused-const-variable or catch the misleading indentation left when a
+preprocessor block removes an `if ... else`. Two constants unused since the
+spot finder moved into the tree, and a dangling `else` in the pinned-buffer
+release, were invisible here and visible there. Clang is installable in this
+container: `apt-get update && apt-get install -y --no-install-recommends clang`,
+then `CC=clang CXX=clang++ cmake -S . -B /tmp/bclang`.
+
 **Prediction is the oracle.** Build order is prediction, then indexing, then
 refinement, because prediction generates ground-truth reflection lists to test
 the other two against.

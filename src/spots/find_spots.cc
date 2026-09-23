@@ -1,4 +1,4 @@
-// dials-metal-find-spots -- the extended dispersion spot finder on an Apple
+// mxi_find -- the extended dispersion spot finder on an Apple
 // GPU, writing a DIALS reflection table.
 //
 // The threshold in src/dext.{hh,cc} is a transcription of DIALS'
@@ -8,7 +8,7 @@
 // format -- src/dials_spots.{hh,cc} and src/refl.{hh,cc}.
 //
 //   dials.import /data/ins10_1_master.h5
-//   dials-metal-find-spots -gpu -e imported.expt
+//   mxi_find -gpu -e imported.expt
 //   dials.index imported.expt strong.refl
 //
 // The .expt is dials.import's business and is read rather than written: the
@@ -167,7 +167,7 @@ bool parse_options(int argc, char **argv, Options *options) {
     } else if (flag == "--chunk" && has_value) {
       options->chunk = static_cast<std::size_t>(std::atoll(argv[++i]));
     } else if (flag == "--version") {
-      report_version("dials-metal-find-spots");
+      report_version("mxi_find");
       std::exit(0);
     } else if (!flag.empty() && flag[0] != '-' && options->master.empty()) {
       // The master file may be named without -x, since it is the only thing
@@ -276,12 +276,19 @@ private:
   void release() {
     if (data_ == nullptr)
       return;
+    // Spelled out for both builds. With the GPU compiled out, the dangling
+    // 'else' used here left a bare delete indented as though it belonged to
+    // the early return above it -- correct, and exactly the shape that gets
+    // edited wrongly by the next person to read it.
 #ifdef SPOTFINDER_GPU
-    if (pinned_)
+    if (pinned_) {
       gpu::host_free(data_);
-    else
-#endif
+    } else {
       delete[] data_;
+    }
+#else
+    delete[] data_;
+#endif
     data_ = nullptr;
     pinned_ = false;
     capacity_ = 0;
