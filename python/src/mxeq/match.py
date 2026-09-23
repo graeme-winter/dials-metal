@@ -270,3 +270,97 @@ def match_observations(
     matched = len(out_a)
     unpartnered = (len(hkl_a) - matched) + (len(hkl_b) - matched)
     return np.asarray(out_a, dtype=int), np.asarray(out_b, dtype=int), unpartnered
+
+
+def explain_unpartnered(
+    hkl_a: np.ndarray,
+    entering_a: np.ndarray,
+    z_a: np.ndarray,
+    hkl_b: np.ndarray,
+    entering_b: np.ndarray,
+    z_b: np.ndarray,
+    matched_a: np.ndarray,
+    radius: float,
+    turn: float | None = None,
+    sample: int = 20000,
+    seed: int = 0,
+) -> dict[str, int]:
+    """Why observations of A found no partner in B.
+
+    For each unpartnered observation, the nearest observation of the same
+    Miller index in B -- ignoring the entering flag and the radius -- and what
+    separates them.  Each of these points at a different thing:
+
+    * no such index in B at all: the other program did not predict it;
+    * nearest has the OTHER entering flag, close in frame: the two disagree
+      about which side of the Ewald sphere the reflection is on;
+    * same flag, a whole number of turns away: the two put it in different
+      turns, which is a prediction disagreement and not a matching one;
+    * same flag, further than the radius but not a turn: the positions differ;
+    * same flag and within the radius: the matcher should have taken it, and
+      did not, which is a bug here rather than in either program.
+
+    Sampled, because the question is the proportions and seven million rows is
+    not needed to answer it.
+    """
+    unmatched = np.setdiff1d(np.arange(len(hkl_a)), matched_a)
+    if len(unmatched) == 0:
+        return {}
+    rng = np.random.default_rng(seed)
+    if len(unmatched) > sample:
+        unmatched = rng.choice(unmatched, sample, replace=False)
+
+    both = np.concatenate([hkl_a, hkl_b], axis=0)
+    _, ids = np.unique(both, axis=0, return_inverse=True)
+    ids = ids.ravel()
+    ids_a = ids[: len(hkl_a)]
+    ids_b = ids[len(hkl_a):]
+    order_b = np.argsort(ids_b, kind="stable")
+    sorted_b = ids_b[order_b]
+
+    out = {
+        "not predicted by the other": 0,
+        "entering flag disagrees": 0,
+        "a whole number of turns apart": 0,
+        "further apart than the radius": 0,
+        "within the radius yet unpaired": 0,
+    }
+    for i in unmatched:
+        lo = np.searchsorted(sorted_b, ids_a[i], side="left")
+        hi = np.searchsorted(sorted_b, ids_a[i], side="right")
+        if lo == hi:
+            out["not predicted by the other"] += 1
+            continue
+        candidates = order_b[lo:hi]
+        gaps = z_b[candidates] - z_a[i]
+        nearest = candidates[np.argmin(np.abs(gaps))]
+        gap = z_b[nearest] - z_a[i]
+        if entering_b[nearest] != entering_a[i] and abs(gap) <= radius:
+            out["entering flag disagrees"] += 1
+        elif turn and abs(gap) > radius and abs(
+            abs(gap) - turn * round(abs(gap) / turn)
+        ) <= radius and round(abs(gap) / turn) >= 1:
+            out["a whole number of turns apart"] += 1
+        elif abs(gap) > radius:
+            out["further apart than the radius"] += 1
+        else:
+            out["within the radius yet unpaired"] += 1
+    return out
+
+
+def estimate_turn(hkl: np.ndarray, entering: np.ndarray, z: np.ndarray) -> float | None:
+    """How many frames one rotation is, from the data alone.
+
+    A reflection observed on successive turns is observed one turn apart with
+    the same entering flag, so the commonest separation between repeats is the
+    turn.  None for a sweep of less than one turn, where there are no repeats.
+    """
+    keys = _key_array([hkl[:, 0], hkl[:, 1], hkl[:, 2], entering])
+    _, ids = np.unique(keys, axis=0, return_inverse=True)
+    ids = ids.ravel()
+    order = np.lexsort((z, ids))
+    same = ids[order][1:] == ids[order][:-1]
+    gaps = np.diff(z[order])[same]
+    if gaps.size < 10:
+        return None
+    return float(np.median(gaps))

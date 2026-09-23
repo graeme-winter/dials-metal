@@ -1879,3 +1879,37 @@ Five and fifty give the same answer, which is what says the pairing is
 unambiguous: within a group the observations are a whole turn apart, so the
 radius guards against nothing and a tight one only loses real pairs. It is a
 sanity check, and it is generous.
+
+
+## mxeq explain: why an observation found no partner
+
+    mxeq explain integrated.refl mint.refl
+
+Two fixes to the matcher took a ten rotation comparison from nine per cent to
+fifty-four, while the same code matches ninety-seven per cent of a single
+sweep. So the remaining problem is specific to multiple turns, and a third
+guess at it would be a guess. Instead the tool now says why.
+
+For each unpartnered observation it finds the nearest observation of the same
+Miller index on the other side, ignoring the entering flag and the radius, and
+reports what separates them:
+
+* **not predicted by the other** -- the other program has no such index;
+* **entering flag disagrees** -- the same reflection, close in frame, called
+  entering by one and leaving by the other;
+* **a whole number of turns apart** -- put in different turns, which is a
+  prediction disagreement and not a matching one;
+* **further apart than the radius** -- the positions differ;
+* **within the radius yet unpaired** -- the matcher should have taken it.
+
+The turn length comes from the data: a reflection seen on successive turns is
+seen one turn apart with the same flag, so the commonest separation between
+repeats is the turn.
+
+On the 1800 frame pair it found something straight away. Of DIALS' unpartnered
+observations, 9.8 per cent were within the radius and unpaired -- and that is
+DIALS writing **partials**: 423 rows share a `partial_id` with another, a
+reflection split into pieces across a block boundary, where this code writes one
+row per reflection. One piece pairs and the rest cannot. Small, 0.3 per cent,
+and not the ten rotation problem; but real, and the kind of thing that only
+shows once a tool is asked to account for everything it did not do.

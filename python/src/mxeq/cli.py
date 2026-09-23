@@ -165,6 +165,15 @@ def main(argv: list[str] | None = None) -> int:
         "which needs a network connection once to draw",
     )
 
+    ex = sub.add_parser(
+        "explain",
+        help="say why observations of two integrations went unpartnered",
+    )
+    ex.add_argument("a")
+    ex.add_argument("b")
+    ex.add_argument("--radius", type=float, default=5.0)
+    ex.add_argument("--sample", type=int, default=20000)
+
     pl = sub.add_parser(
         "profiles", help="draw the reference profiles mxi_integrate learned"
     )
@@ -234,6 +243,45 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("path")
 
     args = parser.parse_args(argv)
+
+    if args.command == "explain":
+        from . import match as matching
+
+        a, b = refl.load(args.a), refl.load(args.b)
+        cols = lambda t: (
+            t.columns["miller_index"],
+            t.columns["entering"].ravel().astype(int),
+            t.columns["xyzcal.px"][:, 2],
+        )
+        ia, ib, unpartnered = matching.match_observations(
+            *cols(a), *cols(b), radius=args.radius
+        )
+        turn = matching.estimate_turn(*cols(a))
+        print(
+            f"{a.nrows} rows against {b.nrows}, matched {len(ia)}"
+            f" ({100.0 * len(ia) / max(min(a.nrows, b.nrows), 1):.1f} per cent "
+            "of the smaller)"
+        )
+        print(
+            "one turn is "
+            + (f"{turn:.1f} frames" if turn else "not measurable, less than a turn")
+            + ", from the repeats in A"
+        )
+        for label, first, second, matched in (
+            (args.a, a, b, ia),
+            (args.b, b, a, ib),
+        ):
+            why = matching.explain_unpartnered(
+                *cols(first), *cols(second), matched, args.radius, turn,
+                sample=args.sample,
+            )
+            total = sum(why.values())
+            print()
+            print(f"unpartnered in {label}, a sample of {total}:")
+            for reason, n in why.items():
+                if n:
+                    print(f"  {100.0 * n / max(total, 1):5.1f}%  {reason}")
+        return 0
 
     if args.command == "html":
         from . import htmlreport
