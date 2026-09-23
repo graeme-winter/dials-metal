@@ -186,7 +186,7 @@ std::size_t ReferenceProfiles::region_of(const Panel &panel,
   const int j = static_cast<int>(std::lround(
       cell_position(px_slow, slow_size, divisions)));
   const int b = static_cast<int>(std::lround(
-      cell_position(z, static_cast<double>(std::max<std::size_t>(images, 1)),
+      cell_position(z - first_image, std::max(last_image - first_image, 1.0),
                     blocks)));
   return index_of(which_panel, b, j, i);
 }
@@ -199,12 +199,13 @@ std::vector<Neighbour> neighbours_of(const ReferenceProfiles &reference,
       static_cast<double>(std::max<std::int64_t>(panel.image_size[0], 1));
   const double slow_size =
       static_cast<double>(std::max<std::int64_t>(panel.image_size[1], 1));
-  const double images =
-      static_cast<double>(std::max<std::size_t>(reference.images, 1));
+  const double span =
+      std::max(reference.last_image - reference.first_image, 1.0);
 
   const double x = cell_position(px_fast, fast_size, reference.divisions);
   const double y = cell_position(px_slow, slow_size, reference.divisions);
-  const double t = cell_position(z, images, reference.blocks);
+  const double t =
+      cell_position(z - reference.first_image, span, reference.blocks);
 
   // The cell below and the one above, in each division, with the weight
   // falling linearly between their centres. At an edge both land on the same
@@ -273,13 +274,15 @@ std::vector<double> profile_at(const ReferenceProfiles &reference,
 }
 
 ReferenceProfiles make_reference(const GridSpec &spec, int divisions, int blocks,
-                                 std::size_t panels, std::size_t images) {
+                                 std::size_t panels, double first_image,
+                                 double last_image) {
   ReferenceProfiles out;
   out.spec = spec;
   out.divisions = std::max(divisions, 1);
   out.blocks = std::max(blocks, 1);
   out.panels = std::max<std::size_t>(panels, 1);
-  out.images = std::max<std::size_t>(images, 1);
+  out.first_image = first_image;
+  out.last_image = std::max(last_image, first_image + 1.0);
   out.profile.assign(out.region_count(), std::vector<double>(spec.size(), 0.0));
   out.spots.assign(out.region_count(), 0);
   return out;

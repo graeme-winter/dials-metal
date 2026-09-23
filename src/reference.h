@@ -111,7 +111,16 @@ struct ReferenceProfiles {
   int divisions = 3;  //: `divisions * divisions` regions across a panel
   int blocks = 1;     //: divisions along the scan
   std::size_t panels = 1;
-  std::size_t images = 1;
+  //: The range of images the blocks divide, which is the range being
+  //: INTEGRATED and not the whole scan.
+  //:
+  //: Dividing the scan instead leaves every block outside the range empty: a
+  //: slice of 180 frames of an 1800 frame scan, cut into eighteen blocks, put
+  //: everything in two of them and had the other sixteen borrow the detector
+  //: average -- 144 of 162 cells, which is not a scan-varying profile model at
+  //: all.
+  double first_image = 0.0;
+  double last_image = 1.0;
   //: `profile[region]` is one normalised profile, summing to one.
   std::vector<std::vector<double>> profile;
   std::vector<std::size_t> spots;
@@ -152,7 +161,8 @@ std::vector<double> profile_at(const ReferenceProfiles &reference,
                                double px_fast, double px_slow, double z);
 
 ReferenceProfiles make_reference(const GridSpec &spec, int divisions, int blocks,
-                                 std::size_t panels, std::size_t images);
+                                 std::size_t panels, double first_image,
+                                 double last_image);
 
 //: Add one reflection's transformed shoebox to its region's profile.
 //:

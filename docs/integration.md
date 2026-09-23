@@ -1656,9 +1656,40 @@ foreground or background, and `foreground + background = valid` exactly. DIALS'
 boxes have the same property, so if DIALS avoids this some other way the
 difference is in where its foreground boundary falls, not in a gap.
 
-Worth measuring before building: the background as a function of distance from
-the foreground boundary would say how far out the signal actually reaches, and
-that is a shoebox and an afternoon rather than a design decision.
+### The measurement that settles it
+
+Made on 400 strong low-resolution reflections of a real integration with its
+shoeboxes kept. The background per pixel, against distance from the foreground
+edge in units of the foreground's own radius, so reach 1.0 is the edge:
+
+    reach   pixels   counts/pixel
+      1.0    27676      0.7382
+      1.1    34688      0.6731
+      1.2    37885      0.6629
+      1.3    63527      0.6549
+      1.5    65483      0.6279
+      2.0    89918      0.5952
+      2.5    71674      0.5898
+      3.0    22226      0.5800
+
+**The background outside the foreground is not flat.** It falls steadily and
+only levels off around 0.58 counts a pixel at two and a half foreground radii.
+Just outside the edge it is 0.74, twenty-seven per cent higher. So the spot
+reaches well beyond the region called foreground, and a constant fitted over
+everything outside that region is fitted partly to the spot -- which is the one
+per cent, and which is worst at low resolution because that is where the spots
+are strongest.
+
+**A guard ring out to 1.5 radii** would exclude the elevated part. It costs
+about fourteen per cent of the background pixels, and Leslie equation 11's
+third term goes as m/n, so that term rises about seventeen per cent -- against a
+bias it removes of twenty-one per cent of the background in the pixels
+concerned. That is a trade worth making and worth measuring afterwards rather
+than assuming.
+
+Not built yet. The measurement says where the boundary should go, which is what
+was missing; the change itself is in `mxi_mask`, marking voxels between the
+foreground and the rim as neither.
 
 ## A shoebox table above four gigabytes was written corrupt
 

@@ -667,7 +667,7 @@ int main(int argc, char **argv) {
     ReferenceProfiles reference = make_reference(
         grid_spec, static_cast<int>(args.number("--regions", 3.0)),
         static_cast<int>(args.number("--scan-blocks", 5.0)), e.detector.size(),
-        static_cast<std::size_t>(std::max<std::int64_t>(e.scan.num_images(), 1)));
+        first_image, last_image);
     const bool fitting = !args.has("--summation-only");
     // Which reflections are worth learning from: strong, nearly whole, and
     // mostly inside the grid. DIALS marks these `reference_spot`.

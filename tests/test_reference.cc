@@ -157,7 +157,7 @@ TEST(the_profile_is_the_average_shape_not_the_average_spot) {
   // Contributions are normalised before they are added, so one strong
   // reflection does not outvote a hundred weak ones.
   const GridSpec spec = small_spec();
-  ReferenceProfiles reference = make_reference(spec, 1, 1, 1, 100);
+  ReferenceProfiles reference = make_reference(spec, 1, 1, 1, 0.0, 100.0);
   // Ninety-nine weak spots of one shape.
   for (int i = 0; i < 99; ++i) {
     check::is_true(add_reference(&reference, 0, planted_grid(spec, 10.0, 0.0)),
@@ -186,7 +186,7 @@ TEST(the_profile_is_the_average_shape_not_the_average_spot) {
 
 TEST(a_region_with_too_few_spots_borrows_the_whole_detector_average) {
   const GridSpec spec = small_spec();
-  ReferenceProfiles reference = make_reference(spec, 3, 1, 1, 100);
+  ReferenceProfiles reference = make_reference(spec, 3, 1, 1, 0.0, 100.0);
   for (int i = 0; i < 40; ++i) {
     add_reference(&reference, 4, planted_grid(spec, 100.0, 0.0));
   }
@@ -210,7 +210,7 @@ TEST(the_profile_varies_smoothly_across_a_cell_boundary) {
   Panel panel;
   panel.image_size[0] = 900;
   panel.image_size[1] = 900;
-  ReferenceProfiles reference = make_reference(spec, 3, 1, 1, 100);
+  ReferenceProfiles reference = make_reference(spec, 3, 1, 1, 0.0, 100.0);
 
   // Two neighbouring cells with visibly different profiles.
   for (std::size_t region = 0; region < reference.profile.size(); ++region) {
@@ -262,7 +262,7 @@ TEST(the_weights_of_the_nearby_cells_sum_to_one) {
   Panel panel;
   panel.image_size[0] = 900;
   panel.image_size[1] = 900;
-  const ReferenceProfiles reference = make_reference(spec, 3, 4, 1, 400);
+  const ReferenceProfiles reference = make_reference(spec, 3, 4, 1, 0.0, 400.0);
   for (double x : {0.0, 1.0, 150.0, 449.0, 450.0, 899.0}) {
     for (double y : {0.0, 450.0, 899.0}) {
       for (double z : {0.0, 50.0, 200.0, 399.0}) {
@@ -287,7 +287,7 @@ TEST(the_scan_is_divided_as_well_as_the_detector) {
   Panel panel;
   panel.image_size[0] = 900;
   panel.image_size[1] = 900;
-  ReferenceProfiles reference = make_reference(spec, 1, 4, 1, 400);
+  ReferenceProfiles reference = make_reference(spec, 1, 4, 1, 0.0, 400.0);
   check::equal(static_cast<long long>(reference.region_count()), 4,
                "one detector region, four scan blocks");
 
