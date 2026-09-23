@@ -1913,3 +1913,41 @@ reflection split into pieces across a block boundary, where this code writes one
 row per reflection. One piece pairs and the rest cannot. Small, 0.3 per cent,
 and not the ten rotation problem; but real, and the kind of thing that only
 shows once a tool is asked to account for everything it did not do.
+
+## The turns were collapsing, and a diagnostic rather than a guess found it
+
+`mxeq explain` on the ten rotation pair:
+
+    unpartnered in integrated.refl (DIALS):
+       95.3%  further apart than the radius
+    unpartnered in mint.refl (ours):
+       85.7%  within the radius yet unpaired
+
+Read together those are the signature of duplicates. If this code predicts two
+observations near one of DIALS', the matcher pairs one; the second is left with
+a same-index, same-flag partner inside the radius that is already taken; and the
+DIALS observation our other copy should have had is left with nothing near it.
+
+A synthetic four turn sweep with a crystal that genuinely moves confirmed it:
+218640 of 583040 predictions within five frames of another observation of the
+same reflection with the same flag. A scan-static crystal gave none.
+
+**Two bugs in the scan-varying branch of `converge_root`, compounding.**
+`ewald_intersections` answers in a principal 2 pi interval whatever turn it is
+asked about. The proximity test compared an angle in turn k against two roots in
+turn zero, both about 2 pi k away, so which was nearer depended on which side of
+zero each fell -- and it could take the OTHER crossing, flipping the entering
+flag. And once a pass had assigned a principal angle, the next evaluated the
+setting matrix at turn zero's frame rather than turn k's. Each root is now
+brought into the current turn before it is compared or kept, and the root on
+the seeded side of the sphere is preferred, that being what distinguishes the
+two crossings.
+
+**The test that should have caught it used the same A at every scan point** --
+which is the scan-static geometry wearing a scan-varying label. It exercised the
+code path and not the behaviour. The new one moves the crystal, fails on the
+old predictor with exactly 218640, and passes on the new.
+
+On a single sweep the same bug was rarer and still there: five reflections of
+111310 had taken the other crossing. None were lost by the fix, all five were
+gained, and all have ordinary zeta, so it is not an edge case being redefined.

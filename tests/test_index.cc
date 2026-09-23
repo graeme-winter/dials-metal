@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <tuple>
 #include <complex>
 
 #include "../src/expt.h"
@@ -732,4 +734,70 @@ TEST(a_scan_varying_crystal_also_predicts_once_per_turn) {
                      "every turn has its own share of the predictions");
     }
   }
+}
+
+TEST(a_crystal_that_moves_does_not_collapse_its_turns_together) {
+  // The test above uses the same A at every scan point and passed while this
+  // was broken, because with an A that does not change the geometry is the
+  // scan-static one and only the code path differs. Every real crystal moves.
+  //
+  // converge_root compared an angle in turn k against two roots in turn zero,
+  // both about 2 pi k away, so which was nearer depended on which side of zero
+  // each fell -- and it could take the OTHER crossing. Once a pass had
+  // assigned a principal angle, the next evaluated the setting matrix at turn
+  // zero's frame. On a four turn sweep that put 218640 of 583040 predictions
+  // within five frames of another observation of the same reflection with the
+  // same flag: the right count, in the wrong places.
+  //
+  // Found by mxeq explain on a real ten rotation comparison, which said that
+  // 85.7 per cent of our unpartnered observations had a same-index,
+  // same-flag partner within the radius -- the signature of duplicates.
+  const int turns = 4;
+  Experiment e;
+  e.beam.direction = {0.0, 0.0, 1.0};
+  e.beam.wavelength = 0.9537;
+  Panel p;
+  p.fast = {1.0, 0.0, 0.0};
+  p.slow = {0.0, -1.0, 0.0};
+  p.pixel_size[0] = p.pixel_size[1] = 0.075;
+  p.image_size[0] = 2068;
+  p.image_size[1] = 2162;
+  p.origin = {-77.5, 81.1, -168.5};
+  e.detector.panels.push_back(p);
+  e.goniometer.axis = {1.0, 0.0, 0.0};
+  e.scan.first_image = 1;
+  e.scan.last_image = 3600 * turns;
+  e.scan.osc_start = 0.0;
+  e.scan.osc_width = 0.1;
+  const Mat3 r = rotation({0.3, -0.5, 0.81}, 0.7);
+  e.crystal = Crystal::from_real_space(r * Vec3{78, 0, 0}, r * Vec3{0, 78, 0},
+                                       r * Vec3{0, 0, 78});
+  // A crystal that genuinely moves through the scan.
+  const std::size_t points = static_cast<std::size_t>(3600 * turns) + 1;
+  e.crystal->A_points.resize(points);
+  for (std::size_t k = 0; k < points; ++k) {
+    const Mat3 wobble =
+        rotation({0.0, 0.0, 1.0}, 1e-4 * std::sin(static_cast<double>(k) * 1e-3));
+    e.crystal->A_points[k] = wobble * e.crystal->A;
+  }
+
+  PredictOptions options;
+  options.d_min = 3.0;
+  const std::vector<Prediction> v = predict(e, options);
+
+  // No two observations of one reflection with the same flag within five
+  // frames: those are a whole turn apart, or they are the same observation
+  // predicted twice.
+  std::map<std::tuple<int, int, int, bool>, std::vector<double>> groups;
+  for (const Prediction &q : v) groups[{q.h, q.k, q.l, q.entering}].push_back(q.z);
+  std::size_t collapsed = 0;
+  for (auto &entry : groups) {
+    std::vector<double> &z = entry.second;
+    std::sort(z.begin(), z.end());
+    for (std::size_t i = 1; i < z.size(); ++i) {
+      if (z[i] - z[i - 1] < 5.0) ++collapsed;
+    }
+  }
+  check::equal(static_cast<long long>(collapsed), 0,
+               "no turn collapses onto another");
 }

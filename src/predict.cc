@@ -123,17 +123,48 @@ Converged converge_root(const Experiment &e, const Vec3 &h, double phi_seed,
     out.any = true;
     return out;
   }
+  // ewald_intersections answers in a principal 2 pi interval whatever turn it
+  // is asked about, and on a scan of several turns that was two bugs at once.
+  //
+  // The proximity test compared an angle in turn k against two roots in turn
+  // zero, both about 2 pi k away, so which one was "nearer" depended on which
+  // side of zero each fell -- and it could pick the OTHER crossing, flipping
+  // the entering flag. And once one pass had assigned a principal angle, the
+  // next evaluated the setting matrix at turn zero's frame rather than turn
+  // k's, which for a crystal that moves is a different matrix.
+  //
+  // Together they put 218640 of 583040 predictions of a four turn sweep within
+  // five frames of another observation of the same reflection with the same
+  // flag: turns collapsing onto one another. The count was right and the
+  // positions were not. A test using the same A at every scan point could not
+  // see it, the geometry then being the static one; a crystal that actually
+  // moves could.
+  //
+  // So each root is brought into the turn of the current estimate before it is
+  // compared or kept, and the iteration stays in the turn it was seeded in.
+  const double two_pi = 2.0 * kPi;
+  const auto in_this_turn = [&](double root) {
+    return root + two_pi * std::round((out.phi - root) / two_pi);
+  };
   for (int pass = 0; pass < 3; ++pass) {
     const Vec3 trial = e.setting_at(e.scan.z_from_phi(out.phi)) * h;
     const Intersections cross = ewald_intersections(e, trial);
     if (!cross.any) return out;
-    // Stay on the root we started from, by proximity to the current angle.
-    const int which = std::abs(cross.phi[0] - out.phi) <=
-                              std::abs(cross.phi[1] - out.phi)
-                          ? 0
-                          : 1;
+    const double first = in_this_turn(cross.phi[0]);
+    const double second = in_this_turn(cross.phi[1]);
+    // Stay on the root we started from: the same side of the sphere, which is
+    // what distinguishes the two crossings, and then the nearer in angle.
+    int which;
+    if (cross.entering[0] == entering_seed && cross.entering[1] != entering_seed) {
+      which = 0;
+    } else if (cross.entering[1] == entering_seed &&
+               cross.entering[0] != entering_seed) {
+      which = 1;
+    } else {
+      which = std::abs(first - out.phi) <= std::abs(second - out.phi) ? 0 : 1;
+    }
     out.r0 = trial;
-    out.phi = cross.phi[which];
+    out.phi = which == 0 ? first : second;
     out.entering = cross.entering[which];
   }
   out.any = true;
