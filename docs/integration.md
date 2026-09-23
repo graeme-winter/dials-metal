@@ -1659,3 +1659,33 @@ difference is in where its foreground boundary falls, not in a gap.
 Worth measuring before building: the background as a function of distance from
 the foreground boundary would say how far out the signal actually reaches, and
 that is a shoebox and an afternoon rather than a design decision.
+
+## A shoebox table above four gigabytes was written corrupt
+
+msgpack's largest binary type is `bin32`, so four gigabytes is the most a single
+column can hold, and there is no larger one to reach for. `put_blob` wrote the
+length into four bytes regardless and then appended all of them:
+
+    put(out, 0xC6);
+    put_big_endian(out, bytes.size(), 4);   // wraps above 4 GiB
+    out += bytes;                            // all of them anyway
+
+A 4.87 GB table declared its shoebox column as 529638180 bytes. The true size is
+that plus exactly 2^32, and everything past the declared end was unreachable.
+The file opened, parsed, and was wrong.
+
+It now refuses, naming the limit and saying to write a slice. The spot finder's
+own writer in `src/spots/refl.cc` already had this guard; the one the pipeline
+uses did not, which is what two copies of a format get you.
+
+**Shoeboxes cost about 37.5 kB a reflection**, so:
+
+    0.4 GB    10430 reflections    8 per cent of a 125806 row scan
+    1.0 GB    26076               21
+    2.0 GB    52152               41
+    4.0 GB   104304               83
+
+`--first-image` and `--last-image` are how to take a slice, and a tenth of a
+scan is plenty to iterate a profile fitting algorithm against -- the profiles
+are learned per detector region and per scan block, so what matters is that the
+slice covers the detector, not that it covers the scan.

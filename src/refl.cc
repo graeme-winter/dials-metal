@@ -212,7 +212,26 @@ void put_uint(std::string &out, std::uint64_t v) {
   }
 }
 
+//: msgpack's largest binary type is bin32, so four gigabytes is the most a
+//: single column can hold. Above that the length silently wrapped and the
+//: bytes were written anyway: a 4.87 GB table declared its shoebox column as
+//: 529638180 bytes, which is the true size less exactly 2^32, and everything
+//: past that point was unreachable. The file looked fine and was not.
+//:
+//: There is no bin64 to reach for, so this cannot be fixed by writing it
+//: differently -- the column has to be smaller. Shoeboxes are the only thing
+//: that gets near it, at about 34 kB a reflection.
+constexpr std::uint64_t kBlobLimit = 0xFFFFFFFFull;
+
 void put_blob(std::string &out, const std::string &bytes) {
+  if (bytes.size() > kBlobLimit) {
+    throw ReflError(
+        "a column of " + std::to_string(bytes.size()) +
+        " bytes cannot be written: msgpack's binary type describes at most 4 "
+        "GB, and there is no larger one. With shoeboxes at about 34 kB a "
+        "reflection that is around 126000 of them, so write a slice of the "
+        "scan instead.");
+  }
   if (bytes.size() < 256) {
     put(out, 0xC4);
     put_big_endian(out, bytes.size(), 1);
