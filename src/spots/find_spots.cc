@@ -426,14 +426,18 @@ void reconcile(const expt::Info &experiments, const series::Info &series,
         std::to_string(series.height) + " x " + std::to_string(series.width) +
         "; these are not the same images");
   }
+  // A scan covering fewer images than the file is not a mismatch to warn
+  // about: the frames outside it are simply not read. It used to warn that z
+  // would be wrong outside the scan and then read them all anyway, which was
+  // the warning describing the bug rather than preventing it. A scan claiming
+  // MORE images than the file has is still an error, since there is nothing
+  // to read.
   if (experiments.has_scan && series.images > 0 &&
-      static_cast<std::uint64_t>(experiments.images()) != series.images) {
-    std::fprintf(stderr,
-                 "warning: %s covers %lld images and the series has %llu; z "
-                 "will be wrong for anything outside the scan\n",
-                 options->experiments.c_str(),
-                 static_cast<long long>(experiments.images()),
-                 static_cast<unsigned long long>(series.images));
+      static_cast<std::uint64_t>(experiments.images()) > series.images) {
+    throw std::runtime_error(
+        options->experiments + " covers " +
+        std::to_string(experiments.images()) + " images and the file has " +
+        std::to_string(series.images) + "; the scan reaches past the data");
   }
 
   // The imageset and the scan can disagree about how many images there are --
@@ -458,11 +462,25 @@ void reconcile(const expt::Info &experiments, const series::Info &series,
         "from the first gap onwards");
   }
 
-  // The array index of image n is n - 1, and z is measured in array indices.
-  // An NXmx series numbers its frames from zero, which is already that index
-  // for a scan starting at image 1; a sliced import starts higher.
+  // z is measured in scan array indices, where image n is n - 1. A frame
+  // arrives numbered by its index IN THE FILE, and the .expt says which file
+  // index each scan image is: single_file_indices. So the offset is the
+  // difference between the two, which is nothing when they line up.
+  //
+  // It was first_image - 1 unconditionally, which assumed a sliced import's
+  // frames are numbered from zero -- true of a file holding only the slice,
+  // false of a master file for the whole run, where image 6 already arrives
+  // as frame 5. Reading only the scan's frames made that visible: a scan of
+  // images 6 to 10 put its spots at z of 10.5 to 14.5 instead of 5.5 to 9.5.
+  //
+  // Without single_file_indices the file index of image n is taken to be
+  // n - 1, the same assumption the frame restriction makes, so that the frames
+  // read and the z they are given cannot disagree.
   if (!options->z_offset_given && experiments.has_scan) {
-    options->z_offset = experiments.first_image - 1;
+    const std::int64_t first_index = experiments.frames > 0
+                                         ? experiments.first_index
+                                         : experiments.first_image - 1;
+    options->z_offset = (experiments.first_image - 1) - first_index;
     if (options->z_offset != 0) {
       std::fprintf(stderr,
                    "The scan starts at image %lld, so z starts at %lld\n",
@@ -484,6 +502,8 @@ int main(int argc, char **argv) {
 
   std::unique_ptr<series::Series> source;
   series::Info info;
+  // How many frames will be offered, when fewer than the file holds.
+  std::uint64_t restricted = 0;
   expt::Info experiments;
   try {
     if (!options.experiments.empty())
@@ -510,11 +530,48 @@ int main(int argc, char **argv) {
     info = open_series(source.get(), options);
     if (!options.experiments.empty())
       reconcile(experiments, info, &options);
+
+    // Only the frames the scan covers. The array indices come from the
+    // imageset's single_file_indices when it has them, which is what they are;
+    // otherwise from image_range, whose image n is array index n - 1.
+    //
+    // Found by spot finding a scan of 1800 images of a 36000 image file, which
+    // warned that z would be wrong outside the scan and then processed all
+    // 36000 -- twenty times the work, and 1115233 spots of which a
+    // twentieth belonged to the experiment it was asked about.
+    if (experiments.has_scan) {
+      std::uint64_t first = 0, last = 0;
+      if (experiments.frames > 0) {
+        first = static_cast<std::uint64_t>(experiments.first_index);
+        last = static_cast<std::uint64_t>(experiments.last_index);
+      } else {
+        first = static_cast<std::uint64_t>(std::max<std::int64_t>(
+            experiments.first_image - 1, 0));
+        last = static_cast<std::uint64_t>(std::max<std::int64_t>(
+            experiments.last_image - 1, 0));
+      }
+      if (!source->restrict_frames(first, last)) {
+        throw std::runtime_error(
+            "this series cannot be limited to the frames the .expt's scan "
+            "covers, and finding spots on the rest would put them at z "
+            "values the experiment does not have");
+      }
+      // What "done" means now: the scan's frames, not the file's. Left at the
+      // file's count, the loop would wait for frames it has been told not to
+      // offer until the timeout ended it.
+      restricted = last - first + 1;
+    }
   } catch (const std::exception &error) {
     std::fprintf(stderr, "%s\n", error.what());
     return 1;
   }
 
+  if (restricted > 0 && restricted != info.images) {
+    std::fprintf(stderr,
+                 "Reading %llu of the %llu images, the ones the scan covers\n",
+                 static_cast<unsigned long long>(restricted),
+                 static_cast<unsigned long long>(info.images));
+  }
   std::fprintf(stderr,
                "Series %s: %llu images of %llu x %llu, from %s, %d thread%s, "
                "on the %s\n",
@@ -682,7 +739,8 @@ int main(int argc, char **argv) {
     }
 
     const bool complete =
-        (info.images > 0 && dispatched.size() >= info.images) ||
+        (restricted > 0 && dispatched.size() >= restricted) ||
+        (restricted == 0 && info.images > 0 && dispatched.size() >= info.images) ||
         (source->finished() && added == 0);
     const bool timed_out = Clock::now() - progressed >
                            std::chrono::seconds(options.timeout_seconds);

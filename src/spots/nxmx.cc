@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -339,6 +340,12 @@ public:
 
   // Every frame is there to be read as soon as the file opens: there is nothing
   // to wait for once the master file exists.
+  bool restrict_frames(std::uint64_t first, std::uint64_t last) override {
+    first_frame_ = first;
+    last_frame_ = last;
+    return true;
+  }
+
   std::vector<std::string> ready() override {
     std::vector<std::string> keys;
     if (dispatched_)
@@ -346,6 +353,10 @@ public:
     dispatched_ = true;
     keys.reserve(static_cast<std::size_t>(images_of_blocks()));
     for (std::uint64_t i = 0; i < images_of_blocks(); i++) {
+      // Only the frames the scan covers, when one was given. The key is the
+      // array index, so the range is a filter on it and costs nothing.
+      if (i < first_frame_ || i > last_frame_)
+        continue;
       char key[24];
       std::snprintf(key, sizeof(key), "%06llu",
                     static_cast<unsigned long long>(i));
@@ -454,6 +465,8 @@ private:
   std::string master_;
   std::vector<Block> blocks_;
   bool dispatched_ = false;
+  std::uint64_t first_frame_ = 0;
+  std::uint64_t last_frame_ = std::numeric_limits<std::uint64_t>::max();
 };
 
 } // namespace

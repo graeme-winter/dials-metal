@@ -80,6 +80,17 @@ public:
 
   virtual std::string describe() const = 0;
   virtual std::unique_ptr<Reader> reader() = 0;
+
+  // Offer only frames first..last, zero-based and inclusive: the frames an
+  // .expt's scan covers. False if this kind of series cannot, in which case
+  // the caller must discard the frames it did not want after reading them.
+  //
+  // It exists because a scan of 1800 images of a 36000 image file was spot
+  // found on all 36000: the tool warned that z would be wrong outside the scan
+  // and then went and found spots there anyway, at twenty times the cost.
+  virtual bool restrict_frames(std::uint64_t /*first*/, std::uint64_t /*last*/) {
+    return false;
+  }
 };
 
 std::unique_ptr<Series> nxmx(std::string master);

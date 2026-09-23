@@ -108,3 +108,42 @@ thing tried rather than the last. The whole tree now builds here, including
 What still cannot be checked here is anything needing a device -- the Metal and
 CUDA kernels compile only on a machine that has them -- and anything needing
 real images.
+
+## Reading only the scan's frames, and giving them the scan's z
+
+Spot finding 1800 images of a 36000 image run printed
+
+    warning: imported.expt covers 1800 images and the series has 36000; z
+    will be wrong for anything outside the scan
+
+and then thresholded all 36000 -- twenty times the work, producing 1115233
+spots of which a twentieth belonged to the experiment asked about. The warning
+described the bug instead of preventing it.
+
+`Series::restrict_frames` now limits what a series offers, and the spot finder
+asks for the scan's frames. For NXmx the key is the file's array index, so the
+restriction is a filter on it and costs nothing. A series that cannot restrict
+itself is an error rather than a silent read of everything, since spots outside
+the scan land at z values the experiment does not have. A scan claiming more
+images than the file holds is an error too, where it used to be the same
+warning.
+
+**Restricting it exposed a second bug, which had been there all along.** z was
+`frame number + (first_image - 1)`, on the assumption that a sliced import's
+frames are numbered from zero. That holds for a file containing only the slice;
+it is false for a master file covering the whole run, where image 6 already
+arrives as frame 5. So a scan of images 6 to 10 put its spots at z 10.5 to
+14.5 instead of 5.5 to 9.5. Reading every frame had hidden this, because the
+frames outside the scan were exactly where the doubled offset sent things.
+
+The `.expt` says which file index each scan image is -- `single_file_indices`
+-- so the offset is `(first_image - 1) - first_index`: nothing when the two
+line up, five for a slice file starting at zero. Without `single_file_indices`
+the file index of image n is taken as n - 1, which is the same assumption the
+frame restriction makes, so the frames read and the z they are given cannot
+disagree.
+
+The tests build both layouts and run the real binary. On the old code the
+whole-run test fails and the slice-file test passes, which is the point of
+having both: one catches this, the other catches breaking the case that
+already worked.
