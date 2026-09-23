@@ -1837,3 +1837,30 @@ intensities of gap-crossing reflections rise by 1.1 per cent where the measured
 fractions say 4.5, and those two numbers should agree. Something is still
 wrong, and it is recorded here rather than left as a claim that the problem is
 solved.
+
+
+## A Miller index is not a key on a sweep that goes round twice
+
+The comparison of a ten rotation integration reported:
+
+    6977214 rows against 7309317, matched 647334, 722427 duplicate keys
+
+Nine per cent. Ten rotations record every reflection about twenty times, on
+each turn and on each side of the Ewald sphere, and all twenty share their
+Miller index and their entering flag. Matching on those alone pairs one of each
+and discards the rest -- so every number in that report came from a ninth of
+the data, and from pairs that may not have been the same observation.
+
+The index groups the observations; the FRAME separates them. `mxeq` now walks
+both sides of a group in frame order and pairs them off, which is right because
+two observations of one reflection are a whole turn apart while the two
+programs disagree about where one is by a fraction of an image.
+
+The tools say how many observations went unpartnered instead of how many keys
+were duplicated, since a duplicate key is no longer a problem and an
+unpartnered observation still is.
+
+That the old behaviour was wrong was visible in the report all along -- 722427
+duplicate keys is not a footnote on a dataset of seven million -- and it was
+read as a quirk of the data rather than as the tool saying it could not do the
+job.

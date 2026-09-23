@@ -182,3 +182,83 @@ def match_keys(
         ),
         n_duplicate,
     )
+
+
+def match_observations(
+    hkl_a: np.ndarray,
+    entering_a: np.ndarray,
+    z_a: np.ndarray,
+    hkl_b: np.ndarray,
+    entering_b: np.ndarray,
+    z_b: np.ndarray,
+    radius: float = 0.5,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Pair two lists of OBSERVATIONS, not of reflections.
+
+    A Miller index is not a key on a scan that goes round more than once.  Ten
+    rotations record every reflection about twenty times, entering and leaving
+    the Ewald sphere on each turn, and all twenty share their index and their
+    entering flag.  Matching on those alone pairs one of each and discards the
+    rest: on a real ten rotation sweep, 647334 of 6977214 rows matched and
+    722427 keys were called duplicates.
+
+    So the index groups the observations and the frame separates them.  Within
+    a group both sides are sorted by frame and walked together, which is right
+    because two observations of one reflection are a whole turn apart and the
+    two programs disagree about where they are by a fraction of an image.
+
+    Returns the indices into each side, and how many observations went
+    unpartnered.
+    """
+    # One integer per distinct index, numbered consistently across both sides
+    # by looking them up together. A structured key cannot be lexsorted
+    # against the frame; an integer can.
+    keys_a = _key_array([hkl_a[:, 0], hkl_a[:, 1], hkl_a[:, 2], entering_a])
+    keys_b = _key_array([hkl_b[:, 0], hkl_b[:, 1], hkl_b[:, 2], entering_b])
+    both = np.concatenate([keys_a, keys_b], axis=0)
+    _, ids = np.unique(both, axis=0, return_inverse=True)
+    ids = ids.ravel()
+    keys_a = ids[: len(keys_a)]
+    keys_b = ids[len(keys_a) :]
+
+    order_a = np.lexsort((z_a, keys_a))
+    order_b = np.lexsort((z_b, keys_b))
+    sorted_a, sorted_b = keys_a[order_a], keys_b[order_b]
+
+    out_a: list[int] = []
+    out_b: list[int] = []
+    i = j = 0
+    while i < len(sorted_a) and j < len(sorted_b):
+        if sorted_a[i] < sorted_b[j]:
+            i += 1
+            continue
+        if sorted_a[i] > sorted_b[j]:
+            j += 1
+            continue
+        # The same key on both sides: take the runs and walk them by frame.
+        key = sorted_a[i]
+        i_end = i
+        while i_end < len(sorted_a) and sorted_a[i_end] == key:
+            i_end += 1
+        j_end = j
+        while j_end < len(sorted_b) and sorted_b[j_end] == key:
+            j_end += 1
+        run_a = order_a[i:i_end]
+        run_b = order_b[j:j_end]
+        p = q = 0
+        while p < len(run_a) and q < len(run_b):
+            gap = z_a[run_a[p]] - z_b[run_b[q]]
+            if abs(gap) <= radius:
+                out_a.append(int(run_a[p]))
+                out_b.append(int(run_b[q]))
+                p += 1
+                q += 1
+            elif gap < 0:
+                p += 1
+            else:
+                q += 1
+        i, j = i_end, j_end
+
+    matched = len(out_a)
+    unpartnered = (len(hkl_a) - matched) + (len(hkl_b) - matched)
+    return np.asarray(out_a, dtype=int), np.asarray(out_b, dtype=int), unpartnered

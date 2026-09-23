@@ -80,9 +80,9 @@ def test_nothing_matching_says_what_to_check():
     a = table(100, seed=3)
     b = table(100, seed=3)
     b.columns["miller_index"] = -b.columns["miller_index"] - 7
-    report = trends.compare(a, b, ["intensity.sum.value"])
-    assert "Nothing matched" in report
-    assert "reindexing" in report
+    # It refuses rather than reporting on nothing, and says where to look.
+    with pytest.raises(ValueError, match="reindex"):
+        trends.compare(a, b, ["intensity.sum.value"])
 
 
 def test_a_missing_column_is_said_rather_than_skipped():
@@ -223,3 +223,41 @@ def test_sigma_needs_the_variance_and_says_so():
     del a.columns["intensity.sum.variance"]
     with pytest.raises(ValueError, match="variance"):
         disagree.select(a, b, sigmas=3.0)
+
+
+def test_a_reflection_seen_many_times_is_matched_every_time():
+    from mxeq import match
+
+    # A Miller index is not a key on a scan that goes round more than once. Ten
+    # rotations record every reflection about twenty times, all sharing their
+    # index and their entering flag, and matching on those alone pairs one of
+    # each and throws the rest away: on a real ten rotation sweep that left
+    # 647334 of 6977214 rows matched and called 722427 keys duplicates.
+    turns = 10
+    hkl = np.tile(np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64), (turns, 1))
+    entering = np.zeros(len(hkl), dtype=np.int64)
+    # One observation per turn, 3600 frames apart, as a real sweep gives.
+    z = np.repeat(np.arange(turns) * 3600.0, 2) + np.tile([10.0, 20.0], turns)
+
+    ia, ib, unpartnered = match.match_observations(
+        hkl, entering, z, hkl, entering, z + 0.1
+    )
+    assert len(ia) == len(hkl), (len(ia), len(hkl))
+    assert unpartnered == 0
+    # And each is paired with its own turn, not with another turn's copy.
+    assert np.array_equal(z[ia], z[ib])
+
+
+def test_an_observation_with_no_partner_is_left_out_rather_than_mispaired():
+    from mxeq import match
+
+    hkl = np.array([[1, 2, 3]] * 3, dtype=np.int64)
+    entering = np.zeros(3, dtype=np.int64)
+    a_z = np.array([10.0, 3610.0, 7210.0])
+    b_z = np.array([10.0, 7210.0])          # the middle turn is missing
+    ia, ib, unpartnered = match.match_observations(
+        hkl, entering, a_z, hkl[:2], entering[:2], b_z
+    )
+    assert len(ia) == 2
+    assert np.allclose(a_z[ia], b_z[ib])
+    assert unpartnered == 1

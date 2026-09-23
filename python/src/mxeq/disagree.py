@@ -80,23 +80,9 @@ def select(
             if column not in table.columns:
                 raise ValueError(f"{name} has no {column}")
 
-    matching, duplicates = match.match_keys(
-        _key(ours),
-        _key(theirs),
-        tie_break_a=ours.columns["xyzcal.px"][:, 2],
-        tie_break_b=theirs.columns["xyzcal.px"][:, 2],
-    )
-    ia, ib = matching.index_a, matching.index_b
-    close = (
-        np.abs(ours.columns["xyzcal.px"][ia, 2] - theirs.columns["xyzcal.px"][ib, 2])
-        <= radius
-    )
-    ia, ib = ia[close], ib[close]
-    if len(ia) == 0:
-        raise ValueError(
-            "nothing matched: if one file was written before a reindexing step "
-            "and the other after, the Miller indices are not comparable"
-        )
+    from .trends import paired
+
+    ia, ib, unpartnered = paired(ours, theirs, radius)
 
     va = ours.columns[value].ravel()[ia]
     vb = theirs.columns[other].ravel()[ib]
@@ -162,7 +148,7 @@ def select(
 
     report = (
         f"{ours.nrows} rows against {theirs.nrows}, matched {len(ia)}"
-        + (f", {duplicates} duplicate keys" if duplicates else "")
+        + (f", {unpartnered} unpartnered" if unpartnered else "")
         + f"\n{len(rows)} disagree on {value}"
         + (f" against {other}" if other != value else "")
         + " by more than " + " and ".join(asked)

@@ -292,6 +292,33 @@ def worst_offenders(
     return "\n".join(lines)
 
 
+def paired(a, b, radius: float = 0.5):
+    """Indices of the observations two tables share.
+
+    Miller index and entering flag group them; the frame separates them. See
+    `match.match_observations` for why the index alone will not do.
+    """
+    for name, table in (("A", a), ("B", b)):
+        for column in ("miller_index", "entering", "xyzcal.px"):
+            if column not in table.columns:
+                raise ValueError(f"{name} has no {column}")
+    ia, ib, unpartnered = match.match_observations(
+        a.columns["miller_index"],
+        a.columns["entering"].ravel().astype(int),
+        a.columns["xyzcal.px"][:, 2],
+        b.columns["miller_index"],
+        b.columns["entering"].ravel().astype(int),
+        b.columns["xyzcal.px"][:, 2],
+        radius=radius,
+    )
+    if len(ia) == 0:
+        raise ValueError(
+            "nothing matched: if one file was written before a reindexing step "
+            "and the other after, the Miller indices are not comparable"
+        )
+    return ia, ib, unpartnered
+
+
 def compare(
     a: refl.ReflectionTable,
     b: refl.ReflectionTable,
@@ -302,32 +329,11 @@ def compare(
     worst: int = 0,
 ) -> str:
     """Match two integrated tables and report every trend for every value."""
-    needed = ("miller_index", "entering", "xyzcal.px")
-    for name, table in (("A", a), ("B", b)):
-        missing = [c for c in needed if c not in table.columns]
-        if missing:
-            raise ValueError(f"{name} has no {', '.join(missing)}")
-
-    def key(table: refl.ReflectionTable) -> list[np.ndarray]:
-        hkl = table.columns["miller_index"]
-        entering = table.columns["entering"].ravel().astype(int)
-        return [hkl[:, 0], hkl[:, 1], hkl[:, 2], entering]
-
-    matching, duplicates = match.match_keys(
-        key(a),
-        key(b),
-        tie_break_a=a.columns["xyzcal.px"][:, 2],
-        tie_break_b=b.columns["xyzcal.px"][:, 2],
-    )
-    ia, ib = matching.index_a, matching.index_b
-    # A key can match while the two rows are different observations of it, on
-    # a scan that goes round more than once.  The frame settles that.
-    close = np.abs(a.columns["xyzcal.px"][ia, 2] - b.columns["xyzcal.px"][ib, 2]) <= radius
-    ia, ib = ia[close], ib[close]
+    ia, ib, unpartnered = paired(a, b, radius)
 
     out = [
         f"{a.nrows} rows against {b.nrows}, matched {len(ia)}"
-        + (f", {duplicates} duplicate keys" if duplicates else "")
+        + (f", {unpartnered} unpartnered" if unpartnered else "")
     ]
     if len(ia) == 0:
         out.append("")

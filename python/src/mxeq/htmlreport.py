@@ -239,33 +239,12 @@ def write(
     title: str = "integration comparison",
     plotly_src: str = PLOTLY_CDN,
 ) -> str:
-    def key(table):
-        hkl = table.columns["miller_index"]
-        entering = table.columns["entering"].ravel().astype(int)
-        return [hkl[:, 0], hkl[:, 1], hkl[:, 2], entering]
-
-    matching, duplicates = match.match_keys(
-        key(ours),
-        key(theirs),
-        tie_break_a=ours.columns["xyzcal.px"][:, 2],
-        tie_break_b=theirs.columns["xyzcal.px"][:, 2],
-    )
-    ia, ib = matching.index_a, matching.index_b
-    close = (
-        np.abs(ours.columns["xyzcal.px"][ia, 2] - theirs.columns["xyzcal.px"][ib, 2])
-        <= radius
-    )
-    ia, ib = ia[close], ib[close]
-    if len(ia) == 0:
-        raise ValueError(
-            "nothing matched: if one file was written before a reindexing step "
-            "and the other after, the Miller indices are not comparable"
-        )
+    ia, ib, unpartnered = trends.paired(ours, theirs, radius)
 
     data = {"values": _figures(ours, ia, theirs, ib, values, n_bins)}
     subtitle = (
         f"{ours.nrows} rows against {theirs.nrows}, matched {len(ia)}"
-        + (f", {duplicates} duplicate keys" if duplicates else "")
+        + (f", {unpartnered} unpartnered" if unpartnered else "")
         + ". Bins hold equal populations. The band on the ratio is the robust "
         "spread, not the standard error."
     )
