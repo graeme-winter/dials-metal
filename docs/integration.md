@@ -1720,3 +1720,54 @@ uses did not, which is what two copies of a format get you.
 scan is plenty to iterate a profile fitting algorithm against -- the profiles
 are learned per detector region and per scan block, so what matters is that the
 slice covers the detector, not that it covers the scan.
+
+## The fitted variance was wrong twice, and scaling said so
+
+Scaling our integration and DIALS' through the same pipeline gave nearly the
+same merging statistics, ours a little worse -- Rmerge 0.043 against 0.038 --
+with two numbers that pointed at the errors rather than the intensities:
+`dI/s(dI)` 0.946 against 0.840, and an anomalous slope of 1.142 against 0.936.
+Both say our differences are large for the sigmas we quote.
+
+They were. Binned against resolution, the variance ratio ours to DIALS':
+
+    resolution        sum       prf
+    55.09 - 3.08   1.0031    0.9217
+     3.08 - 2.46   0.9988    0.7658
+     2.46 - 2.15   1.0034    0.6180
+     2.15 - 1.61   1.0239    0.4265
+
+**The summed variance was right everywhere.** Only the fitted one was wrong,
+and worse the weaker the data. Two causes, found in that order.
+
+**Fitting on the grid counts the same measurement several times.** The grid has
+729 points and a shoebox has about 450 pixels, and one pixel's counts reach
+several grid points through the subdivision and the eps3 overlap. Treating them
+as independent overcounts the information. `profile_on_pixels` carries the
+profile back onto the pixels -- the transpose of the transform that carried the
+counts onto the grid -- and `fit_on_pixels` fits there. That took the variance
+from 0.43 of DIALS' to 0.66 at high resolution.
+
+**And the background term was missing.** Leslie equation 34: the fitted
+variance has two parts, the fit and the background, the second being the same
+`(m/n) I_bg` that summation carries. The background was estimated from n pixels
+and subtracted from m of them, and weighting the foreground by a profile does
+not make that uncertainty go away.
+
+What gave this away was not the comparison with DIALS but the theory. Our
+fitted variance was 0.32 of our summed one; Leslie section 6.6 derives a floor
+of about 0.5 for a typical profile. **A ratio better than the theory allows is
+not a better algorithm, it is a term that has been forgotten.**
+
+Together:
+
+                          var vs DIALS    our prf/sum   their prf/sum
+    grid, no bg term         0.6597          0.3219        0.8523
+    pixels + equation 34     0.8864          0.4323        0.8523
+       at 2.93 - 2.35 A      1.0039          0.5938        0.8939
+       at 55.1 - 2.93 A      1.0394          0.8102        0.9658
+
+Still eleven per cent light at the highest resolution, where the data are
+weakest and the profile matters most. But the variances now agree with DIALS to
+a few per cent over most of the range, and are no longer better than theory
+permits.

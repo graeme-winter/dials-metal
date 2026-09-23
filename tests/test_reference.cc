@@ -380,3 +380,83 @@ TEST(a_weak_reflection_may_still_be_fitted_negative) {
   check::is_true(fit.intensity < 0.0,
                  "a weak reflection below its background is negative");
 }
+
+TEST(the_fitted_variance_carries_the_background_term_as_well) {
+  // Leslie equation 34: the fitted variance has two parts, the fit itself and
+  // the background. The second is the same (m/n) I_bg that summation carries,
+  // because the background was estimated from n pixels and subtracted from m
+  // of them, and weighting the foreground by a profile does not make that
+  // uncertainty go away.
+  //
+  // Without it the fitted variance came out 0.32 of the summed one where DIALS
+  // has 0.85 -- and 0.32 is below the floor Leslie section 6.6 derives, about
+  // 0.5 for a typical profile. A ratio better than the theory allows is not a
+  // better algorithm; it is a term that has been forgotten. That is what gave
+  // this away, rather than the comparison with DIALS.
+  const GridSpec spec = small_spec();
+
+  // A box with a known foreground and a background rim, and a profile on its
+  // pixels that is simply a peak in the middle of the foreground.
+  const auto make = [&](std::int32_t rim) {
+    Shoebox box;
+    box.panel = 0;
+    box.bbox[0] = 0; box.bbox[1] = 5 + 2 * rim;
+    box.bbox[2] = 0; box.bbox[3] = 5 + 2 * rim;
+    box.bbox[4] = 0; box.bbox[5] = 1;
+    const std::size_t n = box.size();
+    box.data.assign(n, 4.0f);
+    box.background.assign(n, 4.0f);
+    box.mask.assign(n, shoebox_mask::kValid | shoebox_mask::kBackground);
+    for (std::int32_t y = rim; y < rim + 5; ++y) {
+      for (std::int32_t x = rim; x < rim + 5; ++x) {
+        const std::size_t at = box.at(x, y, 0);
+        box.mask[at] = shoebox_mask::kValid | shoebox_mask::kForeground;
+        box.data[at] = 4.0f + 100.0f;
+      }
+    }
+    return box;
+  };
+
+  // The same profile on the pixels either way: flat over the foreground.
+  const auto profile_for = [](const Shoebox &box) {
+    std::vector<double> p(box.size(), 0.0);
+    double total = 0.0;
+    for (std::size_t i = 0; i < box.size(); ++i) {
+      if (box.mask[i] & shoebox_mask::kForeground) {
+        p[i] = 1.0;
+        total += 1.0;
+      }
+    }
+    for (double &v : p) v /= total;
+    return p;
+  };
+
+  const Shoebox thin = make(1);   // few background pixels, so m/n is large
+  const Shoebox thick = make(5);  // many, so m/n is small
+  const ProfileFit a = fit_on_pixels(thin, profile_for(thin));
+  const ProfileFit b = fit_on_pixels(thick, profile_for(thick));
+  check::is_true(a.valid && b.valid, "both fitted");
+  check::close(a.intensity, b.intensity, 1e-6 * a.intensity,
+               "the same intensity either way");
+  check::is_true(a.variance > b.variance,
+                 "a thinner background rim gives a larger variance, because "
+                 "(m/n) is larger");
+
+  // And the term is the size Leslie says: the difference between the two is
+  // the difference in (m/n) I_bg, since everything else about them is equal.
+  const auto counts = [](const Shoebox &box) {
+    double m = 0.0, n = 0.0, bg = 0.0;
+    for (std::size_t i = 0; i < box.size(); ++i) {
+      if (box.mask[i] & shoebox_mask::kForeground) {
+        m += 1.0;
+        bg += static_cast<double>(box.background[i]);
+      } else if (box.mask[i] & shoebox_mask::kBackground) {
+        n += 1.0;
+      }
+    }
+    return (m / n) * bg;
+  };
+  check::close(a.variance - b.variance, counts(thin) - counts(thick),
+               1e-6 * (counts(thin) - counts(thick)),
+               "and the difference is exactly the (m/n) I_bg difference");
+}

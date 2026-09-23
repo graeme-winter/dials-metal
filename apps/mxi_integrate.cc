@@ -889,7 +889,21 @@ int main(int argc, char **argv) {
           const std::vector<double> local =
               profile_at(reference, panel, static_cast<std::size_t>(q.panel),
                          q.px_fast, q.px_slow, q.z);
-          const ProfileFit fit = fit_profile(local, t, integrate_options.gain);
+          // Fitted against the PIXELS, with the profile carried onto them,
+          // rather than against the grid with the pixels carried onto it. The
+          // two give the same intensity and very different variances: the grid
+          // has more points than the shoebox has pixels and one pixel's counts
+          // reach several of them, so treating its points as independent
+          // overcounts the information. Measured against DIALS, the grid fit
+          // claimed a variance 0.35 of the summed one at high resolution where
+          // DIALS has 0.84 -- errors too small by 1.6, and everything weighted
+          // by them wrong.
+          const std::vector<double> on_pixels = profile_on_pixels(
+              e, boxes[i], q.s1, q.phi, grid_spec, local);
+          const ProfileFit fit =
+              on_pixels.empty()
+                  ? fit_profile(local, t, integrate_options.gain)
+                  : fit_on_pixels(boxes[i], on_pixels, integrate_options.gain);
           if (!fit.valid) return;
           iprf.reals[row] = fit.intensity;
           iprf_var.reals[row] = fit.variance;

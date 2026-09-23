@@ -9,6 +9,14 @@
 
 namespace mxi {
 
+namespace {
+//: The least variance a measurement can have, in counts. A point with no
+//: signal still carries the background's noise; anything smaller is a weight
+//: this fit has no business trusting.
+constexpr double kLeastVariance = 0.05;
+}  // namespace
+
+
 Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
                               const Vec3 &s1, double phi_calculated,
                               const GridSpec &spec) {
@@ -171,6 +179,196 @@ std::size_t ReferenceProfiles::index_of(std::size_t which_panel, int block,
   const std::size_t ii =
       static_cast<std::size_t>(std::clamp(i, 0, std::max(divisions, 1) - 1));
   return ((panel * b + bl) * d + jj) * d + ii;
+}
+
+std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
+                                      const Vec3 &s1, double phi_calculated,
+                                      const GridSpec &spec,
+                                      const std::vector<double> &reference) {
+  std::vector<double> out;
+  if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+    return out;
+  }
+  if (reference.size() != spec.size() || spec.subdivisions < 1) return out;
+  const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
+  const KabschFrame frame = kabsch_frame(e, s1);
+  if (!frame.valid) return out;
+
+  const int side = spec.side();
+  const double span_d = spec.half_width * spec.sigma_d;
+  const double span_m = spec.half_width * spec.sigma_m;
+  if (!(span_d > 0.0) || !(span_m > 0.0)) return out;
+  const double step_d = 2.0 * span_d / static_cast<double>(side);
+  const double step_m = 2.0 * span_m / static_cast<double>(side);
+  const double osc = Scan::radians(e.scan.osc_width);
+  const double share =
+      1.0 / static_cast<double>(spec.subdivisions * spec.subdivisions);
+
+  out.assign(box.size(), 0.0);
+
+  // The subdivided face once, as the forward transform does: eps1 and eps2
+  // depend only on where a subdivision sits on the detector.
+  const std::int32_t fine_x = box.nx() * spec.subdivisions;
+  const std::int32_t fine_y = box.ny() * spec.subdivisions;
+  std::vector<int> face_i1(static_cast<std::size_t>(fine_x) *
+                           static_cast<std::size_t>(fine_y));
+  std::vector<int> face_i2(face_i1.size());
+  for (std::int32_t fy = 0; fy < fine_y; ++fy) {
+    const double py = static_cast<double>(box.bbox[2]) +
+                      (static_cast<double>(fy) + 0.5) /
+                          static_cast<double>(spec.subdivisions);
+    for (std::int32_t fx = 0; fx < fine_x; ++fx) {
+      const double px = static_cast<double>(box.bbox[0]) +
+                        (static_cast<double>(fx) + 0.5) /
+                            static_cast<double>(spec.subdivisions);
+      const Epsilon eps =
+          epsilon_of(e, frame, p, px, py, phi_calculated, phi_calculated);
+      const std::size_t at = static_cast<std::size_t>(fy) *
+                                 static_cast<std::size_t>(fine_x) +
+                             static_cast<std::size_t>(fx);
+      face_i1[at] = static_cast<int>(std::floor((eps.e1 + span_d) / step_d));
+      face_i2[at] = static_cast<int>(std::floor((eps.e2 + span_d) / step_d));
+    }
+  }
+
+  for (std::int32_t z = 0; z < box.nz(); ++z) {
+    const double image = static_cast<double>(box.bbox[4] + z);
+    const double phi_low = Scan::radians(e.scan.osc_start) +
+                           (image - static_cast<double>(e.scan.z_offset)) * osc;
+    const double phi_high = phi_low + osc;
+    double e3_low = Scan::degrees(frame.zeta * (phi_low - phi_calculated));
+    double e3_high = Scan::degrees(frame.zeta * (phi_high - phi_calculated));
+    if (e3_low > e3_high) std::swap(e3_low, e3_high);
+    const double e3_span = e3_high - e3_low;
+    if (!(e3_span > 0.0)) continue;
+
+    for (std::int32_t y = 0; y < box.ny(); ++y) {
+      for (std::int32_t x = 0; x < box.nx(); ++x) {
+        const std::size_t at = box.at(x, y, z);
+        if (box.mask[at] == 0) continue;
+        double value = 0.0;
+        for (int sy = 0; sy < spec.subdivisions; ++sy) {
+          for (int sx = 0; sx < spec.subdivisions; ++sx) {
+            const std::size_t on_face =
+                static_cast<std::size_t>(y * spec.subdivisions + sy) *
+                    static_cast<std::size_t>(fine_x) +
+                static_cast<std::size_t>(x * spec.subdivisions + sx);
+            const int i1 = face_i1[on_face];
+            const int i2 = face_i2[on_face];
+            if (i1 < 0 || i1 >= side || i2 < 0 || i2 >= side) continue;
+            const int j_low =
+                static_cast<int>(std::floor((e3_low + span_m) / step_m));
+            const int j_high =
+                static_cast<int>(std::floor((e3_high + span_m) / step_m));
+            for (int j = std::max(j_low, 0); j <= std::min(j_high, side - 1);
+                 ++j) {
+              const double plane_low = -span_m + static_cast<double>(j) * step_m;
+              const double plane_high = plane_low + step_m;
+              const double overlap = std::min(e3_high, plane_high) -
+                                     std::max(e3_low, plane_low);
+              if (!(overlap > 0.0)) continue;
+              value += share * (overlap / e3_span) * reference[spec.at(i1, i2, j)];
+            }
+          }
+        }
+        out[at] = value;
+      }
+    }
+  }
+  return out;
+}
+
+ProfileFit fit_on_pixels(const Shoebox &box,
+                         const std::vector<double> &pixel_profile, double gain,
+                         int iterations) {
+  ProfileFit out;
+  if (pixel_profile.size() != box.size()) return out;
+  if (box.data.size() != box.size() || box.mask.size() != box.size()) return out;
+  if (box.background.size() != box.size()) return out;
+
+  // Over the foreground only. The rim is where the background came from and
+  // has no profile in it to fit.
+  double profile_sum = 0.0;
+  for (std::size_t i = 0; i < box.size(); ++i) {
+    if ((box.mask[i] & shoebox_mask::kForeground) == 0) continue;
+    if ((box.mask[i] & shoebox_mask::kValid) == 0) continue;
+    profile_sum += pixel_profile[i];
+  }
+  if (!(profile_sum > 0.0)) return out;
+
+  double scale = 0.0;
+  for (std::size_t i = 0; i < box.size(); ++i) {
+    if ((box.mask[i] & shoebox_mask::kForeground) == 0) continue;
+    if ((box.mask[i] & shoebox_mask::kValid) == 0) continue;
+    scale += static_cast<double>(box.data[i]) - static_cast<double>(box.background[i]);
+  }
+  scale /= profile_sum;
+
+  double variance = 0.0;
+  for (int round = 0; round < std::max(iterations, 1); ++round) {
+    double numerator = 0.0, denominator = 0.0;
+    for (std::size_t i = 0; i < box.size(); ++i) {
+      if ((box.mask[i] & shoebox_mask::kForeground) == 0) continue;
+      if ((box.mask[i] & shoebox_mask::kValid) == 0) continue;
+      const double b = static_cast<double>(box.background[i]);
+      const double expected = b + std::max(scale, 0.0) * pixel_profile[i];
+      const double v = std::max(gain * expected, gain * kLeastVariance);
+      const double residual = static_cast<double>(box.data[i]) - b;
+      numerator += pixel_profile[i] * residual / v;
+      denominator += pixel_profile[i] * pixel_profile[i] / v;
+    }
+    if (!(denominator > 0.0)) return out;
+    scale = numerator / denominator;
+    variance = 1.0 / denominator;
+    out.iterations = round + 1;
+  }
+  out.intensity = scale * profile_sum;
+  out.variance = variance * profile_sum * profile_sum;
+
+  // Leslie equation 34: the fitted variance has TWO parts, the fit itself and
+  // the background. The second is the same (m/n) I_bg that summation carries,
+  // because the background was estimated from n pixels and subtracted from m
+  // of them, and that uncertainty does not go away because the foreground was
+  // weighted by a profile.
+  //
+  // Leaving it out made the fitted variance 0.32 of the summed one where DIALS
+  // has 0.85 -- and 0.32 is below the floor Leslie section 6.6 derives, which
+  // is about 0.5 for a typical profile. A ratio better than the theory allows
+  // is not a better algorithm; it is a term that has been forgotten.
+  {
+    double foreground = 0.0, background_pixels = 0.0, background_sum = 0.0;
+    for (std::size_t i = 0; i < box.size(); ++i) {
+      if ((box.mask[i] & shoebox_mask::kValid) == 0) continue;
+      if (box.mask[i] & shoebox_mask::kForeground) {
+        foreground += 1.0;
+        background_sum += static_cast<double>(box.background[i]);
+      } else if (box.mask[i] & shoebox_mask::kBackground) {
+        background_pixels += 1.0;
+      }
+    }
+    if (background_pixels > 0.0) {
+      out.variance +=
+          gain * (foreground / background_pixels) * background_sum;
+    }
+  }
+
+  double n = 0.0, sp = 0.0, sd = 0.0, spp = 0.0, sdd = 0.0, spd = 0.0;
+  for (std::size_t i = 0; i < box.size(); ++i) {
+    if ((box.mask[i] & shoebox_mask::kForeground) == 0) continue;
+    if ((box.mask[i] & shoebox_mask::kValid) == 0) continue;
+    const double a = pixel_profile[i];
+    const double b = static_cast<double>(box.data[i]) -
+                     static_cast<double>(box.background[i]);
+    n += 1.0; sp += a; sd += b; spp += a * a; sdd += b * b; spd += a * b;
+  }
+  if (n > 1.0) {
+    const double cov = spd / n - (sp / n) * (sd / n);
+    const double va = spp / n - (sp / n) * (sp / n);
+    const double vb = sdd / n - (sd / n) * (sd / n);
+    if (va > 0.0 && vb > 0.0) out.correlation = cov / std::sqrt(va * vb);
+  }
+  out.valid = true;
+  return out;
 }
 
 std::size_t ReferenceProfiles::region_of(const Panel &panel,
@@ -346,13 +544,6 @@ void finalise_reference(ReferenceProfiles *reference, std::size_t least) {
   (void)everything_spots;
   reference->finalised = true;
 }
-
-namespace {
-//: The least variance a grid point can have, in counts. A point with no signal
-//: still carries the background's noise; anything smaller is a weight this fit
-//: has no business trusting.
-constexpr double kLeastVariance = 0.05;
-}  // namespace
 
 ProfileFit fit_profile(const std::vector<double> &reference, const Transformed &t,
                        double gain, int iterations) {

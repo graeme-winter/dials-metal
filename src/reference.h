@@ -176,6 +176,24 @@ bool add_reference(ReferenceProfiles *reference, std::size_t region,
 //: the whole-detector average rather than being left empty, and say so.
 void finalise_reference(ReferenceProfiles *reference, std::size_t least = 10);
 
+//: The reference profile evaluated at each voxel of a shoebox.
+//:
+//: The transpose of `transform_shoebox`: that one carries counts from pixels
+//: onto the grid, this one carries the profile from the grid back onto the
+//: pixels, through the same subdivisions and the same eps3 overlaps.
+//:
+//: It exists because the variance of a fit is only right if it is computed
+//: over the independent measurements, and those are the pixels. Fitting on the
+//: grid treats its points as independent when one pixel's counts are spread
+//: over several of them, which overcounts the information: measured against
+//: DIALS, fitting on the grid claimed a variance 0.35 of the summed one at
+//: high resolution where DIALS has 0.84, so the errors were too small by a
+//: factor of 1.6 and everything downstream weighted by them was wrong.
+std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
+                                      const Vec3 &s1, double phi_calculated,
+                                      const GridSpec &spec,
+                                      const std::vector<double> &reference);
+
 struct ProfileFit {
   bool valid = false;
   double intensity = 0.0;
@@ -195,5 +213,13 @@ struct ProfileFit {
 //: iterated, as Kabsch does. Two or three rounds is plenty.
 ProfileFit fit_profile(const std::vector<double> &reference, const Transformed &t,
                        double gain = 1.0, int iterations = 3);
+
+//: Fit `pixel_profile` to the shoebox's own pixels.
+//:
+//: The same weighted least squares as `fit_profile`, over the foreground
+//: voxels rather than the grid, so the variance counts each measurement once.
+ProfileFit fit_on_pixels(const Shoebox &box,
+                         const std::vector<double> &pixel_profile,
+                         double gain = 1.0, int iterations = 3);
 
 }  // namespace mxi
