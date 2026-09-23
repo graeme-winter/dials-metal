@@ -129,8 +129,11 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument(
         "--radius",
         type=float,
-        default=0.5,
-        help="how many images apart two rows may be and still be the same observation",
+        default=5.0,
+        help="how many images apart two rows may be and still be the same "
+        "observation (5). Generous on purpose: two observations of one "
+        "reflection are a whole turn apart, so this guards against nothing and "
+        "a tight value loses real pairs",
     )
 
     hr = sub.add_parser(
@@ -148,6 +151,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     hr.add_argument("--bins", type=int, default=12, help="bins per variable")
     hr.add_argument("--title", default="integration comparison")
+    hr.add_argument(
+        "--radius",
+        type=float,
+        default=5.0,
+        help="how many images apart two rows may be and still be the same "
+        "observation (5)",
+    )
     hr.add_argument(
         "--plotly",
         default=None,
@@ -240,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.output,
                 values,
                 n_bins=args.bins,
+                radius=args.radius,
                 title=args.title,
                 plotly_src=args.plotly or htmlreport.PLOTLY_CDN,
             )

@@ -261,3 +261,45 @@ def test_an_observation_with_no_partner_is_left_out_rather_than_mispaired():
     assert len(ia) == 2
     assert np.allclose(a_z[ia], b_z[ib])
     assert unpartnered == 1
+
+
+def test_the_radius_is_a_sanity_check_and_not_a_discriminator():
+    from mxeq import match
+
+    # Within a group the observations are a whole turn apart, so there is
+    # nothing for a tight radius to protect against and plenty for it to lose.
+    # On a real pair, half a frame matched 81 per cent of the smaller table and
+    # two frames matched 96, the 99th percentile of the frame difference being
+    # 1.6 against a median of 0.001.
+    turns = 6
+    hkl = np.tile(np.array([[1, 2, 3]], dtype=np.int64), (turns, 1))
+    entering = np.zeros(turns, dtype=np.int64)
+    z = np.arange(turns) * 3600.0
+    # One side predicts each observation 1.4 frames later: well inside a turn
+    # and well outside half a frame.
+    offset = z + 1.4
+
+    tight = match.match_observations(hkl, entering, z, hkl, entering, offset,
+                                     radius=0.5)
+    assert len(tight[0]) == 0, "a tight radius loses every one of them"
+
+    loose = match.match_observations(hkl, entering, z, hkl, entering, offset)
+    assert len(loose[0]) == turns
+    # And each is still paired with its own turn rather than a neighbouring one.
+    assert np.allclose(offset[loose[1]] - z[loose[0]], 1.4)
+
+
+def test_a_radius_wider_than_a_turn_still_pairs_correctly():
+    from mxeq import match
+
+    # Because the walk is in frame order, not nearest-first: even a radius that
+    # spans several turns cannot pair an observation with the wrong turn's copy
+    # while its own is available.
+    turns = 5
+    hkl = np.tile(np.array([[2, 0, 1]], dtype=np.int64), (turns, 1))
+    entering = np.zeros(turns, dtype=np.int64)
+    z = np.arange(turns) * 100.0
+    ia, ib, _ = match.match_observations(hkl, entering, z, hkl, entering,
+                                         z + 0.2, radius=10000.0)
+    assert len(ia) == turns
+    assert np.allclose(z[ia] + 0.2, (z + 0.2)[ib])

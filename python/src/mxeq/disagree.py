@@ -38,7 +38,7 @@ def select(
     difference: float | None = None,
     sigmas: float | None = None,
     floor: float = 0.0,
-    radius: float = 0.5,
+    radius: float = 5.0,
     limit: int = 0,
 ) -> tuple[refl.ReflectionTable, str]:
     """Rows of `ours` whose `value` disagrees with `theirs`.

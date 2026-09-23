@@ -1864,3 +1864,18 @@ That the old behaviour was wrong was visible in the report all along -- 722427
 duplicate keys is not a footnote on a dataset of seven million -- and it was
 read as a quirk of the data rather than as the tool saying it could not do the
 job.
+
+**And then the radius was too tight**, which the next run showed at 41 per
+cent. The frame difference between the two programs' predictions is 0.001
+images for most observations and reaches 1.6 for one in a hundred, so half a
+frame threw away a fifth of them:
+
+    radius   0.5   matched  81 per cent
+    radius   2.0            96
+    radius   5.0            97
+    radius  50.0            97
+
+Five and fifty give the same answer, which is what says the pairing is
+unambiguous: within a group the observations are a whole turn apart, so the
+radius guards against nothing and a tight one only loses real pairs. It is a
+sanity check, and it is generous.

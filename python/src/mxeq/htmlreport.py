@@ -235,7 +235,7 @@ def write(
     path: str,
     values: list[str],
     n_bins: int = 12,
-    radius: float = 0.5,
+    radius: float = 5.0,
     title: str = "integration comparison",
     plotly_src: str = PLOTLY_CDN,
 ) -> str:

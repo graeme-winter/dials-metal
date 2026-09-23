@@ -292,7 +292,7 @@ def worst_offenders(
     return "\n".join(lines)
 
 
-def paired(a, b, radius: float = 0.5):
+def paired(a, b, radius: float = 5.0):
     """Indices of the observations two tables share.
 
     Miller index and entering flag group them; the frame separates them. See
@@ -325,7 +325,7 @@ def compare(
     values: list[str],
     value_b: str | None = None,
     n_bins: int = 10,
-    radius: float = 0.5,
+    radius: float = 5.0,
     worst: int = 0,
 ) -> str:
     """Match two integrated tables and report every trend for every value."""

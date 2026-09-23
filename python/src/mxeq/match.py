@@ -191,7 +191,7 @@ def match_observations(
     hkl_b: np.ndarray,
     entering_b: np.ndarray,
     z_b: np.ndarray,
-    radius: float = 0.5,
+    radius: float = 5.0,
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Pair two lists of OBSERVATIONS, not of reflections.
 
@@ -206,6 +206,14 @@ def match_observations(
     a group both sides are sorted by frame and walked together, which is right
     because two observations of one reflection are a whole turn apart and the
     two programs disagree about where they are by a fraction of an image.
+
+    `radius` is a sanity check and not a discriminator, so it is generous.
+    Within a group the observations are a whole turn apart, so there is nothing
+    for a tight radius to protect against and plenty for it to lose: on a real
+    pair, half a frame matched 81 per cent and two frames matched 96, the
+    99th percentile of the frame difference being 1.6 while the median is
+    0.001.  Five and fifty match the same 97 per cent, which is what says the
+    pairing is unambiguous.
 
     Returns the indices into each side, and how many observations went
     unpartnered.
