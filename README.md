@@ -152,7 +152,7 @@ those are not installed.
 ## The chain
 
 ```sh
-dials-metal-find-spots  master.h5                          # -> strong.refl
+mxi_find  master.h5                          # -> strong.refl
 mxi_index               imported.expt strong.refl          # -> indexed.*
 mxi_refine              indexed.expt  indexed.refl --analytic
 mxeq check indexed      indexed.refl  dials/indexed.refl -e indexed.expt

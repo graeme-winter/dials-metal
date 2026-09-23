@@ -393,10 +393,10 @@ else()
   target_include_directories(spotfinder_expt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/spots)
 endif()
 
-add_executable(dials-metal-find-spots src/spots/find_spots.cc)
-target_compile_definitions(dials-metal-find-spots PRIVATE
+add_executable(mxi_find src/spots/find_spots.cc)
+target_compile_definitions(mxi_find PRIVATE
                            SPOTFINDER_VERSION="${PROJECT_VERSION}")
-target_link_libraries(dials-metal-find-spots
+target_link_libraries(mxi_find
     PRIVATE spotfinder_series spotfinder_decompress spotfinder_dext
             spotfinder_dials_spots spotfinder_refl spotfinder_expt
             Threads::Threads spotfinder_warnings)
@@ -404,18 +404,18 @@ target_link_libraries(dials-metal-find-spots
 # The kernels go into the executable rather than a library of their own, so that
 # adding more .cu files is a one-line change here.
 if(SPOTFINDER_CUDA)
-    target_sources(dials-metal-find-spots PRIVATE src/spots/dext_cuda.cu)
-    target_compile_definitions(dials-metal-find-spots PRIVATE
+    target_sources(mxi_find PRIVATE src/spots/dext_cuda.cu)
+    target_compile_definitions(mxi_find PRIVATE
                                SPOTFINDER_CUDA SPOTFINDER_GPU
                                ${spotfinder_gpu_definitions})
-    target_link_libraries(dials-metal-find-spots
+    target_link_libraries(mxi_find
         PRIVATE spotfinder_signal_order spotfinder_dext_gpu)
-    target_compile_options(dials-metal-find-spots PRIVATE ${spotfinder_cuda_options})
+    target_compile_options(mxi_find PRIVATE ${spotfinder_cuda_options})
     # No separable compilation: there is one .cu file and nothing calls across
     # translation units on the device, so the extra nvcc device-link step buys
     # nothing -- and it would be handed the host linker's flags, which it does
     # not understand.
-    set_target_properties(dials-metal-find-spots
+    set_target_properties(mxi_find
                           PROPERTIES CUDA_SEPARABLE_COMPILATION OFF)
 endif()
 
@@ -435,13 +435,13 @@ if(SPOTFINDER_METAL)
         PUBLIC ${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK}
         PRIVATE spotfinder_signal_order spotfinder_dext_gpu spotfinder_warnings)
 
-    target_link_libraries(dials-metal-find-spots PRIVATE spotfinder_dext_metal)
-    target_compile_definitions(dials-metal-find-spots PRIVATE
+    target_link_libraries(mxi_find PRIVATE spotfinder_dext_metal)
+    target_compile_definitions(mxi_find PRIVATE
                                SPOTFINDER_METAL SPOTFINDER_GPU
                                ${spotfinder_gpu_definitions})
 endif()
 
-install(TARGETS dials-metal-find-spots RUNTIME DESTINATION bin)
+install(TARGETS mxi_find RUNTIME DESTINATION bin)
 
 if(SPOTFINDER_TESTS)
     enable_testing()

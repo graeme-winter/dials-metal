@@ -27,7 +27,7 @@ from mxeq.checks import strong
 
 DATA = pathlib.Path(__file__).parent / "data"
 
-#: Cut from `dials.find_spots` and `dials-metal-find-spots` output on the same
+#: Cut from `dials.find_spots` and `mxi_find` output on the same
 #: 300-image sweep by `tests/make_real_fixture.py`; see its docstring for why
 #: the structure is sliced rather than re-written.
 DIALS_FILE = DATA / "dials_strong.refl"

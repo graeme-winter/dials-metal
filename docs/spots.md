@@ -5,7 +5,7 @@ to a reflection table `dials.index` will take.
 
 ```sh
 dials.import /data/ins10_1_master.h5
-dials-metal-find-spots -gpu -j 8 -e imported.expt /data/ins10_1_master.h5
+mxi_find -gpu -j 8 -e imported.expt /data/ins10_1_master.h5
 dials.index imported.expt strong.refl
 ```
 
@@ -60,7 +60,7 @@ it is asked for, so a machine with neither still configures.
 ## Running
 
 ```
-dials-metal-find-spots [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]
+mxi_find [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]
                        [options] master.nxs
 
   master.nxs         an NXmx HDF5 master file, or -x master.nxs
@@ -85,15 +85,15 @@ dials-metal-find-spots [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]
 the outside and the CPU and the two devices are not the same program:
 
 ```
-$ dials-metal-find-spots --version
-dials-metal-find-spots 0.1.0 (Metal)
+$ mxi_find --version
+mxi_find 0.1.0 (Metal)
 ```
 
 What it prints is `dials.find_spots`' own summary, wording included, so that the
 two can be read the same way and compared line for line:
 
 ```
-$ dials-metal-find-spots -j 4 -e series.expt series.nxs
+$ mxi_find -j 4 -e series.expt series.nxs
 Experiments: 1 experiment, images 1 to 12, 1 panel of 256 x 384, identifier 1c0ffee0
 Series series: 12 images of 256 x 384, from series.nxs, 4 threads, on the CPU
 Grouping in three dimensions, 3 to 1000 pixels a spot, peak within 2.0 of the centroid
@@ -269,7 +269,7 @@ skips.
 
 ```sh
 python3 tests/make_test_nxmx.py /tmp/series 12
-./build/dials-metal-find-spots -e /tmp/series/series.expt /tmp/series/series.nxs
+./build/mxi_find -e /tmp/series/series.expt /tmp/series/series.nxs
 python3 tests/check_spots.py /tmp/series/manifest.json strong.refl
 ```
 
@@ -434,8 +434,8 @@ pixels directly or build summed-area tables in threadgroup memory, and each
 choice is independent:
 
 ```sh
-SPOTFINDER_GPU_STAGE0=tile   dials-metal-find-spots -gpu series.nxs
-SPOTFINDER_GPU_STAGE2=direct dials-metal-find-spots -gpu series.nxs
+SPOTFINDER_GPU_STAGE0=tile   mxi_find -gpu series.nxs
+SPOTFINDER_GPU_STAGE2=direct mxi_find -gpu series.nxs
 ```
 
 `tile` touches each pixel about twice but fills its tables with a few dozen of

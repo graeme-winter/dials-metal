@@ -27,7 +27,7 @@ BUILD="${BUILD:-${ROOT}/build}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
-FIND="${BUILD}/dials-metal-find-spots"
+FIND="${BUILD}/mxi_find"
 if [ ! -x "${FIND}" ]; then
     echo "no ${FIND}: build first, or pass the build directory" >&2
     exit 2

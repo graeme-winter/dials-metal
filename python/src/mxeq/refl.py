@@ -20,7 +20,7 @@ somewhere else.
 STATUS
 ------
 Validated against ``strong.refl`` and ``metal.refl`` written by DIALS 3.x and by
-``dials-metal-find-spots`` (13766 rows, ten columns including a shoebox).  The
+``mxi_find`` (13766 rows, ten columns including a shoebox).  The
 first version of this reader assumed a two-element top level and a bare ``bin``
 payload, and was wrong on both counts; see ``CLAUDE.md``.  Element widths --
 ``int`` 4 bytes, ``std::size_t`` 8, ``double`` 8, ``vec3<double>`` 24, ``int6``

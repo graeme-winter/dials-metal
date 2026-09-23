@@ -33,7 +33,7 @@ have been written against the current meaning.
 ## Format -- validated
 
 The `.refl` layout is now pinned against real files (`dials.find_spots` and
-`dials-metal-find-spots` output, 13766 rows, ten columns including a shoebox):
+`mxi_find` output, 13766 rows, ten columns including a shoebox):
 
 ```
 [ "dials::af::reflection_table", 2, { identifiers, nrows, data } ]

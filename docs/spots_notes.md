@@ -29,7 +29,7 @@ assumed:
 
 ## What this is
 
-One C++20 tool: `dials-metal-find-spots` reads an NXmx HDF5 series, runs the
+One C++20 tool: `mxi_find` reads an NXmx HDF5 series, runs the
 DIALS extended dispersion threshold over each frame on the CPU or on a GPU,
 groups the surviving pixels six-connected in three dimensions, and writes a
 DIALS reflection table for `dials.index`.

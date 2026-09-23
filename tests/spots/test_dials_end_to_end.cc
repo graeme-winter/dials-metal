@@ -3,7 +3,7 @@
 // The other tests take the three stages apart: the threshold in
 // test_dext_squares.cc, the grouping in test_dials_spots.cc, the file in
 // test_refl.cc. This one puts them together in the order
-// dials-metal-find-spots does -- dext over each frame, the frames handed to the
+// mxi_find does -- dext over each frame, the frames handed to the
 // labeller in order, the spots written out -- over frames with reflections
 // planted at known positions and a rocking curve across three frames each.
 //

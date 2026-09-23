@@ -27,13 +27,13 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 
 from mxeq import refl
 
-BINARY = os.environ.get("DIALS_METAL_FIND_SPOTS") or shutil.which(
-    "dials-metal-find-spots"
+BINARY = os.environ.get("MXI_FIND") or shutil.which(
+    "mxi_find"
 )
 pytestmark = pytest.mark.skipif(
-    not BINARY, reason="dials-metal-find-spots is not built or not on PATH"
+    not BINARY, reason="mxi_find is not built or not on PATH"
 )
-TEMPLATE_EXPT = os.environ.get("DIALS_METAL_TEMPLATE_EXPT")
+TEMPLATE_EXPT = os.environ.get("MXI_TEMPLATE_EXPT")
 
 
 def series(directory, frames, planted):
@@ -91,7 +91,7 @@ def find(expt, directory):
     return refl.load(str(out)), run.stderr
 
 
-@pytest.mark.skipif(not TEMPLATE_EXPT, reason="needs DIALS_METAL_TEMPLATE_EXPT")
+@pytest.mark.skipif(not TEMPLATE_EXPT, reason="needs MXI_TEMPLATE_EXPT")
 def test_a_master_for_the_whole_run_reads_only_the_scan(tmp_path):
     # Twenty frames, the scan covering five of them. Eight rows apart on
     # successive frames: a spot three rows tall on consecutive frames three
@@ -106,7 +106,7 @@ def test_a_master_for_the_whole_run_reads_only_the_scan(tmp_path):
     assert ((z >= 5) & (z < 10)).all(), z
 
 
-@pytest.mark.skipif(not TEMPLATE_EXPT, reason="needs DIALS_METAL_TEMPLATE_EXPT")
+@pytest.mark.skipif(not TEMPLATE_EXPT, reason="needs MXI_TEMPLATE_EXPT")
 def test_a_file_holding_only_the_slice_still_gets_the_scan_z(tmp_path):
     # The same five images, as frames 0 to 4 of a file of their own.
     master = series(tmp_path, 5, lambda i: 6 + 8 * i)

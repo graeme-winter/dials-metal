@@ -97,7 +97,7 @@ reporting a near-total disagreement in intensity.
 ## Status
 
 The `.refl` format is validated against real `dials.find_spots` and
-`dials-metal-find-spots` output, and `tests/data` holds a 48-row cut of it so
+`mxi_find` output, and `tests/data` holds a 48-row cut of it so
 that is checked on every run. `.expt` is exercised only against synthetic
 files so far.
 

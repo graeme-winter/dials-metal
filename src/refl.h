@@ -1,7 +1,7 @@
 // Reading and writing DIALS reflection tables, hand-rolled msgpack.
 //
 // The layout, confirmed against files written by DIALS 3.x and by
-// dials-metal-find-spots:
+// mxi_find:
 //
 //   [ "dials::af::reflection_table", 2, { identifiers, nrows, data } ]
 //   data[name] = [ type_name, [ nrows, blob ] ]

@@ -4,7 +4,7 @@
     check_refl.py strong.refl                 # what is in it, and is it well formed
     check_refl.py strong.refl dials.refl      # how do the two spot lists differ
 
-The first form is the one to run on the output of dials-metal-find-spots before
+The first form is the one to run on the output of mxi_find before
 handing it to dials.index: it decodes the file the way DIALS' own msgpack
 adapter does, checks every column's type name and length, and prints the spot
 count and the ranges of the columns that matter. A file that fails here would
