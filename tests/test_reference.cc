@@ -393,7 +393,8 @@ TEST(the_fitted_variance_carries_the_background_term_as_well) {
   // 0.5 for a typical profile. A ratio better than the theory allows is not a
   // better algorithm; it is a term that has been forgotten. That is what gave
   // this away, rather than the comparison with DIALS.
-  const GridSpec spec = small_spec();
+  //
+  // No grid here: the fit is over pixels and needs none.
 
   // A box with a known foreground and a background rim, and a profile on its
   // pixels that is simply a peak in the middle of the foreground.

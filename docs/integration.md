@@ -1771,3 +1771,29 @@ Still eleven per cent light at the highest resolution, where the data are
 weakest and the profile matters most. But the variances now agree with DIALS to
 a few per cent over most of the range, and are no longer better than theory
 permits.
+
+
+## Making the second pass pay for itself
+
+Three things, after the variance fix made the second pass worth having.
+
+**The second pass was transforming twice.** It carried the counts onto the grid
+and then carried the profile back onto the pixels, and since the fit is over
+pixels the first of those is work whose answer is thrown away. They cost the
+same, so removing it halves the phase.
+
+**Learning profiles was the last serial phase**, 38 per cent of a slice. The
+transform is the cost and it is per reflection with nothing shared; only the
+accumulation into a cell is shared, and that is a few hundred adds against a
+few hundred thousand multiplies. So each thread keeps its own set of profiles
+and they are added at the end.
+
+That makes the result depend on the thread count at the eleventh decimal --
+3e-11 on intensities of a few hundred, which is addition of the same numbers in
+a different order. Worth saying rather than claiming bit-identical: two runs at
+the same thread count agree exactly, two at different counts agree to a part in
+1e13.
+
+**And the unused `GridSpec` in a test** was a real signal rather than noise:
+that test fits over pixels and needs no grid at all, so the variable being
+unused was the code saying the test had been written by editing another one.

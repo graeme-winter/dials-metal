@@ -844,28 +844,52 @@ int main(int argc, char **argv) {
         integrated += done.load();
         t_integrate += now_wall() - t_close_start;
 
-        // Learn from the ones worth learning from. Serial, because it
-        // accumulates into shared profiles and is a small part of the cost;
-        // threading it would need a profile per thread and a reduction, which
-        // is work to do when it shows up in the timing and not before.
+        // Learn from the ones worth learning from, in parallel.
+        //
+        // The transform is the cost and it is per reflection with nothing
+        // shared; only the accumulation into a cell's profile is shared, and
+        // that is a few hundred adds against a few hundred thousand
+        // multiplies. So each thread keeps its own set of profiles and they
+        // are added together at the end -- which also makes the result
+        // independent of the thread count, since addition of the same numbers
+        // in a different order is the only thing that changes.
         if (fitting) {
           const double t0 = now_wall();
-          for (std::size_t i = 0; i < count; ++i) {
-            if (boxes[i].data.empty()) continue;
+          const std::size_t lanes = std::max<std::size_t>(workers, 1);
+          std::vector<ReferenceProfiles> mine(lanes, reference);
+          for (ReferenceProfiles &r : mine) {
+            for (std::vector<double> &p : r.profile) std::fill(p.begin(), p.end(), 0.0);
+            std::fill(r.spots.begin(), r.spots.end(), 0);
+          }
+          std::atomic<std::size_t> lane{0};
+          std::atomic<std::size_t> learned{0};
+          in_parallel(count, [&](std::size_t i) {
+            thread_local std::size_t slot = lanes;
+            if (slot == lanes) slot = lane.fetch_add(1) % lanes;
+            if (boxes[i].data.empty()) return;
             const std::size_t row = at + i;
             const double signal = isum.reals[row];
             const double sigma = std::sqrt(std::max(ivar.reals[row], 1e-12));
-            if (!(signal > least_signal * sigma)) continue;
-            if (part_column.reals[row] < 0.99) continue;
+            if (!(signal > least_signal * sigma)) return;
+            if (part_column.reals[row] < 0.99) return;
             const Prediction &q = *planned[row].prediction;
             const Transformed t =
                 transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
-            if (!t.valid || t.outside > 0.05) continue;
+            if (!t.valid || t.outside > 0.05) return;
             const std::size_t region =
                 reference.region_of(panel, static_cast<std::size_t>(q.panel),
                                     q.px_fast, q.px_slow, q.z);
-            if (add_reference(&reference, region, t)) ++references_used;
+            if (add_reference(&mine[slot], region, t)) learned.fetch_add(1);
+          });
+          for (const ReferenceProfiles &r : mine) {
+            for (std::size_t g = 0; g < reference.profile.size(); ++g) {
+              for (std::size_t k = 0; k < reference.profile[g].size(); ++k) {
+                reference.profile[g][k] += r.profile[g][k];
+              }
+              reference.spots[g] += r.spots[g];
+            }
           }
+          references_used += learned.load();
           t_transform += now_wall() - t0;
         }
       } else {
@@ -880,9 +904,11 @@ int main(int argc, char **argv) {
           // fit subtracts the same thing the sum did.
           boxes[i].background.assign(boxes[i].size(),
                                      static_cast<float>(bmean.reals[row]));
-          const Transformed t =
-              transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
-          if (!t.valid) return;
+          // No transform here. The second pass fits against the pixels, so
+          // carrying the counts onto the grid is work whose answer is thrown
+          // away -- and it is the same cost as carrying the profile back, so
+          // doing both doubled this phase.
+          //
           // A weighted average of the nearby profiles, not the nearest one:
           // taking the nearest makes the model jump at a cell boundary, so two
           // reflections either side of one are fitted with different profiles.
@@ -900,10 +926,9 @@ int main(int argc, char **argv) {
           // by them wrong.
           const std::vector<double> on_pixels = profile_on_pixels(
               e, boxes[i], q.s1, q.phi, grid_spec, local);
+          if (on_pixels.empty()) return;
           const ProfileFit fit =
-              on_pixels.empty()
-                  ? fit_profile(local, t, integrate_options.gain)
-                  : fit_on_pixels(boxes[i], on_pixels, integrate_options.gain);
+              fit_on_pixels(boxes[i], on_pixels, integrate_options.gain);
           if (!fit.valid) return;
           iprf.reals[row] = fit.intensity;
           iprf_var.reals[row] = fit.variance;
