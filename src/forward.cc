@@ -115,7 +115,7 @@ std::vector<double> render_shoebox(const Experiment &e, const Shoebox &box,
 
   double total = 0.0;
   for (std::size_t i = 0; i < out.size(); ++i) {
-    if (box.mask[i] == 0) out[i] = 0.0;
+    if ((box.mask[i] & shoebox_mask::kValid) == 0) out[i] = 0.0;
     total += out[i];
   }
   if (total > 0.0) {
@@ -135,7 +135,7 @@ Moments moments_of(const Shoebox &box, const std::vector<double> &counts,
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
           const std::size_t at = box.at(x, y, z);
-          if (box.mask[at] == 0) continue;
+          if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
           double value = counts[at];
           if (subtract_background) value -= static_cast<double>(box.background[at]);
           if (!(value > 0.0)) continue;

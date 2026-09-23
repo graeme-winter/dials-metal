@@ -190,6 +190,9 @@ void usage(const char *program) {
       "  --regions N       detector divided N by N for reference profiles (3)\n"
       "  --scan-blocks N   the scan divided N ways as well (5)\n"
       "  --reference-signal S   learn from reflections above S sigma (10)\n"
+      "  --least-measured F  a fit needs this fraction of the reflection to\n"
+      "                    have been recorded (0.6); below it the intensity is\n"
+      "                    written but not flagged as fitted\n"
       "  --save-profiles F the learned reference profiles, as text\n"
       "  --timing          where the time went, by phase\n",
       program);
@@ -208,7 +211,7 @@ int main(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--scan-blocks", "--reference-signal", "--summation-only", "--save-profiles", "--min-zeta"};
+      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--scan-blocks", "--reference-signal", "--summation-only", "--save-profiles", "--min-zeta", "--least-measured"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
@@ -485,6 +488,11 @@ int main(int argc, char **argv) {
     Column &iprf = out.real_column("intensity.prf.value", "double", 1);
     Column &iprf_var = out.real_column("intensity.prf.variance", "double", 1);
     Column &prf_cc = out.real_column("profile.correlation", "double", 1);
+    // How much of each reflection the detector actually recorded. Not a DIALS
+    // column; written because 11 per cent of reflections here touch a module
+    // gap and 5 per cent lose half their box to one, and nothing else in the
+    // table says so.
+    Column &measured = out.real_column("profile.measured", "double", 1);
     Column &zeta_column = out.real_column("zeta", "double", 1);
     Column &part_column = out.real_column("partiality", "double", 1);
     Column &partial_id = out.int_column("partial_id", "std::size_t", 1);
@@ -672,6 +680,8 @@ int main(int argc, char **argv) {
     // Which reflections are worth learning from: strong, nearly whole, and
     // mostly inside the grid. DIALS marks these `reference_spot`.
     const double least_signal = args.number("--reference-signal", 10.0);
+    // How much of a reflection must have been measured for its fit to count.
+    const double least_measured = args.number("--least-measured", 0.6);
 
     std::vector<Shoebox> boxes;
     std::size_t at = 0;
@@ -788,7 +798,16 @@ int main(int argc, char **argv) {
                 // zero, which would drag the background down wherever a module
                 // gap crosses a shoebox.
                 if (v == bad) {
-                  box.mask[into] = 0;
+                  // Clear VALIDITY and keep the region. A voxel in a module
+                  // gap is still a foreground voxel, it just has no
+                  // measurement in it -- and the profile fit needs to know
+                  // that a part of the reflection is missing rather than
+                  // simply not seeing it. Zeroing the whole mask made a
+                  // reflection with a third of its foreground in a gap report
+                  // two thirds of its intensity, which is exactly what profile
+                  // fitting exists to avoid.
+                  box.mask[into] &= static_cast<std::uint8_t>(
+                      ~shoebox_mask::kValid);
                   ++bad_count;
                 } else {
                   box.data[into] = static_cast<float>(v);
@@ -930,6 +949,13 @@ int main(int argc, char **argv) {
           const ProfileFit fit =
               fit_on_pixels(boxes[i], on_pixels, integrate_options.gain);
           if (!fit.valid) return;
+          // A fit is an extrapolation when part of the reflection is missing,
+          // and past some point it is guesswork dressed as a measurement. The
+          // intensity is still written, so it can be looked at; the flag that
+          // says it was profile fitted is not, so nothing downstream merges it
+          // by accident.
+          measured.reals[row] = fit.measured;
+          if (fit.measured < least_measured) return;
           iprf.reals[row] = fit.intensity;
           iprf_var.reals[row] = fit.variance;
           prf_cc.reals[row] = fit.correlation;

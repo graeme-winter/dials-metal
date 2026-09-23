@@ -1797,3 +1797,43 @@ the same thread count agree exactly, two at different counts agree to a part in
 **And the unused `GridSpec` in a test** was a real signal rather than noise:
 that test fits over pixels and needs no grid at all, so the variable being
 unused was the code saying the test had been written by editing another one.
+
+
+## What happens where a reflection crosses a module gap
+
+0xffff is the detector's bad-pixel marker, and 11 per cent of the reflections in
+a real dataset have at least one voxel of their box in one; 5 per cent lose more
+than half the box.
+
+**Summation drops them and reports what is left.** That is the only thing
+summation can do -- the counts are not there -- and the intensity is
+correspondingly low. Nothing in the table said so, which is why
+`profile.measured` now does.
+
+**Profile fitting was doing the same thing, which defeats its purpose.** Leslie
+sections 6.7.2 and 6.7.3: a fitted profile recovers a reflection whose pixels
+are missing or saturated, and that is most of its value beyond the variance.
+The intensity is `scale x sum(profile)`, and the sum was being taken over the
+pixels that were MEASURED rather than over the whole foreground -- so a
+reflection with a third of itself in a gap reported two thirds of its
+intensity, silently. It now sums the whole profile and fits against the part
+that was measured, and `--least-measured` refuses to flag a fit as profile
+fitted when too little of the reflection was seen.
+
+That needed a mask change: a bad pixel now keeps its region flag and loses only
+its validity, so the fit can tell a foreground voxel with no measurement in it
+from one that was never foreground.
+
+**And that change broke three other things before it was noticed**, in the way
+a convention change does. Five places tested `mask == 0` to mean "no
+measurement", which stopped being true the moment a bad pixel kept a flag --
+including the transform that learns profiles, which began putting bad pixels on
+the grid as genuine zeroes and punched a hole in every profile learned from a
+reflection crossing a gap. They all test validity now.
+
+**Unfinished.** The unit test shows a reflection with a fifth and two fifths of
+its foreground masked recovering its full intensity exactly. On real data the
+intensities of gap-crossing reflections rise by 1.1 per cent where the measured
+fractions say 4.5, and those two numbers should agree. Something is still
+wrong, and it is recorded here rather than left as a claim that the problem is
+solved.

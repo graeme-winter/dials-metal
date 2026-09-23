@@ -25,7 +25,7 @@ bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &
         // subtract it; DIALS does not, and carries a note saying so. Matching
         // DIALS is the point here, and on a table out of dials.find_spots the
         // background is zero in any case.
-        if (box.mask[at] == 0) continue;
+        if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
         const double count = static_cast<double>(box.data[at]);
         if (!(count > 0.0)) continue;
 
@@ -222,7 +222,7 @@ Capture capture_fractions(const Experiment &e, const std::vector<Shoebox> &boxes
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
           const std::size_t at = box.at(x, y, z);
-          if (box.mask[at] == 0) continue;
+          if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
           const double count = static_cast<double>(box.data[at]) -
                                static_cast<double>(box.background[at]);
           if (!(count > 0.0)) continue;

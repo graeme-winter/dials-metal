@@ -97,7 +97,12 @@ Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
         // A masked voxel is no measurement at all, not a zero one: it must not
         // reach the grid as a count and must not claim coverage there either,
         // or a module gap becomes a hole in the profile.
-        if (box.mask[at] == 0) continue;
+        // Validity, not the whole mask. A bad pixel keeps its region flag so
+        // that the fit knows part of the reflection is missing, so testing the
+        // mask against zero stopped excluding them -- and they went onto the
+        // grid as genuine zeroes, which is a hole in every profile learned
+        // from a reflection that crosses a module gap.
+        if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
         const double count = static_cast<double>(box.data[at]);
         const double back = static_cast<double>(box.background[at]);
         // What counts as "inside" is the SIGNAL in the foreground, not every
@@ -245,7 +250,9 @@ std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
     for (std::int32_t y = 0; y < box.ny(); ++y) {
       for (std::int32_t x = 0; x < box.nx(); ++x) {
         const std::size_t at = box.at(x, y, z);
-        if (box.mask[at] == 0) continue;
+        // Every voxel, including ones with no measurement in them: the profile
+        // is geometry and does not depend on whether the detector recorded
+        // anything there. What is missing is the count, not the shape.
         double value = 0.0;
         for (int sy = 0; sy < spec.subdivisions; ++sy) {
           for (int sx = 0; sx < spec.subdivisions; ++sx) {
@@ -286,15 +293,27 @@ ProfileFit fit_on_pixels(const Shoebox &box,
   if (box.data.size() != box.size() || box.mask.size() != box.size()) return out;
   if (box.background.size() != box.size()) return out;
 
-  // Over the foreground only. The rim is where the background came from and
-  // has no profile in it to fit.
+  // TWO SUMS, AND THE DIFFERENCE BETWEEN THEM IS THE POINT.
+  //
+  // `profile_sum` is over the WHOLE foreground, including voxels with no
+  // measurement in them, because that is what the intensity is: the scale
+  // times the whole profile. `seen` is over the ones that were measured, and
+  // is what the fit is done against.
+  //
+  // Normalising by the seen part instead gives a reflection with a third of
+  // its foreground in a module gap two thirds of its intensity -- which is the
+  // one thing profile fitting exists to avoid. Leslie sections 6.7.2 and
+  // 6.7.3: a fitted profile recovers a reflection whose pixels are missing or
+  // saturated, and that is most of its value beyond the variance.
   double profile_sum = 0.0;
+  double seen = 0.0;
   for (std::size_t i = 0; i < box.size(); ++i) {
     if ((box.mask[i] & shoebox_mask::kForeground) == 0) continue;
-    if ((box.mask[i] & shoebox_mask::kValid) == 0) continue;
     profile_sum += pixel_profile[i];
+    if (box.mask[i] & shoebox_mask::kValid) seen += pixel_profile[i];
   }
-  if (!(profile_sum > 0.0)) return out;
+  if (!(profile_sum > 0.0) || !(seen > 0.0)) return out;
+  out.measured = seen / profile_sum;
 
   double scale = 0.0;
   for (std::size_t i = 0; i < box.size(); ++i) {

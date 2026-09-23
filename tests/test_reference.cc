@@ -461,3 +461,69 @@ TEST(the_fitted_variance_carries_the_background_term_as_well) {
                1e-6 * (counts(thin) - counts(thick)),
                "and the difference is exactly the (m/n) I_bg difference");
 }
+
+TEST(a_reflection_across_a_module_gap_keeps_its_whole_intensity) {
+  // Leslie sections 6.7.2 and 6.7.3: a fitted profile recovers a reflection
+  // whose pixels are missing or saturated, and that is most of its value
+  // beyond the variance. Normalising by the pixels that were MEASURED instead
+  // of by the whole profile throws exactly that away -- a reflection with a
+  // third of its foreground in a module gap reported two thirds of its
+  // intensity, silently, and 11 per cent of a real dataset touches a gap.
+  const auto build = [](std::size_t masked_columns) {
+    Shoebox box;
+    box.panel = 0;
+    box.bbox[0] = 0; box.bbox[1] = 9;
+    box.bbox[2] = 0; box.bbox[3] = 9;
+    box.bbox[4] = 0; box.bbox[5] = 1;
+    const std::size_t n = box.size();
+    box.data.assign(n, 2.0f);
+    box.background.assign(n, 2.0f);
+    box.mask.assign(n, shoebox_mask::kValid | shoebox_mask::kBackground);
+    for (std::int32_t y = 2; y < 7; ++y) {
+      for (std::int32_t x = 2; x < 7; ++x) {
+        const std::size_t at = box.at(x, y, 0);
+        box.mask[at] = shoebox_mask::kValid | shoebox_mask::kForeground;
+        box.data[at] = 2.0f + 40.0f;
+      }
+    }
+    // A gap through part of the foreground: the region flag stays, the
+    // validity goes, exactly as a bad pixel is recorded.
+    for (std::size_t c = 0; c < masked_columns; ++c) {
+      for (std::int32_t y = 2; y < 7; ++y) {
+        const std::size_t at = box.at(static_cast<std::int32_t>(2 + c), y, 0);
+        box.mask[at] &= static_cast<std::uint8_t>(~shoebox_mask::kValid);
+        box.data[at] = 0.0f;
+      }
+    }
+    return box;
+  };
+
+  const auto flat_profile = [](const Shoebox &box) {
+    std::vector<double> p(box.size(), 0.0);
+    double total = 0.0;
+    for (std::size_t i = 0; i < box.size(); ++i) {
+      if (box.mask[i] & shoebox_mask::kForeground) { p[i] = 1.0; total += 1.0; }
+    }
+    for (double &v : p) v /= total;
+    return p;
+  };
+
+  const Shoebox whole = build(0);
+  const ProfileFit complete = fit_on_pixels(whole, flat_profile(whole));
+  check::is_true(complete.valid, "fitted");
+  check::close(complete.measured, 1.0, 1e-12, "nothing missing");
+  check::close(complete.intensity, 25.0 * 40.0, 1e-6 * 25.0 * 40.0,
+               "and the planted intensity comes back");
+
+  for (std::size_t columns : {1u, 2u}) {
+    const Shoebox gapped = build(columns);
+    const ProfileFit fit = fit_on_pixels(gapped, flat_profile(gapped));
+    check::is_true(fit.valid, "still fitted");
+    check::close(fit.measured, 1.0 - columns / 5.0, 1e-9,
+                 "and it says how much was measured");
+    // The whole intensity, not the visible fraction of it.
+    check::close(fit.intensity, complete.intensity,
+                 1e-6 * complete.intensity,
+                 "the profile puts back what the gap took out");
+  }
+}

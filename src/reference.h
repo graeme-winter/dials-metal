@@ -203,6 +203,11 @@ struct ProfileFit {
   //: it is the honest way to spot a reflection the profile does not describe.
   double correlation = 0.0;
   int iterations = 0;
+  //: The fraction of the profile that was actually measured, one when nothing
+  //: was masked. A fit is an extrapolation below that and the caller decides
+  //: how far it will go: a reflection with a tenth of itself visible has an
+  //: intensity, and not one anybody should merge.
+  double measured = 1.0;
 };
 
 //: Fit `reference` to `t`, returning the scaled intensity and its variance.
