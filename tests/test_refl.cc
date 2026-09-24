@@ -4,6 +4,7 @@
 #include <string>
 
 #include "../src/refl.h"
+#include "../src/shoebox.h"
 #include "check.h"
 
 using namespace mxi;
@@ -95,4 +96,41 @@ TEST(a_column_too_large_for_msgpack_is_refused_rather_than_truncated) {
                  "and the reason names the limit");
   check::is_true(said.find("slice") != std::string::npos,
                  "and says what to do instead");
+}
+
+TEST(a_saved_shoebox_follows_dials_mask_convention) {
+  // Internally a bad pixel keeps its region bit and loses only Valid, so the
+  // profile fit can recover a reflection crossing a module gap. DIALS sets
+  // Foreground and Background only on voxels already Valid, so a region bit
+  // without Valid never occurs there -- and a table carrying one was rejected
+  // as an invalid structure, however far under the size limit it was.
+  Shoebox box;
+  box.panel = 0;
+  box.bbox[0] = 0; box.bbox[1] = 2;
+  box.bbox[2] = 0; box.bbox[3] = 2;
+  box.bbox[4] = 0; box.bbox[5] = 1;
+  box.data.assign(4, 1.0f);
+  box.background.assign(4, 0.5f);
+  box.mask = {
+      static_cast<std::uint8_t>(shoebox_mask::kValid | shoebox_mask::kForeground),
+      static_cast<std::uint8_t>(shoebox_mask::kValid | shoebox_mask::kBackground),
+      shoebox_mask::kForeground,   // a foreground voxel in a module gap
+      shoebox_mask::kBackground,   // and a background one
+  };
+  to_dials_convention(&box);
+  check::equal(static_cast<long long>(box.mask[0]),
+               static_cast<long long>(shoebox_mask::kValid | shoebox_mask::kForeground),
+               "a measured foreground voxel is left alone");
+  check::equal(static_cast<long long>(box.mask[1]),
+               static_cast<long long>(shoebox_mask::kValid | shoebox_mask::kBackground),
+               "and so is a measured background one");
+  check::equal(static_cast<long long>(box.mask[2]), 0,
+               "an unmeasured foreground voxel is zero, not Foreground alone");
+  check::equal(static_cast<long long>(box.mask[3]), 0,
+               "and an unmeasured background voxel likewise");
+  for (std::uint8_t m : box.mask) {
+    const bool region = (m & (shoebox_mask::kForeground | shoebox_mask::kBackground)) != 0;
+    check::is_true(!region || (m & shoebox_mask::kValid) != 0,
+                   "no region bit without Valid");
+  }
 }

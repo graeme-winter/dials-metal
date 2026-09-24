@@ -967,7 +967,22 @@ int main(int argc, char **argv) {
       }
 
       if (save) {
-        for (std::size_t i = 0; i < count; ++i) saved[at + i] = std::move(boxes[i]);
+        for (std::size_t i = 0; i < count; ++i) {
+          // Into DIALS' convention before it goes to the file.
+          //
+          // Here a bad pixel keeps its region flag and loses only Valid, so
+          // the profile fit can tell a foreground voxel with nothing in it
+          // from one that was never foreground -- which is what lets a
+          // reflection crossing a module gap keep its intensity. DIALS' own
+          // mask calculator sets Foreground and Background only on voxels that
+          // are already Valid, so a region bit without Valid never occurs
+          // there, and a table carrying them was rejected as an invalid
+          // structure. The file is DIALS' format and follows DIALS'
+          // convention: a voxel with no measurement is zero, as the spot
+          // finder has always written it.
+          to_dials_convention(&boxes[i]);
+          saved[at + i] = std::move(boxes[i]);
+        }
       }
       boxes.clear();
       at = stop;

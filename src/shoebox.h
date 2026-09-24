@@ -72,6 +72,20 @@ struct Shoebox {
 std::vector<Shoebox> decode_shoeboxes(const Table &table);
 
 //: Encode, for tests and for writing a table with shoeboxes built here.
+//: Put a shoebox's mask into DIALS' convention: a voxel with no measurement
+//: in it is zero, with no region bit.
+//:
+//: Internally a bad pixel keeps its Foreground or Background bit and loses
+//: only Valid, so a profile fit can tell a foreground voxel with nothing in it
+//: from one that was never foreground. DIALS' mask calculator sets those bits
+//: only on voxels that are already Valid, so the combination never occurs
+//: there, and a table carrying it was rejected as an invalid structure. Call
+//: this on anything going to a file DIALS will read.
+//:
+//: What is lost is recoverable: the foreground region is geometry, and can be
+//: rebuilt from the bounding box and the profile model.
+void to_dials_convention(Shoebox *box);
+
 std::string encode_shoeboxes(const std::vector<Shoebox> &boxes);
 
 }  // namespace mxi

@@ -66,6 +66,13 @@ std::vector<Shoebox> decode_shoeboxes(const Table &table) {
   return out;
 }
 
+void to_dials_convention(Shoebox *box) {
+  if (box == nullptr) return;
+  for (std::uint8_t &m : box->mask) {
+    if ((m & shoebox_mask::kValid) == 0) m = 0;
+  }
+}
+
 std::string encode_shoeboxes(const std::vector<Shoebox> &boxes) {
   std::string out;
   for (const Shoebox &box : boxes) {

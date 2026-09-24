@@ -69,6 +69,11 @@ release, were invisible here and visible there. Clang is installable in this
 container: `apt-get update && apt-get install -y --no-install-recommends clang`,
 then `CC=clang CXX=clang++ cmake -S . -B /tmp/bclang`.
 
+**A test run after a failed build tests the old binary.** `cmake --build` then
+`mxi_tests` reports success from whatever was last linked if the build fails,
+and the failure scrolls past above it. Check the build's exit status, or check
+that the test count moved when a test was added.
+
 **Prediction is the oracle.** Build order is prediction, then indexing, then
 refinement, because prediction generates ground-truth reflection lists to test
 the other two against.

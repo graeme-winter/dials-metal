@@ -1951,3 +1951,35 @@ old predictor with exactly 218640, and passes on the new.
 On a single sweep the same bug was rarer and still there: five reflections of
 111310 had taken the other crossing. None were lost by the fix, all five were
 gained, and all have ordinary zeta, so it is not an edge case being redefined.
+
+
+## Saved shoeboxes follow DIALS' mask convention
+
+`--save-shoeboxes` produced tables DIALS rejected as an invalid structure,
+however far under the four gigabyte limit they were. The size limit was a red
+herring; the cause was the gap-recovery change.
+
+That change made a bad pixel keep its Foreground or Background bit and lose only
+Valid, so a profile fit can tell a foreground voxel with nothing in it from one
+that was never foreground. It is what lets a reflection crossing a module gap
+keep its intensity. But DIALS' mask calculator sets those bits only on voxels
+that are already Valid, so the combination never occurs in a DIALS table:
+
+    spot finder     mask codes 0, 5
+    mxi_integrate   mask codes 2, 3, 4, 5     2 and 4: a region bit, no Valid
+
+The container and the byte layout were identical to the spot finder's, which
+DIALS reads -- both `[rows, bin]`, both `29 + 9n` bytes a shoebox, both a flag
+byte of 2 -- so the only difference was the values.
+
+`to_dials_convention` now puts a mask into DIALS' form before it goes to a file:
+a voxel with no measurement is zero, as the spot finder has always written it.
+The internal representation keeps the region information the fit needs; the
+file follows the format's owner. What is lost in the file is recoverable, the
+foreground region being geometry that can be rebuilt from the bounding box and
+the profile model -- which matters for re-fitting from saved shoeboxes, and is
+worth remembering when that is done.
+
+Not verified against DIALS itself, which is not installed here. The evidence is
+that the failure began with the change that introduced codes 2 and 4, and that
+everything else about the two writers' output is the same.
