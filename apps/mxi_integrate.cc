@@ -22,6 +22,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <map>
 #include <set>
 #include <string>
@@ -485,6 +486,16 @@ int main(int argc, char **argv) {
         out.real_column("xyzobs.px.variance", "vec3<double>", 3);
     Column &obs_mm = out.real_column("xyzobs.mm.value", "vec3<double>", 3);
     Column &d_column = out.real_column("d", "double", 1);
+    // Where the reflection WAS against where it was predicted, in the frame
+    // the images are in: pixels on the detector and images along the scan.
+    // Both ends are in the same frame -- the prediction is the pixel that
+    // fires, parallax included, and the centroid is of the counts that pixel
+    // recorded -- so this is a straight difference and needs no correction.
+    //
+    // Not a DIALS column. For post-analysis of how well positions were
+    // predicted, which is otherwise a join and a subtraction every time.
+    Column &res_px = out.real_column("xyzres.px.value", "vec3<double>", 3);
+    Column &res_px_var = out.real_column("xyzres.px.variance", "vec3<double>", 3);
     Column &iprf = out.real_column("intensity.prf.value", "double", 1);
     Column &iprf_var = out.real_column("intensity.prf.variance", "double", 1);
     Column &prf_cc = out.real_column("profile.correlation", "double", 1);
@@ -593,6 +604,28 @@ int main(int argc, char **argv) {
       obs_px_var.reals[row * 3 + 0] = r.centroid_variance_fast;
       obs_px_var.reals[row * 3 + 1] = r.centroid_variance_slow;
       obs_px_var.reals[row * 3 + 2] = r.centroid_variance_z;
+      // The residual, NaN where there was no signal to find a centre in. The
+      // observed column falls back to the prediction there because dials.scale
+      // stops on a NaN in it; this column is ours, so it can say "nothing
+      // measured" honestly instead of claiming a residual of exactly zero.
+      //
+      // The variance is the centroid's only. The prediction has an
+      // uncertainty too, from the refined model's covariance, and it is not
+      // propagated here -- so a pull of residual over sigma larger than one
+      // is prediction error PLUS whatever that leaves out.
+      {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        // From the UNCLIPPED centre of mass, whose uncertainty was checked;
+        // not from xyzobs.px.value, whose is overconfident. So this is not
+        // xyzobs - xyzcal, and is not meant to be.
+        const bool has = r.unbiased_valid;
+        res_px.reals[row * 3 + 0] = has ? r.unbiased_fast - p.px_fast : nan;
+        res_px.reals[row * 3 + 1] = has ? r.unbiased_slow - p.px_slow : nan;
+        res_px.reals[row * 3 + 2] = has ? r.unbiased_z - p.z : nan;
+        res_px_var.reals[row * 3 + 0] = has ? r.unbiased_variance_fast : nan;
+        res_px_var.reals[row * 3 + 1] = has ? r.unbiased_variance_slow : nan;
+        res_px_var.reals[row * 3 + 2] = has ? r.unbiased_variance_z : nan;
+      }
       const auto obs_mm_pair = panel.px_to_mm(of, os);
       obs_mm.reals[row * 3 + 0] = obs_mm_pair.first;
       obs_mm.reals[row * 3 + 1] = obs_mm_pair.second;

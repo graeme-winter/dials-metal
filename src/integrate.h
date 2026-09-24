@@ -78,6 +78,22 @@ struct IntegratedReflection {
   double centroid_variance_fast = 0.0;
   double centroid_variance_slow = 0.0;
   double centroid_variance_z = 0.0;
+  //: The same centre of mass WITHOUT dropping negative excesses, and its
+  //: variance, for measuring how well positions were predicted.
+  //:
+  //: Two estimators because they serve two purposes. The clipped one above is
+  //: robust -- a weak reflection's negative pixels cannot throw it about -- and
+  //: it is what dials.scale reads. But dropping the pixels that fluctuate down
+  //: while keeping those that fluctuate up adds scatter its variance knows
+  //: nothing about: on spots planted at known positions, the clipped
+  //: estimator's pull rms was 1.2 to 1.8, overconfident. This one's is 0.94 to
+  //: 1.00 for moderate and strong spots and 0.60 to 0.75 for very weak ones,
+  //: which is honest where it matters and conservative where it is not.
+  bool unbiased_valid = false;
+  double unbiased_fast = 0.0, unbiased_slow = 0.0, unbiased_z = 0.0;
+  double unbiased_variance_fast = 0.0;
+  double unbiased_variance_slow = 0.0;
+  double unbiased_variance_z = 0.0;
   std::size_t n_foreground = 0;
   std::size_t n_background = 0;
   std::size_t n_valid = 0;

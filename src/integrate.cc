@@ -149,9 +149,24 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
                 static_cast<double>(box->bbox[2] + y) + 0.5 - out.centroid_slow;
             const double dz =
                 static_cast<double>(box->bbox[4] + z) + 0.5 - out.centroid_z;
-            sf += w * df * df;
-            ss += w * ds * ds;
-            sz += w * dz * dz;
+            // The Poisson variance of this pixel's COUNT, not its excess over
+            // the background. The centroid is sum(w x) / W with w = c - b, so
+            // its variance is sum((x - xbar)^2 var(c)) / W^2, and var(c) is c:
+            // the background photons are as noisy as the signal ones. Using w
+            // here made the uncertainty of a weak reflection on a background
+            // come out far too small, and independent of the background
+            // altogether.
+            const double count = static_cast<double>(box->data[i]);
+            // And a count is not AT its pixel's centre but somewhere in the
+            // pixel, uniformly, which is a variance of 1/12 of a pixel squared
+            // on each axis -- and of an image squared along the scan. Without
+            // it a spot whose counts share one coordinate, all on a single
+            // image say, has every (x - xbar) zero and a variance of nothing,
+            // and its pull came out at 1e12.
+            constexpr double kQuantisation = 1.0 / 12.0;
+            sf += count * (df * df + kQuantisation);
+            ss += count * (ds * ds + kQuantisation);
+            sz += count * (dz * dz + kQuantisation);
           }
         }
       }
@@ -159,16 +174,66 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
       // divided by the weight in it, which is the standard quantity and goes
       // to zero as a spot gets stronger.
       //
-      // This does NOT reproduce DIALS' xyzobs.px.variance. Measured against
-      // it, the second moment alone is about twenty times too large and the
-      // variance of the mean about thirty times too small, and neither is a
-      // constant factor away -- so DIALS is computing something else and
-      // guessing at which would be worse than saying so. DIALS' values sit
-      // near 0.1 square pixels on every axis, which is suspiciously close to a
-      // quantisation term rather than to anything that scales with intensity.
+      // Propagated from the Poisson noise on each count, so it grows with
+      // the background and not only with the signal.
       out.centroid_variance_fast = sf / (weight * weight);
       out.centroid_variance_slow = ss / (weight * weight);
       out.centroid_variance_z = sz / (weight * weight);
+    }
+  }
+
+  // The unclipped centre of mass. Every foreground pixel, with its excess
+  // over the background whatever its sign, and the variance propagated from
+  // the Poisson noise on each count plus the 1/12 of a pixel that a count's
+  // position within its pixel adds. This is the estimator whose uncertainty
+  // was checked against spots planted at known positions.
+  {
+    constexpr double kQuantisation = 1.0 / 12.0;
+    double weight = 0.0, mf = 0.0, ms = 0.0, mz = 0.0;
+    for (std::int32_t z = 0; z < box->nz(); ++z) {
+      for (std::int32_t y = 0; y < box->ny(); ++y) {
+        for (std::int32_t x = 0; x < box->nx(); ++x) {
+          const std::size_t i = box->at(x, y, z);
+          if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
+          if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+          const double w = static_cast<double>(box->data[i]) - background.mean;
+          weight += w;
+          mf += w * (static_cast<double>(box->bbox[0] + x) + 0.5);
+          ms += w * (static_cast<double>(box->bbox[2] + y) + 0.5);
+          mz += w * (static_cast<double>(box->bbox[4] + z) + 0.5);
+        }
+      }
+    }
+    // A reflection whose foreground sums to nothing or less has no centre to
+    // find: the division would be by noise.
+    if (weight > 0.0) {
+      out.unbiased_fast = mf / weight;
+      out.unbiased_slow = ms / weight;
+      out.unbiased_z = mz / weight;
+      double vf = 0.0, vs = 0.0, vz = 0.0;
+      for (std::int32_t z = 0; z < box->nz(); ++z) {
+        for (std::int32_t y = 0; y < box->ny(); ++y) {
+          for (std::int32_t x = 0; x < box->nx(); ++x) {
+            const std::size_t i = box->at(x, y, z);
+            if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
+            if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+            const double count = static_cast<double>(box->data[i]);
+            const double df =
+                static_cast<double>(box->bbox[0] + x) + 0.5 - out.unbiased_fast;
+            const double ds =
+                static_cast<double>(box->bbox[2] + y) + 0.5 - out.unbiased_slow;
+            const double dz =
+                static_cast<double>(box->bbox[4] + z) + 0.5 - out.unbiased_z;
+            vf += count * (df * df + kQuantisation);
+            vs += count * (ds * ds + kQuantisation);
+            vz += count * (dz * dz + kQuantisation);
+          }
+        }
+      }
+      out.unbiased_variance_fast = vf / (weight * weight);
+      out.unbiased_variance_slow = vs / (weight * weight);
+      out.unbiased_variance_z = vz / (weight * weight);
+      out.unbiased_valid = true;
     }
   }
 

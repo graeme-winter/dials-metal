@@ -1,6 +1,7 @@
 // Summation integration and the quantum efficiency.
 
 #include <cmath>
+#include <random>
 #include <vector>
 
 #include "../src/integrate.h"
@@ -263,8 +264,15 @@ TEST(the_observed_centroid_is_where_the_signal_is) {
   check::close(r.centroid_fast, box.bbox[0] + 7 + 0.5, 1e-9, "fast");
   check::close(r.centroid_slow, box.bbox[2] + 8 + 0.5, 1e-9, "slow");
   check::close(r.centroid_z, box.bbox[4] + 1 + 0.5, 1e-9, "frame");
-  // One pixel has no spread, so the variance of its mean is zero.
-  check::close(r.centroid_variance_fast, 0.0, 1e-12, "and no variance");
+  // One pixel has no spread between pixels, but its counts are somewhere
+  // WITHIN it, uniformly, which is 1/12 of a pixel squared each. So the
+  // variance of the mean is count/12 over the weight squared, not zero. This
+  // test used to assert zero, which is the premise that gave real spots lying
+  // on a single image a variance of nothing and pulls of 1e12.
+  const double lit_count = 500.0;
+  const double excess = 500.0 - 2.0;
+  check::close(r.centroid_variance_fast, lit_count / 12.0 / (excess * excess),
+               1e-9, "and the variance is the quantisation of that one pixel");
 }
 
 TEST(the_centroid_ignores_the_background_and_the_rim) {
@@ -343,4 +351,85 @@ TEST(partiality_is_the_part_of_the_rocking_curve_inside_the_box) {
   // And it is never outside [0, 1], whatever it is handed.
   check::is_true(partiality(scan, phi, 1e-9, sigma_m, 0, 1000) <= 1.0,
                  "a diverging rocking curve does not exceed one");
+}
+
+TEST(the_position_uncertainty_is_honest_on_spots_at_known_positions) {
+  // xyzres.px is the observed centre less the predicted one, with a variance,
+  // for measuring how well positions were predicted. That measurement is only
+  // as good as the variance, and on real data it cannot be checked: prediction
+  // error of about 0.2 pixels swamps counting noise at every intensity. So it
+  // is checked here instead, on spots planted at KNOWN sub-pixel positions
+  // with Poisson noise, where the only scatter is counting and an honest
+  // uncertainty gives a pull rms of one.
+  //
+  // Three versions failed this before it passed. Weighting the variance by the
+  // excess over the background rather than by the count made it independent
+  // of the background. Leaving out the 1/12 a count's position within its
+  // pixel adds gave spots on a single image a variance of nothing and pulls of
+  // 1e12. And dropping negative excesses -- the clipped estimator xyzobs uses,
+  // for robustness -- gave pulls of 1.2 to 1.8, because keeping the pixels
+  // that fluctuate up and not those that fluctuate down adds scatter the
+  // variance knows nothing about.
+  std::mt19937 rng(7);
+  std::uniform_real_distribution<double> where(-0.5, 0.5);
+  for (double signal : {300.0, 3000.0}) {
+    for (double background : {0.3, 3.0}) {
+      double sum2[3] = {0.0, 0.0, 0.0};
+      int n = 0;
+      for (int trial = 0; trial < 1500; ++trial) {
+        const double cx = 10.0 + where(rng);
+        const double cy = 10.0 + where(rng);
+        const double cz = 5.5 + where(rng);
+        Shoebox box;
+        box.panel = 0;
+        box.bbox[0] = 0; box.bbox[1] = 21;
+        box.bbox[2] = 0; box.bbox[3] = 21;
+        box.bbox[4] = 0; box.bbox[5] = 11;
+        const std::size_t size = box.size();
+        box.data.assign(size, 0.0f);
+        box.background.assign(size, 0.0f);
+        box.mask.assign(size, shoebox_mask::kValid | shoebox_mask::kBackground);
+        std::vector<double> shape(size, 0.0);
+        double total = 0.0;
+        for (int z = 0; z < 11; ++z) {
+          for (int y = 0; y < 21; ++y) {
+            for (int x = 0; x < 21; ++x) {
+              const double dx = (x + 0.5 - cx) / 1.3;
+              const double dy = (y + 0.5 - cy) / 1.3;
+              const double dz = (z + 0.5 - cz) / 0.8;
+              const std::size_t at = box.at(x, y, z);
+              shape[at] = std::exp(-0.5 * (dx * dx + dy * dy + dz * dz));
+              total += shape[at];
+              if (std::fabs(x + 0.5 - cx) < 5.0 && std::fabs(y + 0.5 - cy) < 5.0) {
+                box.mask[at] = shoebox_mask::kValid | shoebox_mask::kForeground;
+              }
+            }
+          }
+        }
+        for (std::size_t i = 0; i < size; ++i) {
+          std::poisson_distribution<int> counts(background + signal * shape[i] / total);
+          box.data[i] = static_cast<float>(counts(rng));
+        }
+        IntegrateOptions options;
+        options.background.tuning = 1e6;
+        const IntegratedReflection r = integrate_shoebox(&box, options);
+        if (!r.unbiased_valid) continue;
+        const double d[3] = {r.unbiased_fast - cx, r.unbiased_slow - cy,
+                             r.unbiased_z - cz};
+        const double v[3] = {r.unbiased_variance_fast, r.unbiased_variance_slow,
+                             r.unbiased_variance_z};
+        for (int k = 0; k < 3; ++k) sum2[k] += d[k] * d[k] / v[k];
+        ++n;
+      }
+      check::is_true(n > 1000, "nearly every trial has a centre");
+      for (int k = 0; k < 3; ++k) {
+        const double pull = std::sqrt(sum2[k] / n);
+        // Within ten per cent of one either way: an overconfident variance is
+        // the failure that matters, and a conservative one is nearly as bad
+        // for someone trying to see a 0.2 pixel prediction error through it.
+        check::is_true(pull > 0.9 && pull < 1.1,
+                       "the pull rms is one, on every axis");
+      }
+    }
+  }
 }

@@ -1983,3 +1983,64 @@ worth remembering when that is done.
 Not verified against DIALS itself, which is not installed here. The evidence is
 that the failure began with the change that introduced codes 2 and 4, and that
 everything else about the two writers' output is the same.
+
+
+## xyzres.px: how well positions were predicted
+
+    xyzres.px.value      observed centre minus predicted, fast / slow / image
+    xyzres.px.variance   its variance
+
+Both ends are in the frame the images are in. The prediction is the pixel that
+fires -- `Panel::intersect` passes the face intersection through `mm_to_px`,
+which adds the parallax offset -- and the centre is of the counts those pixels
+recorded, so the residual is a straight difference and needs no correction. NaN
+where there was no signal to find a centre in, rather than the zero the
+observed column has to fall back to for `dials.scale`'s sake. The prediction's
+own uncertainty, from the refined model's covariance, is not propagated.
+
+**The uncertainty is the whole point, and it took four attempts.** It is only
+as useful as it is honest, and on real data it cannot be checked -- prediction
+error swamps counting noise at every intensity. So it is checked on spots
+planted at KNOWN sub-pixel positions with Poisson noise, where an honest
+variance gives a pull rms of one:
+
+* weighting by the excess over the background rather than by the count made it
+  independent of the background, and far too small for weak spots;
+* leaving out the 1/12 of a pixel a count's position within its pixel adds gave
+  spots lying on one image a variance of nothing, and pulls of 1e12;
+* dropping negative excesses -- what `xyzobs.px` does, for robustness -- gave
+  pulls of 1.2 to 1.8, because keeping the pixels that fluctuate up and not
+  those that fluctuate down adds scatter the variance does not know about;
+* and without that clipping, 0.94 to 1.00 for moderate and strong spots, 0.60
+  to 0.75 for very weak ones.
+
+So `xyzres` uses an UNCLIPPED centre of mass and is not `xyzobs - xyzcal`, and
+is not meant to be. `xyzobs.px` keeps the clipped one, which is what
+`dials.scale` reads and which a weak reflection's negative pixels cannot throw
+about. There is a test for the pull at two signals and two backgrounds.
+
+### Reading it
+
+What makes the column useful is separating the two components of the scatter.
+The counting part is `sqrt(variance)` and falls as 1/sqrt(I); the observed
+spread does not fall as fast, and what it has beyond counting,
+`sqrt(spread^2 - variance)`, is the prediction error. On strong reflections the
+counting part is a hundredth of a pixel and the spread is nearly all prediction
+error; on weak ones they are comparable. A median that is not zero is a
+systematic, and one that is the same at every intensity is a systematic in the
+model rather than in the centroiding.
+
+### A warning about the measurements made here
+
+Both `.expt` files in this conversation are now the 1800 frame `i04-ins-small`
+model, while the only images are the 300 frame `minute` sweep. Every real-data
+measurement made after those files arrived integrated one dataset's images with
+another's model. That covers a first table of these residuals, which showed a
+constant -0.15 image offset in z that would have been reported as a finding,
+and it covers the unresolved gap-recovery discrepancy above, where the
+intensities of gap-crossing reflections rose 1.1 per cent where the measured
+fractions said 4.5. That discrepancy may be this mismatch rather than a bug, and
+needs measuring again on matched data before anything is changed because of it.
+
+The variance fix from the same period is not affected: it was confirmed
+independently by scaling on matched data.
