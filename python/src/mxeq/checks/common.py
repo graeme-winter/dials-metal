@@ -9,14 +9,26 @@ from ..refl import ReflectionTable
 from ..report import Report, Section
 from ..stats import describe, resolution_bins
 
-#: DIALS reflection flags, as far as the checks need them.
+#: DIALS reflection flags, from its Flags enum in
+#: dials/array_family/reflection_table.h -- read from the source, not
+#: remembered. Three entries here were wrong until they were checked against
+#: it: integrated_sum and integrated_prf were bits 11 and 12, which are DIALS'
+#: overlapped_bg and overlapped_fg, and bad_shoebox was bit 16, which DIALS
+#: calls used_in_modelling and which has no bad_shoebox at all. Nothing read
+#: them yet, which is the only reason no result was wrong. test_flags.py holds
+#: these to the C++ constants in src/refl.h so the two cannot drift apart.
 FLAGS = {
-    "strong": 1 << 5,
-    "used_in_refinement": 1 << 3,
+    "predicted": 1 << 0,
+    "observed": 1 << 1,
     "indexed": 1 << 2,
-    "integrated_sum": 1 << 11,
-    "integrated_prf": 1 << 12,
-    "bad_shoebox": 1 << 16,
+    "used_in_refinement": 1 << 3,
+    "strong": 1 << 5,
+    "integrated_sum": 1 << 8,
+    "integrated_prf": 1 << 9,
+    "foreground_includes_bad_pixels": 1 << 14,
+    "background_includes_bad_pixels": 1 << 15,
+    "centroid_outlier": 1 << 17,
+    "failed_during_summation": 1 << 19,
 }
 
 
