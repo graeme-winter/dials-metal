@@ -2019,6 +2019,29 @@ is not meant to be. `xyzobs.px` keeps the clipped one, which is what
 `dials.scale` reads and which a weak reflection's negative pixels cannot throw
 about. There is a test for the pull at two signals and two backgrounds.
 
+### A centre only for a reflection that was found
+
+The first version gave a centre to any reflection whose summed excess W was
+positive, and on real data that meant values like
+
+    xyzres.px.value      -355142.28  -800627.82  -809973.37   (the minimum)
+    xyzres.px.variance   8.1e21      4.1e22      4.2e22       (the maximum)
+
+The centre is `sum(w x) / W`, and a W that is barely positive by noise throws
+it anywhere -- 117 of 17203 residuals more than fifty pixels out, with a median
+I/sigma of 0.07 among them. The variance said so honestly, and it did not help:
+a min, a max, a plot or an unweighted mean is wrecked by one such row.
+
+Now W must stand clear of its own noise, three standard deviations by default
+with `sigma_W^2 = sum(counts)`: the same quantity the instability comes from,
+rather than an intensity cut chosen for the purpose. And the centre must lie
+inside its own box -- a centre of mass with signed weights can leave the region
+it was taken over, and one that has is describing the noise. What remains runs
+to about five pixels on the detector. Along the scan it reaches seventeen
+images, which is the near-axis reflections whose boxes are forty to eighty
+images deep; their variance says sigma of about ten images, so those are
+honest rather than wild.
+
 ### Reading it
 
 What makes the column useful is separating the two components of the scatter.

@@ -433,3 +433,54 @@ TEST(the_position_uncertainty_is_honest_on_spots_at_known_positions) {
     }
   }
 }
+
+TEST(an_undetected_reflection_has_no_centre_rather_than_a_wild_one) {
+  // The centre is sum(w x) / W, and a W that is barely positive by noise throws
+  // it anywhere. Requiring only W > 0 put 117 of 17203 real residuals more than
+  // fifty pixels from their prediction, the worst at -31025 images, with a
+  // median I/sigma of 0.07 among them. The variance was honest -- 1e21 square
+  // pixels -- and a min, a max, a plot or an unweighted mean was wrecked all
+  // the same.
+  std::mt19937 rng(11);
+  std::size_t claimed = 0;
+  std::size_t outside = 0;
+  for (int trial = 0; trial < 2000; ++trial) {
+    Shoebox box;
+    box.panel = 0;
+    box.bbox[0] = 100; box.bbox[1] = 121;
+    box.bbox[2] = 200; box.bbox[3] = 221;
+    box.bbox[4] = 30;  box.bbox[5] = 41;
+    const std::size_t size = box.size();
+    box.data.assign(size, 0.0f);
+    box.background.assign(size, 0.0f);
+    box.mask.assign(size, shoebox_mask::kValid | shoebox_mask::kBackground);
+    for (int z = 0; z < 11; ++z) {
+      for (int y = 5; y < 16; ++y) {
+        for (int x = 5; x < 16; ++x) {
+          box.mask[box.at(x, y, z)] =
+              shoebox_mask::kValid | shoebox_mask::kForeground;
+        }
+      }
+    }
+    // Nothing but background: there is no reflection here to find.
+    std::poisson_distribution<int> counts(0.3);
+    for (std::size_t i = 0; i < size; ++i) {
+      box.data[i] = static_cast<float>(counts(rng));
+    }
+    IntegrateOptions options;
+    options.background.tuning = 1e6;
+    const IntegratedReflection r = integrate_shoebox(&box, options);
+    if (!r.unbiased_valid) continue;
+    ++claimed;
+    if (r.unbiased_fast < box.bbox[0] || r.unbiased_fast > box.bbox[1] ||
+        r.unbiased_slow < box.bbox[2] || r.unbiased_slow > box.bbox[3] ||
+        r.unbiased_z < box.bbox[4] || r.unbiased_z > box.bbox[5]) {
+      ++outside;
+    }
+  }
+  // At three sigma a pure-noise box claims a centre about one time in seven
+  // hundred; far fewer than the half of them that W > 0 alone admits.
+  check::is_true(claimed < 20, "noise is not given a centre");
+  check::equal(static_cast<long long>(outside), 0,
+               "and a centre that is claimed lies inside its own box");
+}

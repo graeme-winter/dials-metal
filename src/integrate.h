@@ -51,6 +51,10 @@ struct IntegrateOptions {
   //: Reject a shoebox with fewer than this many background pixels; the
   //: background estimate and its contribution to the variance both need them.
   std::size_t min_background = 10;
+  //: How many of its own standard deviations a reflection's summed excess
+  //: must be before it is given a centre of mass in xyzres.px. Below that the
+  //: centre is a ratio of two noisy numbers and lands anywhere.
+  double least_centroid_significance = 3.0;
 };
 
 struct IntegratedReflection {

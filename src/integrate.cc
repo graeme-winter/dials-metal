@@ -204,9 +204,27 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
         }
       }
     }
-    // A reflection whose foreground sums to nothing or less has no centre to
-    // find: the division would be by noise.
-    if (weight > 0.0) {
+    // A centre exists only for a reflection that was DETECTED. The centre is
+    // sum(w x) / W, and a W that is barely positive by noise throws it
+    // anywhere: requiring only W > 0 put 117 of 17203 residuals more than
+    // fifty pixels from their prediction, the worst at -31025 images, with a
+    // median I/sigma of 0.07 among them. The variance was honest about it --
+    // 1e21 square pixels -- but a min, a max, a plot or an unweighted mean is
+    // wrecked by one such row.
+    //
+    // So W must stand clear of its own noise, whose variance is the sum of the
+    // counts: the same quantity the instability comes from, rather than an
+    // intensity cut chosen for the purpose.
+    double counts = 0.0;
+    for (std::size_t i = 0; i < box->size(); ++i) {
+      if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
+      if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+      counts += static_cast<double>(box->data[i]);
+    }
+    const bool detected =
+        weight > 0.0 && counts > 0.0 &&
+        weight >= options.least_centroid_significance * std::sqrt(counts);
+    if (detected) {
       out.unbiased_fast = mf / weight;
       out.unbiased_slow = ms / weight;
       out.unbiased_z = mz / weight;
@@ -233,7 +251,14 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
       out.unbiased_variance_fast = vf / (weight * weight);
       out.unbiased_variance_slow = vs / (weight * weight);
       out.unbiased_variance_z = vz / (weight * weight);
-      out.unbiased_valid = true;
+      // And inside its own box. With every weight positive a centre of mass
+      // cannot leave the region it was taken over; with signed weights it
+      // can, and one that has is describing the noise and not the spot.
+      const bool inside =
+          out.unbiased_fast >= box->bbox[0] && out.unbiased_fast <= box->bbox[1] &&
+          out.unbiased_slow >= box->bbox[2] && out.unbiased_slow <= box->bbox[3] &&
+          out.unbiased_z >= box->bbox[4] && out.unbiased_z <= box->bbox[5];
+      out.unbiased_valid = inside;
     }
   }
 
