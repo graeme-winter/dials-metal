@@ -18,12 +18,33 @@
 
 using namespace mxi;
 
+namespace {
+void usage(const char *program) {
+  std::printf(
+      "usage: %s [--tuning K] [FILE]\n"
+      "\n"
+      "  Fit a robust Poisson GLM background (Parkhurst et al. 2016) to each line\n"
+      "  of FILE, or of standard input when no FILE is given. A line is one\n"
+      "  shoebox's pixel counts, whitespace separated; the output is one line\n"
+      "  per input line: the fitted mean, the iterations, and 1 if it converged.\n"
+      "\n"
+      "  --tuning K        the Huber tuning constant (1.345)\n",
+      program);
+}
+}  // namespace
+
 int main(int argc, char **argv) {
   const std::set<std::string> known = {"--tuning"};
   const Arguments args = parse_arguments(argc, argv, known, known);
   if (!args.ok) {
     std::fprintf(stderr, "mxi_background: %s\n", args.error.c_str());
     return 2;
+  }
+  // --help printed nothing and then waited for standard input, which on a
+  // terminal is forever: the flag was parsed and never looked at.
+  if (args.help) {
+    usage(argv[0]);
+    return 0;
   }
   BackgroundOptions options;
   options.tuning = args.number("--tuning", 1.345);

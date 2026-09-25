@@ -169,6 +169,11 @@ bool parse_options(int argc, char **argv, Options *options) {
     } else if (flag == "--version") {
       report_version("mxi_find");
       std::exit(0);
+    } else if (flag == "-h" || flag == "--help") {
+      // Asked for, so not an error: it exited 2, like an unknown flag, which
+      // made a script checking whether this is installed think it was broken.
+      usage(argv[0]);
+      std::exit(0);
     } else if (!flag.empty() && flag[0] != '-' && options->master.empty()) {
       // The master file may be named without -x, since it is the only thing
       // this reads and having to flag it would be ceremony.
