@@ -2313,3 +2313,57 @@ different order. For the 16M run, 20224 frames becomes 7200.
 
 Reading was also 3.6 seconds against 12.1 with the same 600 frames at the
 default settings, which is filling fewer boxes at once.
+
+## Profile fitting was the face, not the fit
+
+Profile fitting was 53 per cent of the 16M run. Timed on 3000 real boxes,
+`profile_on_pixels` was 0.772 ms a box and `fit_on_pixels` 0.027: the fit is
+nothing, carrying the profile onto the pixels is everything.
+
+Two things in it, and only one mattered:
+
+    change                              speed    boxes differing
+    blend each image's planes once      1.3 x    0 of 3000
+    ... and the face from pixel corners 5.5 x    147 of 3000
+
+**The voxel loop** ran subdivisions times planes for every voxel, where which
+planes a voxel overlaps depends only on its image and which cell a subdivision
+lands in only on its pixel. Blending each image's planes into one slice once,
+and giving each pixel the short list of cells its subdivisions reach, is exact
+and worth 1.3 times.
+
+**The face** called `epsilon_of` for every subdivision -- 8100 calls for an 18
+by 18 box. eps1 and eps2 are smooth over a pixel, so computing them at the
+(nx + 1)(ny + 1) corners and interpolating is 22 times fewer calls. That is
+where the time was. But it is not exact: good to about 1e-7 degrees, which
+moved a subdivision across a cell boundary in 147 of 3000 real boxes and a
+fitted intensity by at most 0.012 of its own sigma. Immaterial, and not the
+same answer.
+
+**So a subdivision within a thousandth of a cell of a boundary -- about 160
+times the interpolation error -- is done exactly.** Some two in a thousand, 16
+calls a box. The result is the direct version's: largest difference 2.8e-17, no
+box differing, fitted intensities agreeing to 1e-15 of sigma.
+
+The direct version stays, as `profile_on_pixels_direct`, and is the
+specification: the test holds the fast one to it on 1500 real boxes with a
+SHAPED profile, since with a flat one a subdivision in the wrong cell gives the
+same value and nothing could see it. With the boundary guard removed, the test
+fails.
+
+4.8 times faster in isolation. End to end on a 300 frame slice, with both this
+and the frame reading:
+
+                      before     after
+    frames read        1734        600
+    reading frames    8.07 s     3.77 s
+    profile fitting  28.08 s     5.78 s
+    total            53.63 s    26.48 s
+
+with summation bit-identical and profile fitting agreeing to 9.3e-15.
+
+One reading of these numbers was wrong: reading looked slower a frame after
+the change, 6.3 ms against 4.65, and the guess was the chunk being a
+synchronisation point. It is flat from 32 to 256 frames a chunk. The old figure
+was flattered -- a frame read for the fifth time comes from the page cache, and
+the average was over those.

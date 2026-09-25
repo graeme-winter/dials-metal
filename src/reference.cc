@@ -186,10 +186,11 @@ std::size_t ReferenceProfiles::index_of(std::size_t which_panel, int block,
   return ((panel * b + bl) * d + jj) * d + ii;
 }
 
-std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
-                                      const Vec3 &s1, double phi_calculated,
-                                      const GridSpec &spec,
-                                      const std::vector<double> &reference) {
+std::vector<double> profile_on_pixels_direct(const Experiment &e,
+                                             const Shoebox &box, const Vec3 &s1,
+                                             double phi_calculated,
+                                             const GridSpec &spec,
+                                             const std::vector<double> &reference) {
   std::vector<double> out;
   if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
     return out;
@@ -279,6 +280,186 @@ std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
           }
         }
         out[at] = value;
+      }
+    }
+  }
+  return out;
+}
+
+std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
+                                      const Vec3 &s1, double phi_calculated,
+                                      const GridSpec &spec,
+                                      const std::vector<double> &reference) {
+  // The same answer as profile_on_pixels_direct, which is its specification
+  // and is tested against it, by two changes that do not alter the arithmetic
+  // being approximated -- only how often it is done.
+  //
+  // THE FACE. The direct version calls epsilon_of for every subdivision of
+  // every pixel: 8100 calls for an 18 by 18 box at five subdivisions. But eps1
+  // and eps2 are smooth over a pixel -- the second-order error across 0.075 mm
+  // at 200 mm is about 1e-10 rad, against grid cells of about 3e-4 -- so they
+  // are computed at the pixel CORNERS and interpolated within each pixel,
+  // (nx + 1)(ny + 1) calls instead of 25 nx ny.
+  //
+  // THE VOXELS. The direct version runs subdivisions times planes for every
+  // voxel. But which eps3 planes a voxel overlaps, and by how much, depends
+  // only on its image, and which (i1, i2) cell a subdivision lands in depends
+  // only on its pixel. So each image's planes are blended into one slice of the
+  // grid once, and each pixel keeps the short list of cells its subdivisions
+  // reach -- one to four, usually -- and a voxel is that list against that
+  // slice.
+  //
+  // Measured as 0.772 ms a box for the direct version, 97 per cent of profile
+  // fitting; fit_on_pixels itself is 0.027.
+  std::vector<double> out;
+  if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+    return out;
+  }
+  if (reference.size() != spec.size() || spec.subdivisions < 1) return out;
+  const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
+  const KabschFrame frame = kabsch_frame(e, s1);
+  if (!frame.valid) return out;
+
+  const int side = spec.side();
+  const double span_d = spec.half_width * spec.sigma_d;
+  const double span_m = spec.half_width * spec.sigma_m;
+  if (!(span_d > 0.0) || !(span_m > 0.0)) return out;
+  const double step_d = 2.0 * span_d / static_cast<double>(side);
+  const double step_m = 2.0 * span_m / static_cast<double>(side);
+  const double osc = Scan::radians(e.scan.osc_width);
+  const int sub = spec.subdivisions;
+  const double share = 1.0 / static_cast<double>(sub * sub);
+  const std::int32_t nx = box.nx(), ny = box.ny(), nz = box.nz();
+
+  out.assign(box.size(), 0.0);
+
+  // eps1 and eps2 at the pixel corners.
+  const std::size_t cw = static_cast<std::size_t>(nx) + 1;
+  std::vector<double> c1(cw * (static_cast<std::size_t>(ny) + 1));
+  std::vector<double> c2(c1.size());
+  for (std::int32_t cy = 0; cy <= ny; ++cy) {
+    const double py = static_cast<double>(box.bbox[2] + cy);
+    for (std::int32_t cx = 0; cx <= nx; ++cx) {
+      const double px = static_cast<double>(box.bbox[0] + cx);
+      const Epsilon eps =
+          epsilon_of(e, frame, p, px, py, phi_calculated, phi_calculated);
+      const std::size_t at = static_cast<std::size_t>(cy) * cw +
+                             static_cast<std::size_t>(cx);
+      c1[at] = eps.e1;
+      c2[at] = eps.e2;
+    }
+  }
+
+  // Per pixel, the (i1, i2) cells its subdivisions reach and how many of them
+  // reach each. Stored flat: for pixel k, entries [start[k], start[k + 1]).
+  const std::size_t pixels = static_cast<std::size_t>(nx) * static_cast<std::size_t>(ny);
+  std::vector<std::uint32_t> start(pixels + 1, 0);
+  std::vector<std::uint32_t> cell;   // i2 * side + i1
+  std::vector<std::uint16_t> hits;
+  cell.reserve(pixels * 4);
+  hits.reserve(pixels * 4);
+  for (std::int32_t y = 0; y < ny; ++y) {
+    for (std::int32_t x = 0; x < nx; ++x) {
+      const std::size_t k = static_cast<std::size_t>(y) * static_cast<std::size_t>(nx) +
+                            static_cast<std::size_t>(x);
+      start[k] = static_cast<std::uint32_t>(cell.size());
+      const std::size_t a00 = static_cast<std::size_t>(y) * cw + static_cast<std::size_t>(x);
+      const std::size_t a10 = a00 + 1, a01 = a00 + cw, a11 = a01 + 1;
+      for (int sy = 0; sy < sub; ++sy) {
+        const double v = (static_cast<double>(sy) + 0.5) / static_cast<double>(sub);
+        for (int sx = 0; sx < sub; ++sx) {
+          const double u = (static_cast<double>(sx) + 0.5) / static_cast<double>(sub);
+          // Bilinear within the pixel, which is exact for a linear field and
+          // good to 1e-10 rad for this one.
+          double e1 = (1.0 - u) * (1.0 - v) * c1[a00] + u * (1.0 - v) * c1[a10] +
+                      (1.0 - u) * v * c1[a01] + u * v * c1[a11];
+          double e2 = (1.0 - u) * (1.0 - v) * c2[a00] + u * (1.0 - v) * c2[a10] +
+                      (1.0 - u) * v * c2[a01] + u * v * c2[a11];
+          // Interpolation is good to about 1e-7 degrees here, and that is
+          // enough to put a subdivision on the other side of a cell boundary
+          // when it lies that close to one: measured, 147 of 3000 real boxes
+          // had a subdivision move cells, changing a fitted intensity by at
+          // most 0.012 of its own sigma. Immaterial, and not the same answer.
+          //
+          // So a subdivision within a thousandth of a cell of a boundary --
+          // about a hundred and sixty times the interpolation error -- is done
+          // exactly, which is some two in a thousand of them, and the result
+          // is the direct version's.
+          const double f1 = (e1 + span_d) / step_d;
+          const double f2 = (e2 + span_d) / step_d;
+          const auto near_boundary = [](double f) {
+            const double r = f - std::floor(f);
+            return std::min(r, 1.0 - r) < 1e-3;
+          };
+          if (near_boundary(f1) || near_boundary(f2)) {
+            const Epsilon eps = epsilon_of(
+                e, frame, p, static_cast<double>(box.bbox[0] + x) + u,
+                static_cast<double>(box.bbox[2] + y) + v, phi_calculated,
+                phi_calculated);
+            e1 = eps.e1;
+            e2 = eps.e2;
+          }
+          const int i1 = static_cast<int>(std::floor((e1 + span_d) / step_d));
+          const int i2 = static_cast<int>(std::floor((e2 + span_d) / step_d));
+          if (i1 < 0 || i1 >= side || i2 < 0 || i2 >= side) continue;
+          const std::uint32_t id = static_cast<std::uint32_t>(i2 * side + i1);
+          bool found = false;
+          for (std::size_t q = start[k]; q < cell.size(); ++q) {
+            if (cell[q] == id) {
+              ++hits[q];
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            cell.push_back(id);
+            hits.push_back(1);
+          }
+        }
+      }
+    }
+  }
+  start[pixels] = static_cast<std::uint32_t>(cell.size());
+
+  // Per image, the grid's planes blended by how much of each the image
+  // overlaps: one slice of side * side values.
+  const std::size_t slice = static_cast<std::size_t>(side) * static_cast<std::size_t>(side);
+  std::vector<double> blended(slice);
+  for (std::int32_t z = 0; z < nz; ++z) {
+    const double image = static_cast<double>(box.bbox[4] + z);
+    const double phi_low = Scan::radians(e.scan.osc_start) +
+                           (image - static_cast<double>(e.scan.z_offset)) * osc;
+    const double phi_high = phi_low + osc;
+    double e3_low = Scan::degrees(frame.zeta * (phi_low - phi_calculated));
+    double e3_high = Scan::degrees(frame.zeta * (phi_high - phi_calculated));
+    if (e3_low > e3_high) std::swap(e3_low, e3_high);
+    const double e3_span = e3_high - e3_low;
+    if (!(e3_span > 0.0)) continue;
+    std::fill(blended.begin(), blended.end(), 0.0);
+    bool any = false;
+    const int j_low = static_cast<int>(std::floor((e3_low + span_m) / step_m));
+    const int j_high = static_cast<int>(std::floor((e3_high + span_m) / step_m));
+    for (int j = std::max(j_low, 0); j <= std::min(j_high, side - 1); ++j) {
+      const double plane_low = -span_m + static_cast<double>(j) * step_m;
+      const double plane_high = plane_low + step_m;
+      const double overlap =
+          std::min(e3_high, plane_high) - std::max(e3_low, plane_low);
+      if (!(overlap > 0.0)) continue;
+      const double w = overlap / e3_span;
+      const double *plane = reference.data() + static_cast<std::size_t>(j) * slice;
+      for (std::size_t q = 0; q < slice; ++q) blended[q] += w * plane[q];
+      any = true;
+    }
+    if (!any) continue;
+    for (std::int32_t y = 0; y < ny; ++y) {
+      for (std::int32_t x = 0; x < nx; ++x) {
+        const std::size_t k = static_cast<std::size_t>(y) * static_cast<std::size_t>(nx) +
+                              static_cast<std::size_t>(x);
+        double value = 0.0;
+        for (std::uint32_t q = start[k]; q < start[k + 1]; ++q) {
+          value += static_cast<double>(hits[q]) * blended[cell[q]];
+        }
+        out[box.at(x, y, z)] = share * value;
       }
     }
   }

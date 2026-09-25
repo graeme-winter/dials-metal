@@ -3,6 +3,8 @@
 #include <cmath>
 #include <vector>
 
+#include "../src/mask.h"
+#include "../src/predict.h"
 #include "../src/reference.h"
 #include "check.h"
 
@@ -526,4 +528,87 @@ TEST(a_reflection_across_a_module_gap_keeps_its_whole_intensity) {
                  1e-6 * complete.intensity,
                  "the profile puts back what the gap took out");
   }
+}
+
+TEST(the_fast_profile_on_pixels_is_the_direct_one) {
+  // profile_on_pixels interpolates eps1 and eps2 from the pixel corners
+  // instead of calling epsilon_of for every subdivision, and blends each
+  // image's planes once instead of per voxel. It was 97 per cent of profile
+  // fitting, and is 4.8 times faster.
+  //
+  // Interpolation alone put 147 of 3000 real boxes a subdivision into the
+  // wrong cell -- the error is about 1e-7 degrees, and a subdivision that close
+  // to a boundary crosses it -- which moved a fitted intensity by at most 0.012
+  // of its sigma. So subdivisions near a boundary are done exactly, and this
+  // holds the two to the same answer on real geometry, with a SHAPED profile:
+  // with a flat one, a subdivision in the wrong cell gives the same value and
+  // nothing here could see it.
+  Experiment e;
+  e.beam.direction = {0.0, 0.0, 1.0};
+  e.beam.wavelength = 0.9537;
+  Panel p;
+  p.fast = {1.0, 0.0, 0.0};
+  p.slow = {0.0, -1.0, 0.0};
+  p.pixel_size[0] = p.pixel_size[1] = 0.075;
+  p.image_size[0] = 2068;
+  p.image_size[1] = 2162;
+  p.origin = {-77.5, 81.1, -168.5};
+  e.detector.panels.push_back(p);
+  e.goniometer.axis = {1.0, 0.0, 0.0};
+  e.scan.first_image = 1;
+  e.scan.last_image = 600;
+  e.scan.osc_start = 0.0;
+  e.scan.osc_width = 0.1;
+  const Mat3 r = rotation({0.3, -0.5, 0.81}, 0.7);
+  e.crystal = Crystal::from_real_space(r * Vec3{78, 0, 0}, r * Vec3{0, 78, 0},
+                                       r * Vec3{0, 0, 78});
+  PredictOptions po;
+  po.d_min = 2.0;
+  const std::vector<Prediction> v = predict(e, po);
+
+  MaskOptions mo;
+  mo.box_scale = 1.9;
+  mo.min_zeta = 0.05;
+  mo.n_sigma = 3.0;
+  mo.sigma_d = 0.0274;
+  mo.sigma_m = 0.1185;
+  GridSpec g;
+  g.n = 4;
+  g.sigma_d = mo.sigma_d;
+  g.sigma_m = mo.sigma_m;
+  g.half_width = 3.0;
+  g.subdivisions = 5;
+  std::vector<double> reference(g.size());
+  double total = 0.0;
+  for (int k = 0; k < g.side(); ++k)
+    for (int j = 0; j < g.side(); ++j)
+      for (int i = 0; i < g.side(); ++i) {
+        const double a = (i - g.n) / 1.3, b = (j - g.n) / 1.1, c = (k - g.n) / 1.7;
+        const double value = std::exp(-0.5 * (a * a + b * b + c * c)) * (1.0 + 0.1 * i);
+        reference[g.at(i, j, k)] = value;
+        total += value;
+      }
+  for (double &x : reference) x /= total;
+
+  std::size_t compared = 0;
+  double worst = 0.0;
+  for (std::size_t i = 0; i < v.size() && compared < 1500; i += 7) {
+    Shoebox box;
+    BoxRejection why = BoxRejection::kNone;
+    if (!build_shoebox(e, v[i], mo, &box, &why)) continue;
+    const std::vector<double> fast =
+        profile_on_pixels(e, box, v[i].s1, v[i].phi, g, reference);
+    const std::vector<double> direct =
+        profile_on_pixels_direct(e, box, v[i].s1, v[i].phi, g, reference);
+    check::equal(static_cast<long long>(fast.size()),
+                 static_cast<long long>(direct.size()), "the same number of voxels");
+    for (std::size_t k = 0; k < fast.size(); ++k) {
+      worst = std::max(worst, std::fabs(fast[k] - direct[k]));
+    }
+    ++compared;
+  }
+  check::is_true(compared > 1000, "enough boxes to meet the boundary cases");
+  // Summation order apart, the same: one subdivision in the wrong cell is a
+  // difference of 1e-4 on this profile, twelve orders of magnitude above this.
+  check::is_true(worst < 1e-15, "the fast version is the direct version");
 }

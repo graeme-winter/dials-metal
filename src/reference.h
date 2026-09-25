@@ -194,6 +194,16 @@ std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
                                       const GridSpec &spec,
                                       const std::vector<double> &reference);
 
+//: The same thing done the obvious way: every subdivision of every pixel
+//: through epsilon_of, every voxel through every subdivision and plane.
+//: profile_on_pixels is tested against this, which is its specification, and
+//: is about an order of magnitude faster.
+std::vector<double> profile_on_pixels_direct(const Experiment &e,
+                                             const Shoebox &box, const Vec3 &s1,
+                                             double phi_calculated,
+                                             const GridSpec &spec,
+                                             const std::vector<double> &reference);
+
 struct ProfileFit {
   bool valid = false;
   double intensity = 0.0;
