@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../src/integrate.h"
+#include "../src/refl.h"
 #include "check.h"
 
 using namespace mxi;
@@ -483,4 +484,60 @@ TEST(an_undetected_reflection_has_no_centre_rather_than_a_wild_one) {
   check::is_true(claimed < 20, "noise is not given a centre");
   check::equal(static_cast<long long>(outside), 0,
                "and a centre that is claimed lies inside its own box");
+}
+
+TEST(a_reflection_reaching_a_masked_pixel_is_not_flagged_as_summed) {
+  // DIALS' convention, read from its source and confirmed on a real
+  // integration: 95.6 per cent of gap-crossing reflections carry
+  // ForegroundIncludesBadPixels and only 4.4 per cent IntegratedSum. dials.scale
+  // needs IntegratedSum and IntegratedPrf together, so a truncated sum flagged
+  // as good went into scaling -- 1415 of them here against DIALS' 62 -- and was
+  // rejected there, clustered along every module edge.
+  const auto box = [](bool foreground_gap, bool background_gap) {
+    Shoebox b;
+    b.panel = 0;
+    b.bbox[0] = 0; b.bbox[1] = 9;
+    b.bbox[2] = 0; b.bbox[3] = 9;
+    b.bbox[4] = 0; b.bbox[5] = 1;
+    const std::size_t n = b.size();
+    b.data.assign(n, 2.0f);
+    b.background.assign(n, 0.0f);
+    b.mask.assign(n, shoebox_mask::kValid | shoebox_mask::kBackground);
+    for (std::int32_t y = 3; y < 6; ++y)
+      for (std::int32_t x = 3; x < 6; ++x) {
+        b.mask[b.at(x, y, 0)] = shoebox_mask::kValid | shoebox_mask::kForeground;
+        b.data[b.at(x, y, 0)] = 50.0f;
+      }
+    // A bad pixel keeps its region and loses Valid, as the integrator records
+    // one from a module gap.
+    if (foreground_gap)
+      b.mask[b.at(3, 3, 0)] = shoebox_mask::kForeground;
+    if (background_gap)
+      b.mask[b.at(0, 0, 0)] = shoebox_mask::kBackground;
+    return b;
+  };
+  IntegrateOptions o;
+  o.min_background = 5;
+
+  Shoebox clean = box(false, false);
+  const std::int64_t fc = summation_flags(integrate_shoebox(&clean, o));
+  check::is_true((fc & flag::kIntegratedSum) != 0, "a clean reflection is summed");
+  check::is_true((fc & flag::kForegroundIncludesBadPixels) == 0, "and not flagged");
+
+  Shoebox gap = box(true, false);
+  const IntegratedReflection rg = integrate_shoebox(&gap, o);
+  const std::int64_t fg = summation_flags(rg);
+  check::equal(static_cast<long long>(rg.n_foreground_bad), 1, "one foreground voxel lost");
+  check::is_true((fg & flag::kIntegratedSum) == 0,
+                 "a foreground with a pixel missing is NOT flagged as summed");
+  check::is_true((fg & flag::kForegroundIncludesBadPixels) != 0, "it says why");
+  check::is_true((fg & flag::kFailedDuringSummation) != 0,
+                 "and that summation failed, as DIALS says");
+
+  Shoebox bgap = box(false, true);
+  const std::int64_t fb = summation_flags(integrate_shoebox(&bgap, o));
+  check::is_true((fb & flag::kIntegratedSum) != 0,
+                 "a bad pixel in the background alone does not spoil the sum");
+  check::is_true((fb & flag::kBackgroundIncludesBadPixels) != 0,
+                 "but it is recorded");
 }

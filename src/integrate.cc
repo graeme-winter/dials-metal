@@ -1,4 +1,5 @@
 #include "integrate.h"
+#include "refl.h"
 
 #include <cmath>
 
@@ -59,6 +60,17 @@ double lorentz_polarization(const Beam &beam, const Goniometer &goniometer,
   return lorentz / polarization;
 }
 
+std::int64_t summation_flags(const IntegratedReflection &r) {
+  std::int64_t f = 0;
+  if (r.n_foreground_bad > 0) {
+    f |= flag::kForegroundIncludesBadPixels | flag::kFailedDuringSummation;
+  } else if (r.valid) {
+    f |= flag::kIntegratedSum;
+  }
+  if (r.n_background_bad > 0) f |= flag::kBackgroundIncludesBadPixels;
+  return f;
+}
+
 IntegratedReflection integrate_shoebox(Shoebox *box,
                                        const IntegrateOptions &options) {
   IntegratedReflection out;
@@ -71,7 +83,13 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
   std::size_t n_valid = 0;
   for (std::size_t i = 0; i < box->size(); ++i) {
     const std::uint8_t m = box->mask[i];
-    if ((m & shoebox_mask::kValid) == 0) continue;
+    if ((m & shoebox_mask::kValid) == 0) {
+      // Counted before it is skipped: a bad pixel keeps its region bit, so
+      // this is where it is known which region lost a measurement.
+      if (m & shoebox_mask::kForeground) ++out.n_foreground_bad;
+      else if (m & shoebox_mask::kBackground) ++out.n_background_bad;
+      continue;
+    }
     ++n_valid;
     if (m & shoebox_mask::kForeground) {
       foreground_sum += static_cast<double>(box->data[i]);

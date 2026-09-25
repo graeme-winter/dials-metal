@@ -67,6 +67,20 @@ constexpr std::int64_t kCentroidOutlier = 1 << 17;
 //: intensities respectively.
 constexpr std::int64_t kIntegratedSum = 1 << 8;
 constexpr std::int64_t kIntegratedPrf = 1 << 9;
+//: From DIALS' own Flags enum, dials/array_family/reflection_table.h, where
+//: they are ForegroundIncludesBadPixels, BackgroundIncludesBadPixels and
+//: FailedDuringSummation. Read from the source rather than remembered: a
+//: first guess at bit 19 took it for an exclusion flag, which it is not.
+//:
+//: DIALS sets the first and the third on a reflection whose foreground reaches
+//: a masked pixel -- 95.6 and 96 per cent of the gap-crossing reflections of a
+//: real integration -- and does NOT set kIntegratedSum on it, because a sum
+//: over a foreground with pixels missing is not that reflection's intensity.
+//: dials.scale's combined intensity needs both kIntegratedSum and
+//: kIntegratedPrf, so those reflections never reach scaling.
+constexpr std::int64_t kForegroundIncludesBadPixels = 1 << 14;
+constexpr std::int64_t kBackgroundIncludesBadPixels = 1 << 15;
+constexpr std::int64_t kFailedDuringSummation = 1 << 19;
 }  // namespace flag
 
 

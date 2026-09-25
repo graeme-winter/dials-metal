@@ -35,6 +35,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "background.h"
@@ -99,6 +100,11 @@ struct IntegratedReflection {
   double unbiased_variance_slow = 0.0;
   double unbiased_variance_z = 0.0;
   std::size_t n_foreground = 0;
+  //: Voxels of the foreground and of the background that had no measurement
+  //: in them -- a module gap, a masked pixel. A reflection with any of the
+  //: first has a summed intensity that is missing part of the reflection.
+  std::size_t n_foreground_bad = 0;
+  std::size_t n_background_bad = 0;
   std::size_t n_background = 0;
   std::size_t n_valid = 0;
   //: Why it failed, when it did.
@@ -159,6 +165,16 @@ double lorentz_polarization(const Beam &beam, const Goniometer &goniometer,
 //: Integrate one shoebox whose `data` holds counts and whose `mask` marks
 //: foreground and background. Fills the shoebox's `background` array with the
 //: fitted value, so that a saved shoebox carries what was subtracted.
+//: The DIALS flags summation earns a reflection, beyond kPredicted.
+//:
+//: DIALS' convention, read from its source and confirmed on a real
+//: integration: a reflection whose foreground reaches a masked pixel is marked
+//: ForegroundIncludesBadPixels and FailedDuringSummation, and is NOT marked
+//: IntegratedSum -- a sum over a foreground with pixels missing is not that
+//: reflection's intensity, since summation cannot put back what a gap took.
+//: A profile fit can, and flags itself separately.
+std::int64_t summation_flags(const IntegratedReflection &r);
+
 IntegratedReflection integrate_shoebox(Shoebox *box,
                                        const IntegrateOptions &options = {});
 

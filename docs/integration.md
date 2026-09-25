@@ -2224,3 +2224,52 @@ mapping and `z_from_phi` cannot diverge that way.
 Settling it needs saved shoeboxes from images 450 to 600, where the effect is
 largest: the measurement is the foreground window's centre against the
 prediction there.
+
+## The outliers along the module edges were a flag, not an intensity
+
+`dials.scale` on this package's output rejected 5096 reflections, and 92 per
+cent of them lay within three pixels of a module edge -- 3.4 per cent of an
+Eiger 16M's area, a 27-fold concentration. They sat on the modules either side
+of the edge, evenly split, none in the gaps, twice as many at the 38 pixel gaps
+as the 12: spots straddling an edge, part of each lost to it. Chip joins inside
+modules were not enriched at all. DIALS' own scaling showed nothing of the kind.
+
+Two explanations were wrong before the right one:
+
+* **That our recovered intensities were wrong.** Judged against each
+  reflection's own clean symmetry equivalents -- independent of DIALS -- ours
+  come to 0.967 of them where 10 to 30 per cent was lost, DIALS' to 0.777. Ours
+  are the better intensities.
+* **That our variances were too small.** They are LARGER than DIALS' for these
+  reflections, 24 per cent in variance, which should mean fewer rejections.
+
+**What differs is which reflections reach scaling.** Read from DIALS' source:
+its Flags enum has ForegroundIncludesBadPixels (bit 14) and
+FailedDuringSummation (bit 19), and on a real integration it sets both on 96 per
+cent of gap-crossing reflections and IntegratedSum on only 4.4. `dials.scale`'s
+combined intensity selects on `get_flags(integrated, all=True)` -- IntegratedSum
+AND IntegratedPrf -- so only 62 of DIALS' 1416 gap-crossing reflections reach it.
+This package set IntegratedSum on all of them, and 1415 did. The combined
+intensity leans on the sum for strong reflections, so a truncated sum flagged as
+good is what scaling saw, and rejected.
+
+DIALS' convention is the honest one: a sum over a foreground with pixels
+missing is not the reflection's intensity. `summation_flags` now follows it, so
+a reflection whose foreground reaches a masked pixel carries
+ForegroundIncludesBadPixels and FailedDuringSummation and not IntegratedSum;
+one whose background alone does keeps its sum and carries
+BackgroundIncludesBadPixels. The profile-fitted intensity keeps its own flag.
+
+**The trade this makes.** Withholding IntegratedSum keeps these reflections out
+of `dials.scale`'s default, combined intensity -- including their profile-fitted
+intensities, which are the good ones. `dials.scale intensity_choice=profile`
+selects on IntegratedPrf alone and lets them in. Whether that is worth it is a
+question for the merging statistics, not for this flag.
+
+### And a wrong table found on the way
+
+`mxeq.checks.common.FLAGS` had integrated_sum and integrated_prf at bits 11
+and 12 -- DIALS' overlapped_bg and overlapped_fg -- and a bad_shoebox at 16
+that DIALS does not have. Nothing read it, which is the only reason no result
+was wrong. It is corrected from DIALS' enum and `test_flags.py` holds it to the
+C++ constants, so the two cannot drift.

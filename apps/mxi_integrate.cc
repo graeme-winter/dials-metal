@@ -553,7 +553,19 @@ int main(int argc, char **argv) {
       panel_column.ints[row] = static_cast<std::int64_t>(p.panel);
       id.ints[row] = 0;
       imageset.ints[row] = 0;
-      flags.ints[row] = flag::kPredicted | (r.valid ? flag::kIntegratedSum : 0);
+      // DIALS' convention for a reflection that reaches a masked pixel, read
+      // from its source and confirmed on a real integration. A foreground
+      // with pixels missing makes the summed intensity not this reflection's
+      // intensity -- summation cannot put back what the gap took -- so it is
+      // not flagged as integrated by summation, and it says why. The profile
+      // fitted intensity, which does put it back, keeps its own flag.
+      //
+      // Setting kIntegratedSum on these regardless let 1415 gap-crossing
+      // reflections into dials.scale where DIALS lets 62, and the combined
+      // intensity leans on the sum for strong reflections -- so a truncated
+      // sum flagged as good is what scaling rejected, clustered along every
+      // module edge.
+      flags.ints[row] = flag::kPredicted | summation_flags(r);
       entering.ints[row] = p.s1.dot(axis.cross(s0)) > 0.0 ? 1 : 0;
       for (int k = 0; k < 6; ++k) bbox.ints[row * 6 + k] = box->bbox[k];
       n_fg.ints[row] = static_cast<std::int64_t>(r.n_foreground);
