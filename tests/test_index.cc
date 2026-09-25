@@ -801,3 +801,66 @@ TEST(a_crystal_that_moves_does_not_collapse_its_turns_together) {
   check::equal(static_cast<long long>(collapsed), 0,
                "no turn collapses onto another");
 }
+
+TEST(every_prediction_is_on_the_sphere_under_the_crystal_at_its_own_position) {
+  // The invariant a scan-varying prediction has to satisfy, whatever else it
+  // gets right: rotate A(z) h to the predicted phi, where z is the predicted
+  // image, and it lands on the Ewald sphere. A prediction made with the crystal
+  // from somewhere else in the scan does not.
+  //
+  // ewald_intersections returned a leaving root of -259.9 degrees for a
+  // reflection at 100.1 on a scan from 0 to 180, and converge_root looked the
+  // crystal up at z_from_phi of that: image -2600, clamped to image zero. So
+  // it used the crystal from the start of the scan for a reflection in the
+  // middle. On a real 1800 image sweep, leaving reflections were exact to
+  // image 900 and up to 0.96 images late after it, and had been since the
+  // first scan-varying version. Every earlier test passed, because none used
+  // a crystal that moved enough for its start to differ from its middle.
+  Experiment e;
+  e.beam.direction = {0.0, 0.0, 1.0};
+  e.beam.wavelength = 0.9537;
+  Panel p;
+  p.fast = {1.0, 0.0, 0.0};
+  p.slow = {0.0, -1.0, 0.0};
+  p.pixel_size[0] = p.pixel_size[1] = 0.075;
+  p.image_size[0] = 2068;
+  p.image_size[1] = 2162;
+  p.origin = {-77.5, 81.1, -168.5};
+  e.detector.panels.push_back(p);
+  e.goniometer.axis = {1.0, 0.0, 0.0};
+  e.scan.first_image = 1;
+  e.scan.last_image = 1800;
+  e.scan.osc_start = 0.0;
+  e.scan.osc_width = 0.1;
+  const Mat3 r = rotation({0.3, -0.5, 0.81}, 0.7);
+  e.crystal = Crystal::from_real_space(r * Vec3{78, 0, 0}, r * Vec3{0, 78, 0},
+                                       r * Vec3{0, 0, 78});
+  // A crystal that turns steadily through the scan, half a degree end to end,
+  // so that its model at image zero is not its model at image 900.
+  const std::size_t points = 1801;
+  e.crystal->A_points.resize(points);
+  for (std::size_t k = 0; k < points; ++k) {
+    const double turn = 0.5 * (M_PI / 180.0) * static_cast<double>(k) / 1800.0;
+    e.crystal->A_points[k] = rotation({0.0, 1.0, 0.0}, turn) * e.crystal->A;
+  }
+
+  PredictOptions options;
+  options.d_min = 2.5;
+  const std::vector<Prediction> v = predict(e, options);
+  check::is_true(v.size() > 1000, "something was predicted");
+
+  const Vec3 s0 = e.beam.s0();
+  const double radius = s0.norm();
+  std::size_t off = 0;
+  double worst = 0.0;
+  for (const Prediction &q : v) {
+    const Vec3 hkl{static_cast<double>(q.h), static_cast<double>(q.k),
+                   static_cast<double>(q.l)};
+    const Vec3 s1 = s0 + e.goniometer.rotation_at(q.phi) * (e.setting_at(q.z) * hkl);
+    const double miss = std::fabs(s1.norm() - radius) / radius;
+    worst = std::max(worst, miss);
+    if (miss > 1e-5) ++off;
+  }
+  check::equal(static_cast<long long>(off), 0,
+               "every prediction is on the sphere under its own crystal");
+}

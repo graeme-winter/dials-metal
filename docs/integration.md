@@ -2093,3 +2093,64 @@ Strong reflections by default, I/sigma of ten or more, because for those the
 counting part is a hundredth of a pixel and what is left is the prediction.
 Rows with no centre of mass are skipped rather than drawn as zero, which would
 pull every median toward a perfect prediction.
+
+## Leaving reflections were predicted with the crystal from the wrong end of the scan
+
+`mxeq residuals` on a matched 1800 image run showed a z median of -0.154 images
+at I/sigma of ten or more. The same offset had appeared, and been set aside, on
+mismatched inputs -- which, since it survived a change of model, said it came
+from the code rather than the model.
+
+Narrowed down in steps, each of which overturned the reading before it:
+
+* DIALS' own z residual was -0.047, ours -0.123: part is in the data, most not.
+* On the same reflections the two programs' predictions and observations
+  appeared to agree to 0.001 and 0.011 images -- which could not be right if
+  their residuals differed by 0.075. It was a median over a mixture.
+* Split by direction, DIALS was symmetric (-0.043 entering, -0.050 leaving) and
+  ours was not (-0.050 entering, -0.260 leaving).
+* Our prediction against DIALS': entering exact to 0.0003 images, leaving 0.227
+  late with a spread of 0.34. The earlier median of 0.0007 had landed on the
+  entering half.
+* Along the scan: leaving reflections exact to image 900, then up to 0.96
+  images late.
+
+**The cause.** `ewald_intersections` answers in whatever 2 pi interval its
+arithmetic lands in, and returned a leaving root of -259.9 degrees for a
+reflection at 100.1 on a scan from 0 to 180. `converge_root` looked the crystal
+up at `z_from_phi` of that -- image -2600, which `setting_at` clamps to image
+zero -- and so used the crystal from the START of the scan for a reflection in
+its middle. Invisible where the crystal at image zero is nearly the crystal at
+the reflection, which is the first half; entering roots happened to come back
+inside the scan and were never touched. It was there in the first scan-varying
+version and every fix to the turn handling since.
+
+**The fix, and a first version that was wrong.** The seed is moved into the
+scan before the crystal is looked up. Wrapping into [start, start + 2 pi) cured
+34005 predictions and broke 91 correct ones: a root a little before the scan
+start went to the far end of the window, the same mistake at the other end. For
+a scan of less than a turn the window is now centred on the scan's middle; a
+longer scan keeps the first turn, which `emit_turns` expects.
+
+**What was affected.** Prediction, and through it integration -- a leaving
+reflection in the second half had its shoebox placed up to a frame late along
+the scan, so its intensity and centre were taken from the wrong images.
+Refinement was NOT affected: it looks the crystal up at the observed image,
+which is always inside the scan, and handles the wrap itself.
+
+**The test is physics rather than agreement.** Rotate A(z) h to the predicted
+phi, with z the predicted image, and it must land on the Ewald sphere. On a
+crystal turning half a degree through a scan the committed predictor put 34005
+predictions off it; the start-anchored wrap 184; the centred one none, worst
+2.3e-6. No earlier test could have caught this, because none used a crystal that
+moved enough for its start to differ from its middle.
+
+### Also found, not fixed
+
+`setting_at` evaluates `A_at_scan_points` as B-spline control points. DIALS
+writes the VALUES of A at each image boundary and interpolates them linearly;
+reading them linearly makes entering predictions agree with DIALS to 0.0000
+images where the spline gives 0.0003. Small, but a genuine difference of
+convention -- and it is not changed here because which convention is right
+depends on what this package's own refiner writes into that field, which has to
+be settled first.

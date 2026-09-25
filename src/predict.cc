@@ -113,6 +113,46 @@ struct Converged {
   bool entering = false;
 };
 
+//: A root from ewald_intersections, moved into the scan's first turn.
+//:
+//: ewald_intersections answers in whatever 2 pi interval its arithmetic lands
+//: in -- a leaving root of -259.9 degrees, say, for a reflection at 100.1 on a
+//: scan from 0 to 180 -- and converge_root looks the crystal up at
+//: z_from_phi of the angle it is given. At -259.9 degrees that is image -2600,
+//: which setting_at clamps to image zero: the iteration then used the crystal
+//: from the START of the scan for a reflection in the middle of it.
+//:
+//: That was invisible in the first half of a scan, where the crystal at image
+//: zero is nearly the crystal at the reflection, and grew through the second.
+//: On an 1800 image sweep, leaving reflections were exact to image 900 and then
+//: up to 0.96 images late; entering reflections, whose roots happened to come
+//: back inside the scan, were never affected. It had been there since the first
+//: scan-varying version.
+//:
+//: Wrapped at the call rather than inside converge_root, which is also given
+//: seeds already placed in later turns and must leave those where they are.
+//:
+//: WHICH 2 pi WINDOW MATTERS AT THE EDGES. The first version of this wrapped
+//: into [start, start + 2 pi), and cured 34005 wrong predictions while making
+//: 91 right ones wrong: a root a little BEFORE the scan start, -0.05 degrees on
+//: a scan from 0, went to 359.95 -- the far end of the window, where the
+//: crystal was looked up from the end of the scan. The same mistake as the one
+//: being fixed, at the other end.
+//:
+//: So for a scan of less than a turn the window is centred on the scan's
+//: middle, which leaves anything just outside either end on the side it came
+//: from. A scan of a turn or more has no such middle to centre on, and
+//: emit_turns expects the first turn, so it keeps [start, start + 2 pi): there
+//: an angle just before the start lands at the end of the first turn, which is
+//: a real position in the scan with a crystal model of its own.
+double into_scan(const Experiment &e, double phi) {
+  const double lo = std::min(e.scan.phi_start(), e.scan.phi_end());
+  const double span = std::abs(e.scan.phi_end() - e.scan.phi_start());
+  if (span >= 2.0 * kPi) return wrap_from(phi, lo);
+  const double middle = lo + 0.5 * span;
+  return wrap_from(phi, middle - kPi);
+}
+
 Converged converge_root(const Experiment &e, const Vec3 &h, double phi_seed,
                         bool entering_seed) {
   Converged out;
@@ -288,7 +328,8 @@ std::vector<Prediction> predict_indices(
     const Intersections cross = ewald_intersections(e, e.crystal->A * h);
     if (!cross.any) continue;
     for (int i = 0; i < 2; ++i) {
-      const Converged c = converge_root(e, h, cross.phi[i], cross.entering[i]);
+      const Converged c =
+          converge_root(e, h, into_scan(e, cross.phi[i]), cross.entering[i]);
       if (!c.any) continue;
       emit_turns(e, options, hkl[0], hkl[1], hkl[2], h, c, cross.entering[i], &out);
     }
@@ -343,7 +384,8 @@ std::vector<Prediction> predict(const Experiment &e,
         if (!cross.any) continue;
         for (int i = 0; i < 2; ++i) {
           const Converged c =
-              converge_root(e, hkl, cross.phi[i], cross.entering[i]);
+              converge_root(e, hkl, into_scan(e, cross.phi[i]),
+                            cross.entering[i]);
           if (!c.any) continue;
           emit_turns(e, options, h, k, l, hkl, c, cross.entering[i], &out);
         }
