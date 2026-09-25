@@ -2154,3 +2154,73 @@ images where the spline gives 0.0003. Small, but a genuine difference of
 convention -- and it is not changed here because which convention is right
 depends on what this package's own refiner writes into that field, which has to
 be settled first.
+
+## The sinusoid in the z residual: what it is not, and one thing it does
+
+After the leaving-reflection fix, the z residual against image number still
+oscillated -- about +/-0.1 images over the 1800 image scan -- with a mean of
+-0.07, where scan-varying refinement ought to have absorbed anything smooth.
+
+**It is not in this integrator.** DIALS shows the same curve, and on the same
+reflections ours follows DIALS' to about 0.01 images.
+
+**It is not a failure of refinement either.** DIALS refines against the SPOT
+FINDER's centres, and against those its own residual is flat, -0.028 to +0.008.
+The spline absorbed everything it was shown. The curve is in the difference
+between two definitions of where a spot is along the scan: for the same
+reflection, with the prediction identical to five places, the integrator's z
+centre less the spot finder's runs -0.006 to -0.077 to +0.018 along the scan,
+while on the detector the two agree to about 0.01 px.
+
+It is concentrated on NARROW rocking curves -- -0.097 at |zeta| of 0.9 to 1.0,
+nothing below 0.4 -- and about equal for entering and leaving.
+
+### A hypothesis that was wrong
+
+That the rocking curve is asymmetric, the spot finder seeing only the peak and
+the integrator the tails. It predicts the difference growing with the WIDTH of
+the curve, and the data have it growing with the narrowness.
+
+### The pixel plant
+
+`tools/plant_narrow_spots.cc` plants spots at known sub-image positions, each
+image integrating the rocking curve over its own oscillation -- which is what
+matters for a spot thinner than an image -- and measures three centres against
+the truth: the spot finder's (raw counts over pixels above threshold, a frame at
+k + 0.5, a single-frame spot at its frame's middle, as `dials_spots.cc` does)
+and the integrator's clipped and unclipped ones.
+
+**Sub-image quantisation is large and averages to nothing.** A spot thinner
+than an image is pulled toward its frame's centre, by +/-0.2 images at a sigma of
+0.15 and +/-0.06 at 0.3, and all three estimators share it. Over reflections at
+random positions within their frames it cancels, to 1e-4 for every estimator at
+every width. So it cannot make a systematic, and is not the cause.
+
+**But the integrator's centre follows its foreground window, and the spot
+finder's does not.** With the window centred 0.1 images from the truth:
+
+                    spot finder    integrator
+    sigma 0.15         +0.0002       +0.0998     follows the window entirely
+    sigma 0.30         -0.0007       +0.0205
+    sigma 1.00         -0.0002       +0.0089     barely
+
+Largest for thin spots, and the spot finder untouched: the signature the real
+data have. It also means that **for a thin spot the integrator's z centre
+reports where its window is, not where the spot is** -- and since the window is
+placed on the prediction, `xyzres.px` in z is pulled toward zero for thin spots
+whatever the true error. The z residual understates the prediction error, and
+understates it most for the spots that ought to measure it best.
+
+### Where that leaves it
+
+For the integrator's residual to reach -0.1 on thin spots, its window would
+have to sit about 0.1 images from the prediction there. In the only range with
+saved shoeboxes, images 0 to 180, it sits on the prediction to +0.003 for thin
+spots -- and there the effect is small too, -0.006, so that is consistent without
+being decisive. Two ways the window could drift from the prediction are ruled
+out: the oscillation is uniform to 1e-11 degrees, so the mask's image-to-phi
+mapping and `z_from_phi` cannot diverge that way.
+
+Settling it needs saved shoeboxes from images 450 to 600, where the effect is
+largest: the measurement is the foreground window's centre against the
+prediction there.
