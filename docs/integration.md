@@ -2273,3 +2273,43 @@ and 12 -- DIALS' overlapped_bg and overlapped_fg -- and a bad_shoebox at 16
 that DIALS does not have. Nothing read it, which is the only reason no result
 was wrong. It is corrected from DIALS' enum and `test_flags.py` holds it to the
 C++ constants, so the two cannot drift.
+
+## Reading each frame once a pass
+
+A 3600 frame Eiger 16M run reported
+
+    20224 frames read (3600 wanted by a shoebox, each read 5.62 times)
+
+and decompression was 238 thread-seconds, 29 per cent of the run. The
+decompressor was not slow -- 11.8 ms a frame here against 10.1 for the spot
+finder on the same data, thresholding included. There were five and a half
+times as many frames.
+
+Two passes account for a factor of two. The rest was the windowing: a window
+took its boxes, read every frame they touched, integrated, and discarded them.
+A box starting in one window and ending past it made that window read on into
+the next one's frames, which the next read again for its own boxes -- and
+near-axis reflections run forty to eighty frames deep, so every boundary
+repeated them.
+
+Boxes now outlive a chunk of frames. Each chunk opens the boxes starting in it,
+reads its frames once into every open box, and closes those whose last frame it
+held. A frame is read once a pass however deep the boxes crossing it are. The
+chunk is short, 64 frames by default, because what is open at once is now a
+chunk's boxes plus those running on from before; `--max-boxes` caps the boxes
+opened in a chunk and shortens the chunk when it bites, never splitting the
+boxes of one frame, since a box not yet opened would miss the chunk's frames.
+
+Forcing the old version into many windows on a 300 frame slice:
+
+    max-boxes    windowed                 chunked
+    3000         1734 frames, 4.87 each   600 frames, 2.00 each
+    1500         2966 frames, 8.33 each   600 frames, 2.00 each
+
+Everything from summation is bit-identical between the two -- flags,
+intensities, variances, background, centres -- and the profile-fitted values
+agree to 7.5e-15, which is profile learning adding the same reflections in a
+different order. For the 16M run, 20224 frames becomes 7200.
+
+Reading was also 3.6 seconds against 12.1 with the same 600 frames at the
+default settings, which is filling fewer boxes at once.

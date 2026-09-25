@@ -183,8 +183,10 @@ void usage(const char *program) {
       "  --save-shoeboxes  keep the pixels and the mask in the output\n"
       "  --threads N       threads fetching and decompressing frames; 0 is one\n"
       "                    per core, 1 is none (0)\n"
-      "  --window N        frames per window (1000)\n"
-      "  --max-boxes N     shoeboxes per window (4000); about 31 kB each\n"
+      "  --window N        frames read per chunk (64); boxes stay open across\n"
+      "                    chunks, so this bounds memory, not re-reading\n"
+      "  --max-boxes N     boxes opened per chunk (20000); shortens the chunk\n"
+      "                    when it bites, about 31 kB a box\n"
       "  --summation-only  skip profile fitting and its second pass\n"
       "  --grid-points N   the profile grid is 2N+1 a side (4)\n"
       "  --subdivisions N  pixel subdivisions per axis (5, as Kabsch uses)\n"
@@ -658,27 +660,24 @@ int main(int argc, char **argv) {
     // the same double. What needs ordering is nothing; what needs a box to
     // exist is everything.
     //
-    // So the scan is cut into windows of frames. Within a window: the boxes
-    // are built in parallel, the frames are fetched, decompressed and filled
-    // in parallel, and the boxes are integrated in parallel. Nothing is
-    // serialised except the window boundary.
+    // The scan is read in chunks of frames, and a box stays open from the
+    // chunk its first frame is in to the chunk its last frame is in -- so a
+    // frame is read once a pass however deep the boxes crossing it are.
+    // Within a chunk the boxes are built, the frames fetched, decompressed
+    // and filled, and the finished boxes integrated, each in parallel.
     //
-    // A box belongs to the window its first frame falls in and the window
-    // reads past its own end to finish it, so a window wants to be much
-    // longer than a shoebox: at a thousand frames the overhead is under one
-    // per cent, and holds about ten thousand boxes, which is 320 MB.
+    // The chunk is short because the boxes now outlive it: what is open at
+    // once is the chunk's worth of boxes plus those still running on from
+    // before, and a thousand frames of those is tens of gigabytes. Sixty-four
+    // frames keeps sixteen threads decompressing four frames each.
     const std::size_t window =
-        static_cast<std::size_t>(std::max(1.0, args.number("--window", 1000.0)));
-    // A safety net, not the primary bound. The window has to be long compared
-    // with a shoebox or the frames it reads past its own end dominate: at four
-    // thousand boxes a three hundred frame sweep becomes six windows of fifty
-    // frames and reads 748 of them instead of 321, and decompression goes from
-    // 1.13 seconds to 2.66. At twenty thousand -- about 620 MB in flight --
-    // the frame count is back to 321.
+        static_cast<std::size_t>(std::max(1.0, args.number("--window", 64.0)));
+    // A cap on the boxes opened in one chunk, which shortens the chunk rather
+    // than dropping boxes when it bites.
     const std::size_t max_boxes =
         static_cast<std::size_t>(std::max(1.0, args.number("--max-boxes", 20000.0)));
-    std::printf("%zu threads, windows of %zu frames or %zu shoeboxes\n", workers,
-                window, max_boxes);
+    std::printf("%zu threads, chunks of %zu frames, at most %zu boxes opened a chunk\n",
+                workers, window, max_boxes);
 
     //: Run `count` units of work over the pool, by index.
     const auto in_parallel = [&](std::size_t count, auto &&body) {
@@ -734,44 +733,68 @@ int main(int argc, char **argv) {
     std::size_t references_used = 0;
     std::size_t fitted = 0;
     double t_transform = 0.0, t_fit = 0.0;
-    while (at < planned.size()) {
-      const std::int32_t window_start = planned[at].bbox[4];
-      const std::int32_t window_end =
-          window_start + static_cast<std::int32_t>(window);
-      // Bounded by frames AND by boxes. Frames alone is not enough: a window
-      // of a thousand frames swallows a three hundred frame sweep whole, which
-      // is 21032 boxes and 650 MB, and the allocation costs more than the
-      // parallelism saves -- measured at 16.7 seconds against 4.5 for the
-      // version this replaced.
+    // Boxes OUTLIVE a chunk of frames. Each chunk opens the boxes that start
+    // in it, reads its frames once into every open box, and closes the boxes
+    // whose last frame it held.
+    //
+    // It used to be windows of boxes that read every frame they touched and
+    // then discarded the boxes. A box starting in one window and ending past
+    // it made that window read on into the next one's frames, and the next
+    // window read them again for its own -- and near-axis reflections run forty
+    // to eighty frames deep, so every boundary repeated them. On a 3600 frame
+    // Eiger 16M run that was 20224 frames read for 3600 wanted, 5.62 reads a
+    // frame over two passes where 2.0 is the floor. Decompression was the
+    // same 10 to 12 ms a frame as the spot finder; there were five times as
+    // many of them.
+    std::vector<Shoebox> active;
+    std::vector<std::size_t> active_rows;
+    std::int32_t chunk_start = planned.empty() ? 0 : planned[0].bbox[4];
+    while (at < planned.size() || !active.empty()) {
+      if (active.empty() && at < planned.size()) {
+        chunk_start = std::max(chunk_start, planned[at].bbox[4]);
+      }
+      const std::int32_t chunk_limit =
+          chunk_start + static_cast<std::int32_t>(window);
+      // Open everything starting before the chunk's end -- capped by
+      // --max-boxes, but never part way through the boxes of one frame, and
+      // when the cap bites the chunk ENDS where opening stopped. Otherwise a
+      // box not yet opened would miss the frames the chunk reads.
       std::size_t stop = at;
-      std::int32_t highest = window_start;
-      while (stop < planned.size() && planned[stop].bbox[4] < window_end &&
-             stop - at < max_boxes) {
-        highest = std::max(highest, planned[stop].bbox[5]);
+      while (stop < planned.size() && planned[stop].bbox[4] < chunk_limit) {
+        if (stop - at >= max_boxes && planned[stop].bbox[4] > chunk_start) break;
         ++stop;
       }
-      const std::size_t count = stop - at;
+      const std::int32_t chunk_end =
+          (stop < planned.size() && planned[stop].bbox[4] < chunk_limit)
+              ? planned[stop].bbox[4]
+              : chunk_limit;
+      const std::size_t opening = stop - at;
 
-      // The boxes, built in parallel: this is the mask, and it was 46 seconds.
+      // The new boxes, built in parallel: this is the mask, and it was 46
+      // seconds before it was.
       const double t_open_start = now_wall();
-      boxes.assign(count, Shoebox{});
-      in_parallel(count, [&](std::size_t i) {
+      const std::size_t first_new = active.size();
+      active.resize(first_new + opening);
+      active_rows.resize(first_new + opening);
+      in_parallel(opening, [&](std::size_t i) {
+        active_rows[first_new + i] = at + i;
         BoxRejection ignored = BoxRejection::kNone;
-        if (build_shoebox(e, *planned[at + i].prediction, mask_options,
-                          &boxes[i], &ignored)) {
-          boxes[i].data.assign(boxes[i].size(), 0.0f);
+        Shoebox &box = active[first_new + i];
+        if (build_shoebox(e, *planned[at + i].prediction, mask_options, &box,
+                          &ignored)) {
+          box.data.assign(box.size(), 0.0f);
         }
       });
+      at = stop;
       t_open += now_wall() - t_open_start;
-      most_open = std::max(most_open, count);
+      most_open = std::max(most_open, active.size());
 
-      // Which boxes each frame touches, so a worker filling a frame knows
-      // what to write without searching every box in the window.
+      // Which open boxes each of THIS chunk's frames touches.
       std::map<std::int32_t, std::vector<std::size_t>> touching;
-      for (std::size_t i = 0; i < count; ++i) {
-        for (std::int32_t z = boxes[i].bbox[4]; z < boxes[i].bbox[5]; ++z) {
-          touching[z].push_back(i);
-        }
+      for (std::size_t i = 0; i < active.size(); ++i) {
+        const std::int32_t lo = std::max(active[i].bbox[4], chunk_start);
+        const std::int32_t hi = std::min(active[i].bbox[5], chunk_end);
+        for (std::int32_t z = lo; z < hi; ++z) touching[z].push_back(i);
       }
       std::vector<std::int32_t> frame_numbers;
       frame_numbers.reserve(touching.size());
@@ -826,7 +849,7 @@ int main(int argc, char **argv) {
               reinterpret_cast<const Pixel *>(pixels.data());
           std::size_t bad_count = 0;
           for (std::size_t i : touching[z]) {
-            Shoebox &box = boxes[i];
+            Shoebox &box = active[i];
             if (box.data.empty()) continue;
             const std::int32_t zi = z - box.bbox[4];
             for (std::int32_t y = 0; y < box.ny(); ++y) {
@@ -879,7 +902,14 @@ int main(int argc, char **argv) {
       frames_read += frames_done.load();
       bad_pixels += bad_here.load();
       frames_missing += unread.load();
-      for (const auto &entry : touching) wanted.insert(entry.first);
+      // Only frames the series has. A box can reach past the last image, and
+      // counting frames that cannot be read made a slice of 300 frames read
+      // twice report "356 wanted, each read 1.69 times" instead of 2.00.
+      for (const auto &entry : touching) {
+        if (entry.first >= 0 && static_cast<std::size_t>(entry.first) < keys.size()) {
+          wanted.insert(entry.first);
+        }
+      }
       // Thread-seconds, summed over threads, NOT the busiest thread's share.
       //
       // Reporting the busiest thread per phase gave fetching 77.1 per cent and
@@ -897,13 +927,34 @@ int main(int argc, char **argv) {
       t_decompress += summed(decompress_by_thread);
       t_fill += summed(fill_by_thread);
 
+      // Close what is finished: every frame a box spans is now filled.
+      std::vector<Shoebox> boxes;
+      std::vector<std::size_t> rows;
+      {
+        std::vector<Shoebox> staying;
+        std::vector<std::size_t> staying_rows;
+        for (std::size_t i = 0; i < active.size(); ++i) {
+          if (active[i].bbox[5] <= chunk_end) {
+            boxes.push_back(std::move(active[i]));
+            rows.push_back(active_rows[i]);
+          } else {
+            staying.push_back(std::move(active[i]));
+            staying_rows.push_back(active_rows[i]);
+          }
+        }
+        active.swap(staying);
+        active_rows.swap(staying_rows);
+      }
+      const std::size_t count = boxes.size();
+      chunk_start = chunk_end;
+
       if (pass == 0) {
         // Integrate, in parallel over boxes.
         const double t_close_start = now_wall();
         std::atomic<std::size_t> done{0};
         in_parallel(count, [&](std::size_t i) {
           if (boxes[i].data.empty()) return;
-          if (close(at + i, &boxes[i])) done.fetch_add(1);
+          if (close(rows[i], &boxes[i])) done.fetch_add(1);
         });
         integrated += done.load();
         t_integrate += now_wall() - t_close_start;
@@ -931,7 +982,7 @@ int main(int argc, char **argv) {
             thread_local std::size_t slot = lanes;
             if (slot == lanes) slot = lane.fetch_add(1) % lanes;
             if (boxes[i].data.empty()) return;
-            const std::size_t row = at + i;
+            const std::size_t row = rows[i];
             const double signal = isum.reals[row];
             const double sigma = std::sqrt(std::max(ivar.reals[row], 1e-12));
             if (!(signal > least_signal * sigma)) return;
@@ -962,7 +1013,7 @@ int main(int argc, char **argv) {
         std::atomic<std::size_t> done{0};
         in_parallel(count, [&](std::size_t i) {
           if (boxes[i].data.empty()) return;
-          const std::size_t row = at + i;
+          const std::size_t row = rows[i];
           const Prediction &q = *planned[row].prediction;
           // The background the GLM found in the first pass, put back so the
           // fit subtracts the same thing the sum did.
@@ -1026,12 +1077,10 @@ int main(int argc, char **argv) {
           // convention: a voxel with no measurement is zero, as the spot
           // finder has always written it.
           to_dials_convention(&boxes[i]);
-          saved[at + i] = std::move(boxes[i]);
+          saved[rows[i]] = std::move(boxes[i]);
         }
       }
-      boxes.clear();
-      at = stop;
-      if (at >= planned.size() && pass == 0 && fitting) {
+      if (at >= planned.size() && active.empty() && pass == 0 && fitting) {
         // Between the passes: the profiles are what they are going to be.
         finalise_reference(&reference);
         const std::string profile_path = args.value("--save-profiles", "");
@@ -1076,12 +1125,13 @@ int main(int argc, char **argv) {
         } else {
           pass = 1;
           at = 0;
+          chunk_start = planned.empty() ? 0 : planned[0].bbox[4];
           continue;
         }
       }
     }
     if (save) shoebox_bytes = encode_shoeboxes(saved);
-    std::printf("at most %zu shoeboxes in a window\n", most_open);
+    std::printf("at most %zu shoeboxes open at once\n", most_open);
     if (fitting) std::printf("%zu of %zu profile fitted\n", fitted, planned.size());
 
     std::printf("%zu frames read (%zu wanted by a shoebox, each read %.2f "
