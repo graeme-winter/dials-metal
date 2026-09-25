@@ -2067,3 +2067,29 @@ needs measuring again on matched data before anything is changed because of it.
 
 The variance fix from the same period is not affected: it was confirmed
 independently by scaling on matched data.
+
+### mxeq residuals: plotting it
+
+    mxeq residuals integrated.refl -o residuals.html
+    mxeq residuals integrated.refl --least-signal 3      # weaker ones too
+
+An HTML page, plotly from its CDN as with `mxeq html`, with four views, each
+answering a different question:
+
+* **against image number** -- whether the scan-varying model has drifted. A
+  median that wanders along the scan is the crystal or the beam moving in a way
+  refinement did not follow.
+* **against resolution**, on 1/d^2 -- whether the cell is right. Cell and
+  distance errors both scale positions with 1/d, so they grow outward.
+* **across the detector**, the median fast and slow residual in a grid of
+  cells -- whether the detector model is right. A pattern that follows the
+  panel rather than the reflections is a tilt, a distance or the parallax.
+* **the pull**, residual over sigma, against a unit Gaussian -- whether the
+  prediction error is larger than the counting noise at all, and by how much.
+
+Above them a table: median (the systematic), spread (the robust scatter),
+counting (the median sigma) and prediction, `sqrt(spread^2 - counting^2)`.
+Strong reflections by default, I/sigma of ten or more, because for those the
+counting part is a hundredth of a pixel and what is left is the prediction.
+Rows with no centre of mass are skipped rather than drawn as zero, which would
+pull every median toward a perfect prediction.

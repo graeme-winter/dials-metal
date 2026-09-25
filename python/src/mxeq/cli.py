@@ -165,6 +165,26 @@ def main(argv: list[str] | None = None) -> int:
         "which needs a network connection once to draw",
     )
 
+    rs = sub.add_parser(
+        "residuals",
+        help="an HTML report of how well positions were predicted, from "
+        "mxi_integrate's xyzres.px columns",
+    )
+    rs.add_argument("path", help="an integrated.refl written by mxi_integrate")
+    rs.add_argument("-o", "--output", default="residuals.html", help="where to write")
+    rs.add_argument(
+        "--least-signal",
+        type=float,
+        default=10.0,
+        help="only reflections of at least this I/sigma (10). For strong ones "
+        "counting noise is a hundredth of a pixel and what is left is the "
+        "prediction; lower it to see the weak ones too",
+    )
+    rs.add_argument("--bins", type=int, default=30, help="bins along each axis")
+    rs.add_argument("--cells", type=int, default=12,
+                    help="the detector map is this many cells a side")
+    rs.add_argument("--title", default="position residuals")
+
     ex = sub.add_parser(
         "explain",
         help="say why observations of two integrations went unpartnered",
@@ -243,6 +263,21 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("path")
 
     args = parser.parse_args(argv)
+
+    if args.command == "residuals":
+        from . import residuals
+
+        print(
+            residuals.write(
+                refl.load(args.path),
+                args.output,
+                least_signal=args.least_signal,
+                n_bins=args.bins,
+                cells=args.cells,
+                title=args.title,
+            )
+        )
+        return 0
 
     if args.command == "explain":
         from . import match as matching
