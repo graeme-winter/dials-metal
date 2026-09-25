@@ -9,6 +9,16 @@ import fixtures
 from mxeq import reindex
 
 
+# gemmi is optional in mxeq -- the code checks for it and returns None without
+# it -- so a test that needs it is skipped when it is absent rather than
+# reported as a failure of code that is working. A fresh environment without it
+# showed four such failures, all of them the missing package.
+needs_gemmi = pytest.mark.skipif(
+    __import__("importlib").util.find_spec("gemmi") is None,
+    reason="needs gemmi, which mxeq treats as optional",
+)
+
+
 def test_candidate_pool_holds_both_lattice_groups():
     pool = reindex.candidate_operators()
     assert len(pool) >= 48
@@ -68,6 +78,7 @@ def test_metric_compatibility_rejects_an_operator_the_cell_cannot_admit():
     assert not reindex.find_operator(hkl, hkl @ swap_ac, real).metric_compatible
 
 
+@needs_gemmi
 def test_space_group_lookup_from_hall():
     assert reindex.space_group_name(fixtures.HALL) is not None
     assert reindex.point_group_operators(fixtures.HALL)
