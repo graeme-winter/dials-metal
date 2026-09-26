@@ -60,7 +60,8 @@ def integrate(tmp_path, threads, tag):
     ]
     if IMAGES:
         command += ["--images", IMAGES]
-    run = subprocess.run(command, capture_output=True, text=True)
+    # In the test's own directory, where the program writes its log.
+    run = subprocess.run(command, capture_output=True, text=True, cwd=tmp_path)
     assert run.returncode == 0, run.stderr[-2000:]
     return out.read_bytes()
 

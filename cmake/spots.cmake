@@ -480,6 +480,14 @@ if(SPOTFINDER_TESTS)
 
     # mxi_integrate needs pixels, so it lives here with the HDF5 guard rather
     # than in the top-level list: everything else in apps/ builds without HDF5.
+    # Every program mirrors its output to mxi_<program>.log where it runs;
+    # checked through real binaries, one of them the spot finder, whose main is
+    # its own, so it lives inside this guard with it.
+    add_test(NAME log_mirror
+             COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/log_mirror.sh
+                     $<TARGET_FILE:mxi_background> $<TARGET_FILE:mxi_index>
+                     $<TARGET_FILE:mxi_find>)
+
     add_executable(mxi_integrate ${CMAKE_CURRENT_SOURCE_DIR}/apps/mxi_integrate.cc)
     target_link_libraries(mxi_integrate
                           PRIVATE mxi spotfinder_series spotfinder_decompress

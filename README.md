@@ -166,6 +166,13 @@ mxi_integrate refined.expt refined.refl -o integrated.refl --scan-blocks 36
 dials.scale   refined.expt integrated.refl
 ```
 
+Each program prints its report to standard output and writes the same report
+to `mxi_<program>.log` where it runs -- `mxi_find.log`, `mxi_integrate.log` --
+as DIALS writes `dials.find_spots.log`. Warnings and errors go to standard error
+and into the log too, in order, so the log of a run that failed says why. A run
+that only asks for `--help` or `--version` writes no log, rather than overwrite
+the last real run's.
+
 Output is interchangeable with DIALS at every boundary: any stage can be
 swapped for DIALS' own, `dials.scale` and `dials.export` read the integrated
 table, and `dials.image_viewer` draws every stage's output. To compare a stage

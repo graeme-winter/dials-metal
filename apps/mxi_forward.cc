@@ -17,6 +17,7 @@
 #include "../src/refl.hh"
 #include "args.hh"
 #include "forward.hh"
+#include "log_mirror.hh"
 #include "profile_model.hh"
 #include "shoebox.hh"
 
@@ -164,4 +165,10 @@ int run_program(int argc, char **argv) {
 
 } // namespace mxi
 
-int main(int argc, char **argv) { return mxi::run_program(argc, argv); }
+int main(int argc, char **argv) {
+  // Mirrored to mxi_forward.log in the working directory, as DIALS writes
+  // dials.<program>.log; not for a run that only asks for help.
+  if (!mxi::only_asks_for_help(argc, argv))
+    mxi::mirror_to_log("mxi_forward.log");
+  return mxi::run_program(argc, argv);
+}

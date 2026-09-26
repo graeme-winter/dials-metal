@@ -2,3 +2,5 @@ build/
 *.o
 *.a
 *.refl
+# what every program writes where it runs, as DIALS writes dials.*.log
+mxi_*.log

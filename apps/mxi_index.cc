@@ -17,6 +17,7 @@
 #include "args.hh"
 #include "fft.hh"
 #include "index.hh"
+#include "log_mirror.hh"
 #include "refine.hh"
 
 namespace mxi {
@@ -203,4 +204,10 @@ int run_program(int argc, char **argv) {
 
 } // namespace mxi
 
-int main(int argc, char **argv) { return mxi::run_program(argc, argv); }
+int main(int argc, char **argv) {
+  // Mirrored to mxi_index.log in the working directory, as DIALS writes
+  // dials.<program>.log; not for a run that only asks for help.
+  if (!mxi::only_asks_for_help(argc, argv))
+    mxi::mirror_to_log("mxi_index.log");
+  return mxi::run_program(argc, argv);
+}

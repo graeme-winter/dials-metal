@@ -172,8 +172,9 @@ invalid voxel and rejects a table that does.
 
 ## What it prints
 
-Standard output is for results; warnings and errors go to standard error. A
-run says what profile model it used and where the images came from, how many
+Standard output is for results; warnings and errors go to standard error, and
+both go to `mxi_integrate.log` in the working directory, in order. A run says
+what profile model it used and where the images came from, how many
 reflections it predicted and why any were not integrated, and how many
 reference profiles it learned; then two tables, modelled on the summaries
 `dials.integrate` prints and limited to what is measured here:

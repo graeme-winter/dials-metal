@@ -44,6 +44,7 @@
 #include <utility>
 #include <vector>
 
+#include "../log_mirror.hh"
 #include "decompress.hh"
 #include "dext.hh"
 #include "dials_spots.hh"
@@ -510,6 +511,10 @@ void reconcile(const expt::Info &experiments, const series::Info &series,
 } // namespace
 
 int main(int argc, char **argv) {
+  // Mirrored to mxi_find.log in the working directory, as DIALS writes
+  // dials.find_spots.log; not for a run that only asks for help.
+  if (!mxi::only_asks_for_help(argc, argv))
+    mxi::mirror_to_log("mxi_find.log");
   Options options;
   if (!parse_options(argc, argv, &options))
     return 2;
