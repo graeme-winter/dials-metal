@@ -22,7 +22,7 @@
 
 #include <cmath>
 
-#include "geometry.h"
+#include "geometry.hh"
 
 namespace mxi {
 

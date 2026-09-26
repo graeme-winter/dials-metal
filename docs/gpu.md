@@ -411,7 +411,7 @@ the parameter vector.
 
 ## Precision: measured, and the earlier estimate was wrong
 
-Apple GPUs have no double precision at all. `src/target.h` is the whole target
+Apple GPUs have no double precision at all. `src/target.hh` is the whole target
 written once and templated on the scalar type, so the same code compiles at
 both precisions -- which matters, because a separate float implementation
 disagreeing with the double one could be the precision or could be a
@@ -463,7 +463,7 @@ nobody later assumes numerical differentiation would port as it stands.
 
 ### The analytical derivative in float32: measured
 
-`src/derivatives_t.h` is the same treatment applied to the derivatives.
+`src/derivatives_t.hh` is the same treatment applied to the derivatives.
 Compiled with `double` it reproduces `crystal_derivatives`,
 `detector_derivatives` and `beam_derivatives` **bit for bit** -- the same
 operations in the same order -- so the float number is not confounded by a
@@ -486,7 +486,7 @@ backwards.
 
 ## Analytical derivatives: written, and validated
 
-`src/derivatives.h` implements Appendix A of Waterman et al. (2016) for the
+`src/derivatives.hh` implements Appendix A of Waterman et al. (2016) for the
 crystal parameters. They matter more for a device than for a CPU, and for a
 reason that is not speed: a finite difference is a difference of two nearly
 equal residuals, and on a float32 device some of the significance is spent on

@@ -35,7 +35,7 @@ Two overlaps, neither resolved:
 * `src/spots/expt.cc` reads experiment lists too, but only for the scan range,
   the panel size, the identifier and the image mapping, and its header says it
   is not trying to be dxtbx. The geometry conventions still live in one place,
-  `src/geometry.h`.
+  `src/geometry.hh`.
 
 ## Hard constraints
 
@@ -106,7 +106,7 @@ directions reproduce DIALS to the last bit; `entering` agrees on 100% of 13072
 reflections; the full chain lands on `A h` with median residual 1.9e-4.
 
 The goniometer decomposition is now closed too, against the l-cysteine
-four-sweep data in `tests/real_cysteine.h`. Insulin could never have done it:
+four-sweep data in `tests/real_cysteine.hh`. Insulin could never have done it:
 every setting angle there is zero, so both rotations are the identity and any
 arrangement passes.
 
@@ -617,7 +617,7 @@ took `--beam` as the experiment list, `indexed.expt` as the reflections, and
 reported "unknown option 'indexed.refl'". The error named an argument that was
 not the problem, which is worse than no message.
 
-`src/args.h` splits a command line into positionals and options wherever they
+`src/args.hh` splits a command line into positionals and options wherever they
 appear, and is in `src/` rather than `apps/` so that it can be tested. Argument
 parsing is exactly the kind of code that never gets tested because it looks too
 simple to get wrong.

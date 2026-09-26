@@ -38,9 +38,9 @@
 #include <string>
 #include <vector>
 
-#include "expt.h"
-#include "geometry.h"
-#include "refl.h"
+#include "expt.hh"
+#include "geometry.hh"
+#include "refl.hh"
 
 namespace mxi {
 

@@ -15,11 +15,11 @@
 #include <string>
 #include <vector>
 
-#include "args.h"
-#include "expt.h"
-#include "profile_grid.h"
-#include "refl.h"
-#include "shoebox.h"
+#include "args.hh"
+#include "../src/expt.hh"
+#include "profile_grid.hh"
+#include "../src/refl.hh"
+#include "shoebox.hh"
 
 namespace mxi {
 

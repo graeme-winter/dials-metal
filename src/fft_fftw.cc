@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-#include "fft.h"
+#include "fft.hh"
 
 namespace mxi {
 

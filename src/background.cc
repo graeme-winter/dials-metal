@@ -1,4 +1,4 @@
-#include "background.h"
+#include "background.hh"
 
 #include <algorithm>
 #include <cmath>

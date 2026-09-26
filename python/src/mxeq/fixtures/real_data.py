@@ -1,7 +1,7 @@
 """Embed a sample of real DIALS output as a C++ header.
 
 Forty reflections and the geometry that produced them, so the conventions in
-`src/geometry.h` are checked against a file DIALS wrote on every build. That is
+`src/geometry.hh` are checked against a file DIALS wrote on every build. That is
 the only kind of check that can catch a wrong convention: the closed-loop test
 in test_geometry.cc applies each convention twice, once forward and once
 backward, so an error in one cancels itself.
@@ -14,7 +14,7 @@ one leaves a 1.7e-3 mm discrepancy that looks like a flaw in the parallax model
 and is not.
 
     python tests/make_real_data.py imported.expt indexed.expt indexed.refl \
-        > tests/real_data.h
+        > tests/real_data.hh
 """
 
 import json

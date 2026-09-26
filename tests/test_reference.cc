@@ -3,10 +3,10 @@
 #include <cmath>
 #include <vector>
 
-#include "../src/mask.h"
-#include "../src/predict.h"
-#include "../src/reference.h"
-#include "check.h"
+#include "../src/mask.hh"
+#include "../src/predict.hh"
+#include "../src/reference.hh"
+#include "check.hh"
 
 namespace mxi {
 

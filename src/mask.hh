@@ -19,9 +19,9 @@
 #include <cstddef>
 #include <vector>
 
-#include "predict.h"
-#include "profile_model.h"
-#include "shoebox.h"
+#include "predict.hh"
+#include "profile_model.hh"
+#include "shoebox.hh"
 
 namespace mxi {
 

@@ -14,10 +14,10 @@
 #include <cmath>
 #include <vector>
 
-#include "../src/geometry.h"
-#include "../src/predict.h"
-#include "check.h"
-#include "real_data.h"
+#include "../src/geometry.hh"
+#include "../src/predict.hh"
+#include "check.hh"
+#include "real_data.hh"
 
 namespace mxi {
 

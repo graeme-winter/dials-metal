@@ -16,7 +16,7 @@ from ..stats import describe, resolution_bins
 #: overlapped_bg and overlapped_fg, and bad_shoebox was bit 16, which DIALS
 #: calls used_in_modelling and which has no bad_shoebox at all. Nothing read
 #: them yet, which is the only reason no result was wrong. test_flags.py holds
-#: these to the C++ constants in src/refl.h so the two cannot drift apart.
+#: these to the C++ constants in src/refl.hh so the two cannot drift apart.
 FLAGS = {
     "predicted": 1 << 0,
     "observed": 1 << 1,

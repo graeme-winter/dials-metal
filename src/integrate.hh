@@ -38,9 +38,9 @@
 #include <cstdint>
 #include <vector>
 
-#include "background.h"
-#include "geometry.h"
-#include "shoebox.h"
+#include "background.hh"
+#include "geometry.hh"
+#include "shoebox.hh"
 
 namespace mxi {
 

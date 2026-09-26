@@ -1,4 +1,4 @@
-#include "profile_grid.h"
+#include "profile_grid.hh"
 
 #include <cmath>
 

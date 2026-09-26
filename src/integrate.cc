@@ -1,5 +1,5 @@
-#include "integrate.h"
-#include "refl.h"
+#include "integrate.hh"
+#include "refl.hh"
 
 #include <cmath>
 

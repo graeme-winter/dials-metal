@@ -1,4 +1,4 @@
-#include "fft.h"
+#include "fft.hh"
 
 #include <cmath>
 #include <stdexcept>

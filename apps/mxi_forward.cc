@@ -13,12 +13,12 @@
 #include <string>
 #include <vector>
 
-#include "args.h"
-#include "expt.h"
-#include "forward.h"
-#include "profile_model.h"
-#include "refl.h"
-#include "shoebox.h"
+#include "args.hh"
+#include "../src/expt.hh"
+#include "forward.hh"
+#include "profile_model.hh"
+#include "../src/refl.hh"
+#include "shoebox.hh"
 
 namespace mxi {
 

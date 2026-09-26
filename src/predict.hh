@@ -23,7 +23,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "geometry.h"
+#include "geometry.hh"
 
 namespace mxi {
 

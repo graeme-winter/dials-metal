@@ -17,12 +17,12 @@
 #include <tuple>
 #include <complex>
 
-#include "../src/expt.h"
-#include "../src/fft.h"
-#include "../src/index.h"
-#include "../src/predict.h"
-#include "../src/refl.h"
-#include "check.h"
+#include "../src/expt.hh"
+#include "../src/fft.hh"
+#include "../src/index.hh"
+#include "../src/predict.hh"
+#include "../src/refl.hh"
+#include "check.hh"
 
 namespace mxi {
 

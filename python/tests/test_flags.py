@@ -11,7 +11,7 @@ import re
 
 from mxeq.checks.common import FLAGS
 
-HEADER = pathlib.Path(__file__).resolve().parents[2] / "src" / "refl.h"
+HEADER = pathlib.Path(__file__).resolve().parents[2] / "src" / "refl.hh"
 
 
 def _cpp_flags():

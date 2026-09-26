@@ -1,4 +1,4 @@
-#include "mask.h"
+#include "mask.hh"
 
 #include <algorithm>
 #include <cmath>

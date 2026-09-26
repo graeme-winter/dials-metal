@@ -24,10 +24,10 @@
 
 #include <set>
 
-#include "args.h"
-#include "expt.h"
-#include "linalg.h"
-#include "refl.h"
+#include "args.hh"
+#include "../src/expt.hh"
+#include "linalg.hh"
+#include "../src/refl.hh"
 
 namespace mxi {
 

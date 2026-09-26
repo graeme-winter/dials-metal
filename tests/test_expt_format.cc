@@ -20,11 +20,11 @@
 #include <cstdio>
 #include <string>
 
-#include "../src/derivatives.h"
-#include "../src/expt.h"
-#include "../src/json.h"
-#include "../src/refine.h"
-#include "check.h"
+#include "../src/derivatives.hh"
+#include "../src/expt.hh"
+#include "../src/json.hh"
+#include "../src/refine.hh"
+#include "check.hh"
 
 namespace mxi {
 

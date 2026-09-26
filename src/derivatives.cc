@@ -1,9 +1,9 @@
-#include "derivatives.h"
+#include "derivatives.hh"
 
 #include <algorithm>
 #include <cmath>
 
-#include "predict.h"
+#include "predict.hh"
 
 namespace mxi {
 

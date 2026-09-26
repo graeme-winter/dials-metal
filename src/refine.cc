@@ -1,4 +1,4 @@
-#include "refine.h"
+#include "refine.hh"
 
 #include <algorithm>
 #include <chrono>
@@ -6,8 +6,8 @@
 #include <cmath>
 #include <cstdio>
 
-#include "derivatives.h"
-#include "predict.h"
+#include "derivatives.hh"
+#include "predict.hh"
 
 namespace mxi {
 

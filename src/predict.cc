@@ -1,4 +1,4 @@
-#include "predict.h"
+#include "predict.hh"
 
 #include <algorithm>
 #include <atomic>

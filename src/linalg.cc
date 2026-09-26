@@ -1,4 +1,4 @@
-#include "linalg.h"
+#include "linalg.hh"
 
 #include <cmath>
 

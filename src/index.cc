@@ -1,4 +1,4 @@
-#include "index.h"
+#include "index.hh"
 
 #include <algorithm>
 #include <chrono>
@@ -7,8 +7,8 @@
 #include <cstdio>
 #include <numeric>
 
-#include "fft.h"
-#include "refine.h"
+#include "fft.hh"
+#include "refine.hh"
 
 namespace mxi {
 

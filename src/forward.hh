@@ -26,8 +26,8 @@
 #include <cstddef>
 #include <vector>
 
-#include "profile_model.h"
-#include "shoebox.h"
+#include "profile_model.hh"
+#include "shoebox.hh"
 
 namespace mxi {
 

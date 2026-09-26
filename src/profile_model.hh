@@ -40,8 +40,8 @@
 #include <cstddef>
 #include <vector>
 
-#include "geometry.h"
-#include "shoebox.h"
+#include "geometry.hh"
+#include "shoebox.hh"
 
 namespace mxi {
 

@@ -151,7 +151,7 @@ settled the profile model. From the paper:
 
 **Pixels: this package had them all along and was skipping them.** A
 `strong.refl` carries a `Shoebox<>` column -- 13.6 MB of it for insulin -- and
-the reader dropped it as an undecoded type. `src/shoebox.h` now decodes it. The
+the reader dropped it as an undecoded type. `src/shoebox.hh` now decodes it. The
 layout was derived from a real `dials.find_spots` file and checked against all
 13766 of its records:
 
@@ -618,7 +618,7 @@ volume. Once background is summed from that volume the difference stops being
 cosmetic.
 
 **The pixels were in the file all along** -- the `Shoebox<>` column -- and
-`src/shoebox.h` reads them.
+`src/shoebox.hh` reads them.
 
 ### Checked against a DIALS integrated.refl
 
@@ -699,7 +699,7 @@ before the numbers were read.
 
 ### Background: implemented and checked against DIALS
 
-`src/background.h`, Parkhurst's robust GLM with a Poisson link and Huber
+`src/background.hh`, Parkhurst's robust GLM with a Poisson link and Huber
 weights at c = 1.345. Against DIALS' own `background.mean` on 2000 reflections
 of the real 30 degree sweep:
 
@@ -1093,7 +1093,7 @@ is here and the spot is there".
 
 ### Profile fitting: implemented, and not yet right
 
-`src/reference.h`, Kabsch sections 3.3 and 3.4 with Leslie section 6. Two
+`src/reference.hh`, Kabsch sections 3.3 and 3.4 with Leslie section 6. Two
 passes over the images, which is the slow way round and the right one: the
 reference profiles are learned from the reflections themselves, and a profile
 learned from part of a scan and applied to the rest would be a different

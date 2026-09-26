@@ -13,8 +13,8 @@
 #include <string>
 #include <vector>
 
-#include "args.h"
-#include "background.h"
+#include "args.hh"
+#include "background.hh"
 
 namespace mxi {
 

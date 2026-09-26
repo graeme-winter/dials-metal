@@ -15,13 +15,13 @@
 #include <string>
 #include <vector>
 
-#include "args.h"
-#include "expt.h"
-#include "mask.h"
-#include "predict.h"
-#include "profile_model.h"
-#include "refl.h"
-#include "shoebox.h"
+#include "args.hh"
+#include "../src/expt.hh"
+#include "mask.hh"
+#include "predict.hh"
+#include "profile_model.hh"
+#include "../src/refl.hh"
+#include "shoebox.hh"
 
 namespace mxi {
 

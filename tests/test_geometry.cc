@@ -15,10 +15,10 @@
 #include <array>
 #include <cmath>
 
-#include "../src/geometry.h"
-#include "../src/linalg.h"
-#include "../src/predict.h"
-#include "check.h"
+#include "../src/geometry.hh"
+#include "../src/linalg.hh"
+#include "../src/predict.hh"
+#include "check.hh"
 
 namespace mxi {
 

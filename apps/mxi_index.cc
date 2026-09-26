@@ -12,12 +12,12 @@
 
 #include <set>
 
-#include "args.h"
-#include "expt.h"
-#include "fft.h"
-#include "index.h"
-#include "refine.h"
-#include "refl.h"
+#include "args.hh"
+#include "../src/expt.hh"
+#include "fft.hh"
+#include "index.hh"
+#include "refine.hh"
+#include "../src/refl.hh"
 
 namespace mxi {
 

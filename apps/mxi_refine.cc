@@ -8,10 +8,10 @@
 #include <set>
 #include <string>
 
-#include "args.h"
-#include "expt.h"
-#include "refine.h"
-#include "refl.h"
+#include "args.hh"
+#include "../src/expt.hh"
+#include "refine.hh"
+#include "../src/refl.hh"
 
 namespace mxi {
 

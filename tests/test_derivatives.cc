@@ -16,12 +16,12 @@
 #include <cmath>
 #include <vector>
 
-#include "../src/derivatives.h"
-#include "../src/predict.h"
-#include "../src/refine.h"
-#include "../src/refl.h"
-#include "check.h"
-#include "real_data.h"
+#include "../src/derivatives.hh"
+#include "../src/predict.hh"
+#include "../src/refine.hh"
+#include "../src/refl.hh"
+#include "check.hh"
+#include "real_data.hh"
 
 namespace mxi {
 

@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "../src/background.h"
-#include "check.h"
+#include "../src/background.hh"
+#include "check.hh"
 
 namespace mxi {
 

@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-#include "refl.h"
+#include "refl.hh"
 
 namespace mxi {
 

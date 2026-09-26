@@ -3,9 +3,9 @@
 #include <cmath>
 #include <vector>
 
-#include "../src/mask.h"
-#include "../src/predict.h"
-#include "check.h"
+#include "../src/mask.hh"
+#include "../src/predict.hh"
+#include "check.hh"
 
 namespace mxi {
 

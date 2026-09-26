@@ -1,4 +1,4 @@
-#include "profile_model.h"
+#include "profile_model.hh"
 
 #include <cmath>
 

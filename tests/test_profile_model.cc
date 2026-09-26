@@ -8,10 +8,10 @@
 #include <cmath>
 #include <vector>
 
-#include "../src/profile_model.h"
-#include "../src/shoebox.h"
-#include "check.h"
-#include "../src/profile_grid.h"
+#include "../src/profile_model.hh"
+#include "../src/shoebox.hh"
+#include "check.hh"
+#include "../src/profile_grid.hh"
 
 namespace mxi {
 

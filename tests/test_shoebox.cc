@@ -5,8 +5,8 @@
 #include <string>
 #include <vector>
 
-#include "../src/shoebox.h"
-#include "check.h"
+#include "../src/shoebox.hh"
+#include "check.hh"
 
 namespace mxi {
 

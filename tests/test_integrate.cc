@@ -4,9 +4,9 @@
 #include <random>
 #include <vector>
 
-#include "../src/integrate.h"
-#include "../src/refl.h"
-#include "check.h"
+#include "../src/integrate.hh"
+#include "../src/refl.hh"
+#include "check.hh"
 
 namespace mxi {
 

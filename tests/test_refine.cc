@@ -9,12 +9,12 @@
 #include <algorithm>
 #include <cmath>
 
-#include "../src/expt.h"
-#include "../src/predict.h"
-#include "../src/derivatives.h"
-#include "../src/refine.h"
-#include "../src/refl.h"
-#include "check.h"
+#include "../src/expt.hh"
+#include "../src/predict.hh"
+#include "../src/derivatives.hh"
+#include "../src/refine.hh"
+#include "../src/refl.hh"
+#include "check.hh"
 
 namespace mxi {
 

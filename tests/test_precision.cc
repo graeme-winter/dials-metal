@@ -20,13 +20,13 @@
 #include <cmath>
 #include <vector>
 
-#include "../src/derivatives.h"
-#include "../src/predict.h"
-#include "../src/refine.h"
-#include "../src/target.h"
-#include "check.h"
-#include "real_data.h"
-#include "../src/derivatives_t.h"
+#include "../src/derivatives.hh"
+#include "../src/predict.hh"
+#include "../src/refine.hh"
+#include "../src/target.hh"
+#include "check.hh"
+#include "real_data.hh"
+#include "../src/derivatives_t.hh"
 
 namespace mxi {
 

@@ -11,8 +11,8 @@
 #include <string>
 #include <vector>
 
-#include "../src/args.h"
-#include "check.h"
+#include "../src/args.hh"
+#include "check.hh"
 
 namespace mxi {
 

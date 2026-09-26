@@ -18,7 +18,7 @@
 
 #include <stdexcept>
 
-#include "../json.h"
+#include "../json.hh"
 
 namespace expt {
 

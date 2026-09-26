@@ -3,9 +3,9 @@
 #include <fstream>
 #include <string>
 
-#include "../src/refl.h"
-#include "../src/shoebox.h"
-#include "check.h"
+#include "../src/refl.hh"
+#include "../src/shoebox.hh"
+#include "check.hh"
 
 namespace mxi {
 

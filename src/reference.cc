@@ -1,11 +1,11 @@
-#include "reference.h"
+#include "reference.hh"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <utility>
 
-#include "profile_model.h"
+#include "profile_model.hh"
 
 namespace mxi {
 

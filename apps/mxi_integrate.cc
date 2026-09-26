@@ -28,16 +28,16 @@
 #include <string>
 #include <vector>
 
-#include "args.h"
-#include "background.h"
-#include "expt.h"
-#include "integrate.h"
-#include "mask.h"
-#include "predict.h"
-#include "profile_model.h"
-#include "refl.h"
-#include "reference.h"
-#include "shoebox.h"
+#include "args.hh"
+#include "background.hh"
+#include "../src/expt.hh"
+#include "integrate.hh"
+#include "mask.hh"
+#include "predict.hh"
+#include "profile_model.hh"
+#include "../src/refl.hh"
+#include "reference.hh"
+#include "shoebox.hh"
 
 #include "decompress.hh"
 #include "series.hh"

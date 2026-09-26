@@ -15,10 +15,10 @@
 #include <cmath>
 #include <vector>
 
-#include "../src/geometry.h"
-#include "check.h"
-#include "real_cysteine.h"
-#include "real_threeaxis.h"
+#include "../src/geometry.hh"
+#include "check.hh"
+#include "real_cysteine.hh"
+#include "real_threeaxis.hh"
 
 namespace mxi {
 

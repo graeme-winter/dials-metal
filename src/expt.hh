@@ -22,9 +22,9 @@
 #include <string>
 #include <vector>
 
-#include "geometry.h"
-#include "json.h"
-#include "json.h"
+#include "geometry.hh"
+#include "json.hh"
+#include "json.hh"
 
 namespace mxi {
 

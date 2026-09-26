@@ -19,7 +19,7 @@
 
 #include <cmath>
 
-#include "target.h"
+#include "target.hh"
 
 namespace mxi {
 
