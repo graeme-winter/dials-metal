@@ -30,6 +30,7 @@ Read the right-hand section before trusting the left.
 | A constant -0.15 image z residual, from the first `xyzres` table | mismatched inputs, and meaningless |
 | The z residual sinusoid as rocking-curve asymmetry | "The pixel plant": it grows with narrowness, not width |
 | Module-edge outliers as overconfident variances | "The outliers along the module edges were a flag, not an intensity" |
+| "Two runs at the same thread count agree exactly" ("Making the second pass pay for itself") | measured wrong: two four-thread runs differ by up to 3.6e-11 in profile-fitted intensities, because profile learning gives reflections to whichever thread is free; only one thread reproduces exactly. Summation is exact either way |
 
 **Mismatched inputs.** From the arrival of the 1800 image `i04-ins-small` model
 until the end of the record, both `.expt` files in the working directory were
