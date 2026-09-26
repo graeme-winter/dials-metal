@@ -214,6 +214,12 @@ something disagrees.
 * **z is the array index,** image n at n - 1. A frame arrives numbered by its
   index in the file; `single_file_indices` in the `.expt` says which file index
   each scan image is.
+* **A crystal's scan points are samples in a file and control points in a
+  refinement.** A file holds A at the image boundaries, N + 1 for N images, and
+  they are interpolated linearly, as DIALS does; a scan-varying refinement moves
+  the control points of a spline and writes it back as N + 1 samples. Mixing
+  the two once had predictions from any file re-smoothed, and a model refined
+  twice written with five scan points for three hundred images.
 * **An angle must be in the scan before the crystal is looked up at it.** The
   Ewald solver answers in whatever 2 pi interval its arithmetic lands in; a
   crystal looked up at -260 degrees on a scan from 0 to 180 is the crystal from
@@ -266,11 +272,6 @@ What is known not to be right yet, with what is known about each.
   placed on the prediction -- so it understates the prediction error in z, and
   most for the spots that ought to measure it best. On the detector it is
   sound.
-* **`A_at_scan_points` is read as spline control points.** DIALS writes the
-  values of A at each image boundary and interpolates linearly; reading them
-  linearly makes predictions agree with DIALS to 0.0000 images where this gives
-  0.0003. Small; which is right depends on what `mxi_refine` writes into that
-  field, and that has to be settled first.
 * **The background is about one per cent high at low resolution.** The signal
   reaches beyond the foreground -- measured falling from 0.74 counts a pixel at
   the foreground's edge to 0.58 at two and a half radii -- and a guard ring at

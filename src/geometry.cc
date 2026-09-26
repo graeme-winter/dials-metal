@@ -244,6 +244,26 @@ Mat3 Crystal::A_at(double t) const {
   if (n < 2)
     return A;
 
+  // SAMPLES, read from a file, are A at the image boundaries -- sample k at
+  // z = k, N + 1 of them for N images -- and are interpolated linearly between
+  // neighbours, as DIALS predicts from them. They used to go through the spline
+  // below as if they were control points, which smooths them a second time and
+  // stretches n points over n + 1 segments, drifting the index by about a point
+  // from one end of the scan to the other: predictions from a DIALS model
+  // differed from DIALS' by 0.0003 images, and ours from the model mxi_refine
+  // had fitted.
+  if (A_points_are_samples) {
+    const double u =
+        std::fmax(0.0, std::fmin(1.0, t)) * static_cast<double>(n - 1);
+    const std::size_t i = static_cast<std::size_t>(
+        std::fmin(std::floor(u), static_cast<double>(n - 2)));
+    const double f = u - static_cast<double>(i);
+    Mat3 out;
+    for (std::size_t k = 0; k < 9; ++k)
+      out.m[k] = (1.0 - f) * A_points[i].m[k] + f * A_points[i + 1].m[k];
+    return out;
+  }
+
   // The control points are padded by two copies at each end, which is what
   // clamps the curve so that it passes through the first and last exactly.
   // With Q[k] = P[clamp(k - 2, 0, n - 1)] the padded sequence has n + 4 entries

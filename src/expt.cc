@@ -245,6 +245,23 @@ ExperimentList experiments_from_json(const json::Value &document) {
       x.scan = scans[s];
     if (c >= 0 && static_cast<std::size_t>(c) < crystals.size())
       x.crystal = crystals[c];
+    // Samples of A are at the image boundaries, N + 1 for N images, as DIALS
+    // requires. Any other count cannot be placed on the scan, and is refused
+    // rather than guessed at -- an earlier writer here produced five for a 300
+    // image scan, and reading those as samples would give a model nobody
+    // refined.
+    if (x.crystal && x.crystal->A_points_are_samples &&
+        x.scan.num_images() > 0 &&
+        x.crystal->A_points.size() !=
+            static_cast<std::size_t>(x.scan.num_images()) + 1) {
+      throw ExptError(
+          "the crystal has " + std::to_string(x.crystal->A_points.size()) +
+          " scan points and the scan " + std::to_string(x.scan.num_images()) +
+          " images, where there must be one more point than images; "
+          "a scan-varying model written by an older mxi_refine may "
+          "have this, and refining it again from a static model "
+          "gives a good one");
+    }
     list.experiments.push_back(std::move(x));
   }
   return list;

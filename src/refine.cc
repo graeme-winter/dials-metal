@@ -577,13 +577,35 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
 
   // Seed the control points from the static matrix, so a scan-varying run
   // starts exactly where a static one would and can only improve on it.
+  //
+  // The points a scan-varying refinement moves are CONTROL POINTS of its
+  // spline. A crystal read from a file holds SAMPLES instead, so those are
+  // replaced whatever their number, and the flag cleared: left set, the writer
+  // took the control points for samples and wrote them out untouched -- five
+  // scan points for a 300 image scan, which DIALS cannot read, from refining a
+  // scan-varying model a second time.
   if (layout.points > 1) {
     for (Experiment &e : experiments) {
       if (!e.crystal)
         continue;
-      if (e.crystal->A_points.size() != layout.points) {
+      if (e.crystal->A_points_are_samples ||
+          e.crystal->A_points.size() != layout.points) {
         e.crystal->A_points.assign(layout.points, e.crystal->A);
+        e.crystal->A_points_are_samples = false;
       }
+    }
+  } else if (options.crystal) {
+    // A static refinement of the crystal refines A, so A must be what
+    // predicts. A scan-varying crystal predicts from its points instead, and
+    // refining A beneath them moved nothing: given a scan-varying model, the
+    // static pass refined only the detector and the beam, from an RMSD it had
+    // not earned. So the crystal becomes static, as it does in DIALS. Refining
+    // only the detector or the beam keeps a scan-varying crystal as it is.
+    for (Experiment &e : experiments) {
+      if (!e.crystal)
+        continue;
+      e.crystal->A_points.clear();
+      e.crystal->A_points_are_samples = false;
     }
   }
 

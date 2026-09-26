@@ -2356,3 +2356,41 @@ images from a cold cache. The same 2980 reflections are learned, flags and
 summation are identical, profile-fitted values move by 5.2e-15, the thread count
 still changes no byte, and the tests and an integration are clean under
 AddressSanitizer and UndefinedBehaviorSanitizer.
+
+
+## The scan points were two things, and nothing said which
+
+Open for a while as "the scan-point convention", and settled by reading the code
+rather than measuring: the WRITER was already right. `mxi_refine` evaluates its
+spline at the N + 1 image boundaries, and samples read from a file are marked
+`A_points_are_samples` and written back untouched. But the flag was consulted
+only by the writer, and that made three bugs from one missing rule.
+
+* **Reading.** `A_at` put every crystal's points through the cubic B-spline,
+  samples included: smoothed a second time, and n points stretched over n + 1
+  segments. Predictions from DIALS' own model on 1800 images of insulin were
+  0.00033 images from DIALS' predictions, spread 0.00052. Interpolated linearly
+  between image boundaries, as DIALS does: 0.00000, spread 0.00002, over 121567
+  reflections.
+* **Refining again.** Refinement replaced the points with control points only
+  when their NUMBER differed, and never cleared the flag. Refining a
+  scan-varying model a second time wrote its five control points untouched as
+  if they were samples: five scan points for three hundred images, which DIALS
+  cannot read. The reader now refuses any count but N + 1, with a message.
+* **The static pass.** A scan-varying crystal predicts from its points, so a
+  static refinement of A beneath them moved nothing: given a scan-varying
+  model, the static pass refined the detector and the beam alone, starting from
+  0.303 px it had not earned. A crystal refined statically is now static, as in
+  DIALS, and the same pass starts at 0.309 / 0.245 / 0.271, exactly where a
+  static crystal fresh from indexing starts.
+
+Our own round trip -- the predictions `mxi_refine` makes in memory against
+those from reading its `refined.expt` back -- is twice as close, 0.00027 images
+rms against 0.00052. Not exact, because a line between two image boundaries is
+not the cubic the refinement fitted between them: the resolution of the format,
+DIALS' as much as ours.
+
+On a 300 image integration the change moves predictions by at most 0.0044
+images, leaves every summed intensity as it was, and moves profile-fitted ones
+by a median ratio of 0.999998. The model predicting them is now the one refined.
+Four tests, one for each rule, each failing against the old code.

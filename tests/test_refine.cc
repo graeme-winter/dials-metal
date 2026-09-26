@@ -823,4 +823,134 @@ TEST(a_scan_varying_refinement_does_not_slow_down_with_control_points) {
   }
 }
 
+namespace {
+
+//: A crystal read from a file, as samples of A at the image boundaries: N + 1
+//: of them for N images, turning by `turn` degrees across the scan.
+void give_samples(Experiment *e, double turn) {
+  const std::size_t n = static_cast<std::size_t>(e->scan.num_images()) + 1;
+  e->crystal->A_points.clear();
+  for (std::size_t k = 0; k < n; ++k) {
+    const double t = static_cast<double>(k) / static_cast<double>(n - 1);
+    e->crystal->A_points.push_back(
+        rotation({0.2, 0.9, -0.39}, Scan::radians(turn * t)) * e->crystal->A);
+  }
+  e->crystal->A_points_are_samples = true;
+}
+
+double largest_difference(const Mat3 &a, const Mat3 &b) {
+  double worst = 0.0;
+  for (std::size_t k = 0; k < 9; ++k)
+    worst = std::fmax(worst, std::abs(a.m[k] - b.m[k]));
+  return worst;
+}
+
+} // namespace
+
+TEST(samples_are_interpolated_linearly_between_image_boundaries) {
+  // DIALS stores A at the image boundaries and predicts by interpolating
+  // between neighbours. These used to go through the spline as if they were
+  // control points: smoothed a second time, and n points stretched over n + 1
+  // segments, so predictions from a DIALS model were 0.0003 images from DIALS'
+  // own, where they now agree to 0.00002.
+  Crystal c = *base_experiment().crystal;
+  const Mat3 a0 = c.A;
+  const Mat3 a1 = rotation({0, 0, 1}, Scan::radians(1.0)) * c.A;
+  const Mat3 a2 = rotation({0, 0, 1}, Scan::radians(3.0)) * c.A;
+  c.A_points = {a0, a1, a2};
+  c.A_points_are_samples = true;
+  check::is_true(largest_difference(c.A_at(0.0), a0) < 1e-15,
+                 "sample 0 at the start");
+  check::is_true(largest_difference(c.A_at(0.5), a1) < 1e-15,
+                 "sample 1 at its boundary");
+  check::is_true(largest_difference(c.A_at(1.0), a2) < 1e-15,
+                 "sample 2 at the end");
+  Mat3 mid;
+  for (std::size_t k = 0; k < 9; ++k)
+    mid.m[k] = 0.5 * (a0.m[k] + a1.m[k]);
+  check::is_true(largest_difference(c.A_at(0.25), mid) < 1e-15,
+                 "and halfway between two boundaries, halfway between them");
+}
+
+TEST(scan_varying_refinement_turns_samples_into_control_points) {
+  // Refining a model read from a file: its samples must become the spline's
+  // control points, and say so. The flag was left set, so the writer took the
+  // five control points for samples and wrote them untouched -- five scan
+  // points for a scan of hundreds of images, which DIALS cannot read.
+  Experiment truth = base_experiment();
+  const Table observations = observations_from(truth, 3.0);
+  ExperimentList list;
+  Experiment start = truth;
+  give_samples(&start, 0.0);
+  list.experiments.push_back(start);
+
+  RefineOptions varying;
+  varying.outlier_sigma = 4.0;
+  varying.macrocycles = 2;
+  varying.scan_points = 5;
+  refine(list, observations, varying);
+  check::is_true(!list[0].crystal->A_points_are_samples,
+                 "they are control points now");
+  check::equal(static_cast<long long>(list[0].crystal->A_points.size()), 5,
+               "five of them");
+
+  const ExperimentList back = experiments_from_json(experiments_to_json(list));
+  check::equal(static_cast<long long>(back[0].crystal->A_points.size()),
+               static_cast<long long>(truth.scan.num_images()) + 1,
+               "and written as N + 1 samples, as DIALS needs");
+}
+
+TEST(a_static_refinement_of_a_scan_varying_crystal_makes_it_static) {
+  // A static refinement refines A, so A must be what predicts. A scan-varying
+  // crystal predicted from its points instead, and refining A beneath them
+  // moved nothing: the static pass refined the detector and the beam alone. So
+  // a crystal refined statically becomes static, as in DIALS -- and here its
+  // cell, perturbed, must come back, which it cannot if A predicts nothing.
+  Experiment truth = base_experiment();
+  const Table observations = observations_from(truth, 3.0);
+  ExperimentList list;
+  Experiment start = truth;
+  const UnitCell right = truth.crystal->cell();
+  // A tenth of a per cent on the cell, as refinement_recovers_a_perturbed_cell
+  // uses, and only the cell: the detector is held, so it cannot absorb it.
+  start.crystal->A = start.crystal->A * 1.001;
+  give_samples(&start, 0.0);
+  // The samples carry the same perturbed crystal, as a model from a file would.
+  for (Mat3 &a : start.crystal->A_points)
+    a = start.crystal->A;
+  list.experiments.push_back(start);
+
+  RefineOptions statically;
+  statically.detector = false;
+  statically.outlier_sigma = 0.0;
+  refine(list, observations, statically);
+  check::is_true(!list[0].crystal->scan_varying(), "the crystal is static now");
+  check::is_true(cell_difference(list[0].crystal->cell(), right) < 1e-3,
+                 "and its cell was refined back, which a static A under "
+                 "scan-varying points could not do");
+}
+
+TEST(a_crystal_with_the_wrong_number_of_samples_is_refused) {
+  // Samples are at the image boundaries, N + 1 for N images, as DIALS requires.
+  // The old writer produced five for a scan of hundreds; read as samples, that
+  // is a model nobody refined, so the reader says so instead.
+  Experiment e = base_experiment();
+  e.crystal->A_points.assign(5, e.crystal->A);
+  e.crystal->A_points_are_samples = true; // written out untouched, as five
+  ExperimentList list;
+  list.experiments.push_back(e);
+  bool refused = false;
+  std::string said;
+  try {
+    experiments_from_json(experiments_to_json(list));
+  } catch (const std::exception &error) {
+    refused = true;
+    said = error.what();
+  }
+  check::is_true(refused,
+                 "a crystal of five samples for a long scan is refused");
+  check::is_true(said.find("one more point than images") != std::string::npos,
+                 "and says what is wrong");
+}
+
 } // namespace mxi
