@@ -24,7 +24,7 @@
 #include "../src/refl.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -864,3 +864,5 @@ TEST(every_prediction_is_on_the_sphere_under_the_crystal_at_its_own_position) {
   check::equal(static_cast<long long>(off), 0,
                "every prediction is on the sphere under its own crystal");
 }
+
+}  // namespace mxi

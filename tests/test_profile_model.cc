@@ -11,8 +11,9 @@
 #include "../src/profile_model.h"
 #include "../src/shoebox.h"
 #include "check.h"
+#include "../src/profile_grid.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -455,7 +456,6 @@ TEST(the_detector_and_rotation_directions_are_reported_apart) {
 // the Kabsch-space grid
 // --------------------------------------------------------------------------
 
-#include "../src/profile_grid.h"
 
 TEST(a_spot_on_its_own_beam_lands_in_the_middle_of_the_grid) {
   Experiment e = simple_experiment(200.0);
@@ -564,3 +564,5 @@ TEST(a_grid_normalises_to_one) {
   for (double v : grid.value) total += v;
   check::close(total, 1.0, 1e-12, "so grids of different sizes compare");
 }
+
+}  // namespace mxi

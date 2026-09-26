@@ -60,7 +60,12 @@ inline bool invert(const T (&m)[9], T (&out)[9]) {
 
 template <typename T>
 TargetState<T> target_state(const TargetModel<T> &m, int h, int k, int l, T z) {
-  using namespace target_detail;
+  using target_detail::cross;
+  using target_detail::dot;
+  using target_detail::invert;
+  using target_detail::mat_mul;
+  using target_detail::mat_vec;
+  using target_detail::rodrigues;
   TargetState<T> s;
 
   const T hkl[3] = {static_cast<T>(h), static_cast<T>(k), static_cast<T>(l)};
@@ -152,7 +157,10 @@ inline void finish(const TargetState<T> &s, const T (&dr_phi)[3],
 template <typename T>
 void crystal_derivatives_t(const TargetModel<T> &m, const TargetState<T> &s,
                            int h, int k, int l, Derivative3<T> (&out)[9]) {
-  using namespace target_detail;
+  using target_detail::cross;
+  using target_detail::dot;
+  using target_detail::finish;
+  using target_detail::mat_vec;
   if (!s.valid || !(std::abs(s.volume) > T(0))) return;
   const T hkl[3] = {static_cast<T>(h), static_cast<T>(k), static_cast<T>(l)};
   T e_cross_r[3];
@@ -176,7 +184,8 @@ void crystal_derivatives_t(const TargetModel<T> &m, const TargetState<T> &s,
 template <typename T>
 void detector_derivatives_t(const TargetModel<T> &m, const TargetState<T> &s,
                             Derivative3<T> (&out)[6]) {
-  using namespace target_detail;
+  using target_detail::cross;
+  using target_detail::mat_vec;
   if (!s.valid) return;
   const T w = s.v[2];
 
@@ -210,7 +219,9 @@ void detector_derivatives_t(const TargetModel<T> &m, const TargetState<T> &s,
 template <typename T>
 void beam_derivatives_t(const TargetModel<T> &m, const TargetState<T> &s,
                         T wavelength, Derivative3<T> (&out)[2]) {
-  using namespace target_detail;
+  using target_detail::cross;
+  using target_detail::dot;
+  using target_detail::finish;
   if (!s.valid || !(std::abs(s.volume) > T(0))) return;
 
   // s0 points along propagation, so the direction it was built from is its

@@ -8,7 +8,7 @@
 #include "../src/shoebox.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -117,3 +117,5 @@ TEST(a_table_without_shoeboxes_decodes_to_nothing) {
   t.nrows = 5;
   check::is_true(decode_shoeboxes(t).empty(), "not an error, just empty");
 }
+
+}  // namespace mxi

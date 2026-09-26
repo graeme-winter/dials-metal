@@ -16,7 +16,7 @@
 #include "args.h"
 #include "background.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 void usage(const char *program) {
@@ -33,7 +33,7 @@ void usage(const char *program) {
 }
 }  // namespace
 
-int main(int argc, char **argv) {
+int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"--tuning"};
   const Arguments args = parse_arguments(argc, argv, known, known);
   if (!args.ok) {
@@ -72,3 +72,7 @@ int main(int argc, char **argv) {
   }
   return 0;
 }
+
+}  // namespace mxi
+
+int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

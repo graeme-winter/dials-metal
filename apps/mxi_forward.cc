@@ -20,7 +20,7 @@
 #include "refl.h"
 #include "shoebox.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -39,7 +39,7 @@ void usage(const char *program) {
 
 }  // namespace
 
-int main(int argc, char **argv) {
+int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"--out", "--sigma-b", "--sigma-m",
                                        "--no-sensor", "--depth-samples"};
   std::set<std::string> takes_value = known;
@@ -158,3 +158,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+}  // namespace mxi
+
+int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

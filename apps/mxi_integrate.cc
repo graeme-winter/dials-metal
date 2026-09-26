@@ -45,7 +45,7 @@
 #include <memory>
 #include <stdexcept>
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -210,7 +210,7 @@ struct Frame {
 
 }  // namespace
 
-int main(int argc, char **argv) {
+int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
       "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
       "--box-scale", "--d-min",      "--first-image", "--last-image",
@@ -1199,3 +1199,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+}  // namespace mxi
+
+int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

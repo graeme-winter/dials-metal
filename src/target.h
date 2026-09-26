@@ -139,7 +139,11 @@ inline void mat_mul(const T (&a)[9], const T (&b)[9], T (&out)[9]) {
 template <typename T>
 TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
                                   T px_fast, T px_slow, T z) {
-  using namespace target_detail;
+  using target_detail::cross;
+  using target_detail::dot;
+  using target_detail::mat_mul;
+  using target_detail::mat_vec;
+  using target_detail::rodrigues;
   TargetResidual<T> out;
 
   const T hkl[3] = {static_cast<T>(h), static_cast<T>(k), static_cast<T>(l)};

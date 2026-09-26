@@ -23,7 +23,7 @@
 #include "refl.h"
 #include "shoebox.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -52,7 +52,7 @@ void usage(const char *program) {
 
 }  // namespace
 
-int main(int argc, char **argv) {
+int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"-o",         "--n-sigma",    "--sigma-b",
                                        "--sigma-m",  "--d-min",      "--min-zeta",  "--box-scale",
                                        "--first-image", "--last-image",
@@ -277,3 +277,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+}  // namespace mxi
+
+int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

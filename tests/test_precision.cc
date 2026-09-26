@@ -26,8 +26,9 @@
 #include "../src/target.h"
 #include "check.h"
 #include "real_data.h"
+#include "../src/derivatives_t.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -191,7 +192,6 @@ TEST(a_finite_difference_derivative_does_not_survive_single_precision) {
 // the analytical derivative in single precision
 // --------------------------------------------------------------------------
 
-#include "../src/derivatives_t.h"
 
 namespace {
 
@@ -292,3 +292,5 @@ TEST(the_analytical_derivative_does_survive_single_precision) {
   check::is_true(percentile(relative, 0.5) < 1e-6, "median, about seven digits");
   check::is_true(percentile(relative, 0.99) < 1e-3, "and the tail holds up");
 }
+
+}  // namespace mxi

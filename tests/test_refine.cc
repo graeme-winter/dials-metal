@@ -16,7 +16,7 @@
 #include "../src/refl.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -809,3 +809,5 @@ TEST(a_scan_varying_refinement_does_not_slow_down_with_control_points) {
                  "detector recovered whatever the control point count");
   }
 }
+
+}  // namespace mxi

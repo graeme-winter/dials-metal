@@ -7,7 +7,7 @@
 #include "../src/background.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -140,3 +140,5 @@ TEST(nothing_at_all_is_a_failure) {
   const BackgroundResult r = glm_background({});
   check::is_true(!r.valid, "no pixels is not a background");
 }
+
+}  // namespace mxi

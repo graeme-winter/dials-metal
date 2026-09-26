@@ -14,7 +14,7 @@
 #include "../src/args.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -96,3 +96,5 @@ TEST(defaults_are_returned_for_absent_options) {
   check::is_true(a.value("--output-expt", "refined.expt") == "refined.expt",
                  "string default kept");
 }
+
+}  // namespace mxi

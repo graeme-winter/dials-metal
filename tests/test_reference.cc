@@ -8,7 +8,7 @@
 #include "../src/reference.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -612,3 +612,5 @@ TEST(the_fast_profile_on_pixels_is_the_direct_one) {
   // difference of 1e-4 on this profile, twelve orders of magnitude above this.
   check::is_true(worst < 1e-15, "the fast version is the direct version");
 }
+
+}  // namespace mxi

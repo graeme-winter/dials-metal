@@ -8,7 +8,7 @@
 #include "../src/refl.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -541,3 +541,5 @@ TEST(a_reflection_reaching_a_masked_pixel_is_not_flagged_as_summed) {
   check::is_true((fb & flag::kBackgroundIncludesBadPixels) != 0,
                  "but it is recorded");
 }
+
+}  // namespace mxi

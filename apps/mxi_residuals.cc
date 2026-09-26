@@ -29,7 +29,7 @@
 #include "linalg.h"
 #include "refl.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -47,7 +47,7 @@ double median(std::vector<double> v) {
 
 }  // namespace
 
-int main(int argc, char **argv) {
+int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"--bins", "--clip", "--modules"};
   const Arguments args = parse_arguments(argc, argv, known, known);
   if (args.help) {
@@ -260,3 +260,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+}  // namespace mxi
+
+int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

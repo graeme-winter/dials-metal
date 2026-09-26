@@ -19,7 +19,7 @@
 #include "refine.h"
 #include "refl.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -44,7 +44,7 @@ void usage() {
 
 }  // namespace
 
-int main(int argc, char **argv) {
+int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
       "--d-min",       "--max-cell",    "--grid",          "--tolerance",
       "--candidates",  "--output-expt", "--output-refl",   "--quiet",
@@ -160,3 +160,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+}  // namespace mxi
+
+int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

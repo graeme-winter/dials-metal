@@ -18,10 +18,12 @@
 
 #include "../src/derivatives.h"
 #include "../src/predict.h"
+#include "../src/refine.h"
+#include "../src/refl.h"
 #include "check.h"
 #include "real_data.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -433,8 +435,6 @@ TEST(the_parallax_jacobian_is_not_just_the_pixel_size) {
 // the two Jacobians, whole
 // --------------------------------------------------------------------------
 
-#include "../src/refine.h"
-#include "../src/refl.h"
 
 namespace {
 
@@ -538,3 +538,5 @@ TEST(analytic_and_numerical_refinement_reach_the_same_model) {
                    .norm(),
                0.0, 1e-3, "same detector origin");
 }
+
+}  // namespace mxi

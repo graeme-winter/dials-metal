@@ -7,11 +7,11 @@
 #include <random>
 #include <vector>
 #include "integrate.h"
-using namespace mxi;
+namespace mxi {
 
 static double Phi(double x) { return 0.5 * std::erfc(-x / std::sqrt(2.0)); }
 
-int main() {
+int run_program() {
   std::mt19937 rng(3);
   const double background = 0.3;
   const double signal = 2000.0;
@@ -81,4 +81,11 @@ int main() {
     std::printf(" mean error: spot finder %+.4f  integrator clipped %+.4f  unclipped %+.4f\n", tot[0]/ntot, tot[1]/ntot, tot[2]/ntot);
   }
   }
+  // main may fall off its end and return 0; run_program may not, and did
+  // not have to while it was main.
+  return 0;
 }
+
+}  // namespace mxi
+
+int main() { return mxi::run_program(); }

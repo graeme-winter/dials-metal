@@ -20,7 +20,7 @@
 #include "real_cysteine.h"
 #include "real_threeaxis.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -381,3 +381,5 @@ TEST(threeaxis_cannot_distinguish_the_composition_order) {
     check::close(s.angles[0], 0.0, 1e-12, "phi is zero throughout");
   }
 }
+
+}  // namespace mxi

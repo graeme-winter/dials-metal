@@ -7,7 +7,7 @@
 #include "../src/shoebox.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 TEST(a_table_survives_a_read_and_a_write_byte_for_byte) {
   // The reader was changed from a character-at-a-time stream iterator to a
@@ -168,3 +168,5 @@ TEST(the_msgpack_size_rule_holds_at_its_exact_boundary) {
   check::is_true(said.find("4 GB") != std::string::npos, "and it says why");
   check::is_true(said.find("slice") != std::string::npos, "and what to do");
 }
+
+}  // namespace mxi

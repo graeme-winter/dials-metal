@@ -17,13 +17,16 @@
 // assertions are about characters rather than values.
 
 #include <cmath>
+#include <cstdio>
 #include <string>
 
+#include "../src/derivatives.h"
 #include "../src/expt.h"
 #include "../src/json.h"
+#include "../src/refine.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -268,8 +271,6 @@ TEST(an_experiment_list_built_in_memory_still_writes) {
 // the columns dials.index produces
 // --------------------------------------------------------------------------
 
-#include "../src/derivatives.h"
-#include "../src/refine.h"
 
 namespace {
 
@@ -497,7 +498,6 @@ TEST(refinement_records_which_reflections_it_used_and_which_it_threw_out) {
 // columns we cannot decode
 // --------------------------------------------------------------------------
 
-#include <cstdio>
 
 TEST(a_column_we_cannot_decode_survives_a_read_and_a_write_byte_for_byte) {
   // Shoeboxes were being dropped, on the argument that nothing here can subset
@@ -640,3 +640,5 @@ TEST(writing_a_scan_varying_model_keeps_the_experiment) {
   check::equal(static_cast<long long>(again.size()), 1, "on the sample path too");
   check::is_true(again[0].crystal.has_value(), "with its crystal");
 }
+
+}  // namespace mxi

@@ -19,7 +19,7 @@
 #include "check.h"
 #include "real_data.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -354,3 +354,5 @@ TEST(goniometer_ignores_the_angle_of_its_own_scan_axis) {
   check::close(rotation_angle(c.fixed), Scan::radians(30.0), 1e-12,
                "a chi setting must reach the fixed rotation");
 }
+
+}  // namespace mxi

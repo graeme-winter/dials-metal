@@ -7,7 +7,7 @@
 #include "../src/predict.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -350,3 +350,5 @@ TEST(a_refused_box_says_which_reason) {
     check::is_true(false, "nothing was built at all");
   }
 }
+
+}  // namespace mxi

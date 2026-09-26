@@ -13,7 +13,7 @@
 #include "refine.h"
 #include "refl.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 void usage() {
@@ -54,7 +54,7 @@ double now_wall() {
 }
 }  // namespace
 
-int main(int argc, char **argv) {
+int run_program(int argc, char **argv) {
   const double t_start = now_wall();
   double t_read = 0.0;
   double t_write = 0.0;
@@ -206,3 +206,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
+
+}  // namespace mxi
+
+int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

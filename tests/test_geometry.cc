@@ -20,7 +20,7 @@
 #include "../src/predict.h"
 #include "check.h"
 
-using namespace mxi;
+namespace mxi {
 
 namespace {
 
@@ -513,3 +513,5 @@ TEST(the_spline_stays_within_the_range_of_its_control_points) {
   check::is_true(low >= -1e-12, "no undershoot below the control points");
   check::is_true(high <= 1.0 + 1e-12, "no overshoot above them");
 }
+
+}  // namespace mxi
