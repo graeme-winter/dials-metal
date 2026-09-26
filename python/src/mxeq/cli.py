@@ -70,18 +70,13 @@ def _sniff(path):
     return None
 
 
-def main(argv: list[str] | None = None) -> int:
-    # Reports are long by design and `mxeq check ... | head` is the normal way
-    # to read one. Python's default SIGPIPE handling turns that into a
-    # traceback on stderr; restoring the Unix default makes it do nothing,
-    # which is what every other command line tool does.
-    try:
-        import signal
+def build_parser() -> argparse.ArgumentParser:
+    """The command line, without running it.
 
-        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-    except (AttributeError, ValueError):  # not POSIX, or not the main thread
-        pass
-
+    Separate from main so that what the commands ARE can be asked of the
+    program itself -- the documentation test checks every `mxeq` subcommand a
+    document names against this -- rather than read out of the source.
+    """
     parser = argparse.ArgumentParser(
         prog="mxeq", description="Compare two runs of an MX pipeline, stage by stage."
     )
@@ -262,6 +257,22 @@ def main(argv: list[str] | None = None) -> int:
     i = sub.add_parser("inspect", help="describe a file without assuming its layout")
     i.add_argument("path")
 
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Reports are long by design and `mxeq check ... | head` is the normal way
+    # to read one. Python's default SIGPIPE handling turns that into a
+    # traceback on stderr; restoring the Unix default makes it do nothing,
+    # which is what every other command line tool does.
+    try:
+        import signal
+
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (AttributeError, ValueError):  # not POSIX, or not the main thread
+        pass
+
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "residuals":
