@@ -12,6 +12,8 @@
 #include "../src/refl.hh"
 #include "args.hh"
 #include "refine.hh"
+#include <algorithm>
+#include <vector>
 
 namespace mxi {
 
@@ -54,6 +56,85 @@ double now_wall() {
              std::chrono::steady_clock::now().time_since_epoch())
       .count();
 }
+} // namespace
+
+namespace {
+
+// A refinement pass as a table: each macrocycle's kept reflections, the
+// outliers rejected after its fit, and its RMSDs. Printed by the program from
+// what refine() records; the library used to print these lines itself.
+void print_cycles(const mxi::RefineResult &r) {
+  std::printf("  %5s %11s %8s %8s %8s %8s\n", "cycle", "reflections",
+              "rejected", "RMSD x", "RMSD y", "RMSD z");
+  std::printf("  %5s %11s %8s %8s %8s %8s\n", "", "", "", "(px)", "(px)",
+              "(images)");
+  for (std::size_t c = 0; c < r.cycles.size(); ++c) {
+    const mxi::RefineCycle &k = r.cycles[c];
+    std::printf("  %5zu %11zu %8zu %8.3f %8.3f %8.3f\n", c + 1, k.reflections,
+                k.rejected, k.rmsd_x, k.rmsd_y, k.rmsd_z);
+  }
+}
+
+double quantile(std::vector<double> v, double q) {
+  if (v.empty())
+    return 0.0;
+  std::sort(v.begin(), v.end());
+  const double at = q * static_cast<double>(v.size() - 1);
+  const std::size_t lo = static_cast<std::size_t>(at);
+  const std::size_t hi = std::min(lo + 1, v.size() - 1);
+  return v[lo] + (at - static_cast<double>(lo)) * (v[hi] - v[lo]);
+}
+
+// Calculated minus observed over the reflections refined on, as
+// dials.refine's summary statistics give them -- in pixels and images, the
+// units of this program's RMSDs, where DIALS uses millimetres and degrees. A
+// median well away from zero is a systematic the RMSD cannot show.
+void print_residuals(const mxi::Table &t,
+                     const std::vector<std::size_t> &unpredicted) {
+  if (!t.has("xyzcal.px") || !t.has("xyzobs.px.value") || !t.has("flags"))
+    return;
+  std::vector<bool> skip(t.nrows, false);
+  for (std::size_t i : unpredicted)
+    if (i < t.nrows)
+      skip[i] = true;
+  std::size_t left_out = 0;
+  const mxi::Column &cal = t.at("xyzcal.px");
+  const mxi::Column &obs = t.at("xyzobs.px.value");
+  const mxi::Column &flags = t.at("flags");
+  std::vector<double> d[3];
+  for (std::size_t i = 0; i < t.nrows; ++i) {
+    if ((flags.ints[i] & mxi::flag::kUsedInRefinement) == 0)
+      continue;
+    // No prediction was written for it, so its calculated position is the
+    // column's default and not a prediction: a residual from it is fiction.
+    if (skip[i]) {
+      ++left_out;
+      continue;
+    }
+    for (int k = 0; k < 3; ++k)
+      d[k].push_back(cal.reals[i * 3 + k] - obs.reals[i * 3 + k]);
+  }
+  if (d[0].empty())
+    return;
+  std::printf(
+      "\nCalculated minus observed, over the %zu reflections refined on",
+      d[0].size());
+  if (left_out > 0)
+    std::printf(
+        " (%zu more could not be predicted with the final model, and are "
+        "left out)",
+        left_out);
+  std::printf(":\n");
+  std::printf("  %-12s %9s %9s %9s %9s %9s\n", "", "min", "Q1", "median", "Q3",
+              "max");
+  const char *names[3] = {"x (px)", "y (px)", "z (images)"};
+  for (int k = 0; k < 3; ++k) {
+    std::printf("  %-12s %9.4f %9.4f %9.4f %9.4f %9.4f\n", names[k],
+                quantile(d[k], 0.0), quantile(d[k], 0.25), quantile(d[k], 0.5),
+                quantile(d[k], 0.75), quantile(d[k], 1.0));
+  }
+}
+
 } // namespace
 
 int run_program(int argc, char **argv) {
@@ -108,7 +189,6 @@ int run_program(int argc, char **argv) {
   }
 
   RefineOptions options;
-  options.verbose = true;
   options.crystal = !args.has("--no-crystal");
   options.detector = !args.has("--no-detector");
   options.beam = args.has("--beam");
@@ -137,13 +217,16 @@ int run_program(int argc, char **argv) {
       }
       std::printf("using the conditional absorption depth\n");
     }
-    std::printf("%zu experiments, %zu reflections\n", experiments.size(),
-                reflections.nrows);
+    std::printf("Refining against %zu reflections from %zu experiment%s\n",
+                reflections.nrows, experiments.size(),
+                experiments.size() == 1 ? "" : "s");
 
     RefineResult result = refine(experiments, reflections, options);
+    if (result.n_used > 0) {
+      std::printf("\nScan-static: %zu parameters\n", result.n_parameters);
+      print_cycles(result);
+    }
     if (scan_points > 1 && result.n_used > 0) {
-      std::printf("static: rmsd %.4f %.4f %.4f -> now %d control points\n",
-                  result.rmsd_x, result.rmsd_y, result.rmsd_z, scan_points);
       options.scan_points = static_cast<std::size_t>(scan_points);
       // The detector is held where the static pass put it.
       //
@@ -158,35 +241,33 @@ int run_program(int argc, char **argv) {
       // There is nothing scan-varying about a detector in any case. It does
       // not move during a sweep, so letting it move while the crystal is free
       // only gives crystal drift somewhere else to go.
-      if (!args.has("--detector-in-scan-varying")) {
+      const bool hold = !args.has("--detector-in-scan-varying");
+      if (hold)
         options.detector = false;
-        std::printf("holding the detector for the scan-varying pass; "
-                    "--detector-in-scan-varying to refine it too\n");
-      }
       result = refine(experiments, reflections, options);
+      if (result.n_used > 0) {
+        std::printf("\nScan-varying, %d control points: %zu parameters%s\n",
+                    scan_points, result.n_parameters,
+                    hold ? "; the detector held where the scan-static pass put "
+                           "it (--detector-in-scan-varying to refine it too)"
+                         : "");
+        print_cycles(result);
+      }
     }
     if (result.n_used == 0) {
       std::fprintf(stderr, "mxi_refine: nothing to refine against\n");
       return 1;
     }
-    std::printf("refined on %zu reflections (%zu rejected as outliers, %zu "
-                "with an undetermined rotation angle), %d steps\n",
-                result.n_used, result.n_rejected, result.n_ill_conditioned,
-                result.iterations);
+    std::printf(
+        "\nRefined on %zu of %zu reflections: %zu rejected as outliers, "
+        "%zu with an undetermined rotation angle; %d steps\n",
+        result.n_used, reflections.nrows, result.n_rejected,
+        result.n_ill_conditioned, result.iterations);
     // Said plainly, because a residual averaged over a different set of
     // reflections is not comparable with anything -- including dials.refine,
     // which applies the same cutoff and reports over what is left.
-    std::printf("rmsd is over those %zu reflections, not all %zu\n",
-                result.n_used, reflections.nrows);
-    std::printf("rmsd %.4f px  %.4f px  %.4f images\n", result.rmsd_x,
-                result.rmsd_y, result.rmsd_z);
-    for (std::size_t i = 0; i < experiments.size(); ++i) {
-      if (!experiments[i].crystal)
-        continue;
-      const UnitCell c = experiments[i].crystal->cell();
-      std::printf("  [%zu] cell %.4f %.4f %.4f  %.3f %.3f %.3f  V %.1f\n", i,
-                  c.a, c.b, c.c, c.alpha, c.beta, c.gamma, c.volume());
-    }
+    std::printf("RMSD over those %zu: %.4f px, %.4f px, %.4f images\n",
+                result.n_used, result.rmsd_x, result.rmsd_y, result.rmsd_z);
 
     // s1, rlp and entering follow the refined model, as they do in DIALS.
     // xyzobs.mm deliberately does not: it is what the spot finder measured
@@ -194,12 +275,26 @@ int run_program(int argc, char **argv) {
     // change the observations refinement was just fitted to.
     set_refinement_flags(result, reflections);
     add_reciprocal_columns(experiments, reflections);
-    update_predictions(experiments, reflections);
+    const std::vector<std::size_t> unpredicted =
+        update_predictions(experiments, reflections);
+    print_residuals(reflections, unpredicted);
+    std::printf("\n");
+    for (std::size_t i = 0; i < experiments.size(); ++i) {
+      if (!experiments[i].crystal)
+        continue;
+      const UnitCell c = experiments[i].crystal->cell();
+      std::printf(
+          "Unit cell%s: %.4f %.4f %.4f A, %.3f %.3f %.3f deg; volume %.0f "
+          "A^3\n",
+          experiments.size() > 1 ? (" [" + std::to_string(i) + "]").c_str()
+                                 : "",
+          c.a, c.b, c.c, c.alpha, c.beta, c.gamma, c.volume());
+    }
     const double t_write_start = now_wall();
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);
     t_write = now_wall() - t_write_start;
-    std::printf("wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
+    std::printf("Wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
 
     if (args.has("--timing")) {
       const double total = now_wall() - t_start;

@@ -573,6 +573,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       options.crystal ? (options.shared_crystal ? 1 : experiments.size()) : 0;
   layout.points = std::max<std::size_t>(1, options.scan_points);
 
+  result.n_parameters = layout.size();
+
   // Seed the control points from the static matrix, so a scan-varying run
   // starts exactly where a static one would and can only improve on it.
   if (layout.points > 1) {
@@ -806,6 +808,7 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
     // the model is still moving throws away reflections for being far from a
     // prediction that was wrong.
     const double t_outlier = now_seconds();
+    std::size_t rejected_this_cycle = 0;
     if (options.outlier_sigma > 0.0 && macro + 1 < options.macrocycles) {
       std::vector<double> dx, dy, dz;
       for (std::size_t i = 0; i < observations.size(); ++i) {
@@ -833,14 +836,13 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         }
       }
       result.n_rejected += rejected;
-      if (options.verbose) {
-        std::printf("  macrocycle %d: rejected %zu outliers\n", macro + 1,
-                    rejected);
-      }
+      rejected_this_cycle = rejected;
     }
     g_outlier_seconds += now_seconds() - t_outlier;
 
-    if (options.verbose) {
+    // The cycle's RMSD over the reflections it kept -- computed always now,
+    // where it used to be computed only to be printed.
+    {
       double sx = 0, sy = 0, sz = 0;
       std::size_t count = 0;
       for (std::size_t i = 0; i < observations.size(); ++i) {
@@ -851,13 +853,15 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         sz += residual[i * 3 + 2] * residual[i * 3 + 2];
         ++count;
       }
+      RefineCycle record;
+      record.rejected = rejected_this_cycle;
+      record.reflections = count;
       if (count) {
-        std::printf(
-            "  macrocycle %d: %zu refl, rmsd %.4f %.4f %.4f px,px,images\n",
-            macro + 1, count, std::sqrt(sx / static_cast<double>(count)),
-            std::sqrt(sy / static_cast<double>(count)),
-            std::sqrt(sz / static_cast<double>(count)));
+        record.rmsd_x = std::sqrt(sx / static_cast<double>(count));
+        record.rmsd_y = std::sqrt(sy / static_cast<double>(count));
+        record.rmsd_z = std::sqrt(sz / static_cast<double>(count));
       }
+      result.cycles.push_back(record);
     }
   }
 
@@ -1135,9 +1139,11 @@ void add_reciprocal_columns(const ExperimentList &experiments,
   }
 }
 
-void update_predictions(const ExperimentList &experiments, Table &reflections) {
+std::vector<std::size_t> update_predictions(const ExperimentList &experiments,
+                                            Table &reflections) {
+  std::vector<std::size_t> unpredicted;
   if (!reflections.has("miller_index"))
-    return;
+    return unpredicted;
   const Column &miller = reflections.at("miller_index");
   const Column &xyz = reflections.at("xyzobs.px.value");
   const bool has_id = reflections.has("id");
@@ -1163,8 +1169,10 @@ void update_predictions(const ExperimentList &experiments, Table &reflections) {
     const Residual r =
         centroid_residual(experiments[id], panel, h, k, l, xyz.real(i, 0),
                           xyz.real(i, 1), xyz.real(i, 2));
-    if (!r.valid)
+    if (!r.valid) {
+      unpredicted.push_back(i);
       continue;
+    }
     cal.reals[i * 3 + 0] = xyz.real(i, 0) - r.dx;
     cal.reals[i * 3 + 1] = xyz.real(i, 1) - r.dy;
     cal.reals[i * 3 + 2] = xyz.real(i, 2) - r.dz;
@@ -1176,6 +1184,7 @@ void update_predictions(const ExperimentList &experiments, Table &reflections) {
     cal_mm.reals[i * 3 + 2] =
         experiments[id].scan.phi_from_z(cal.reals[i * 3 + 2]);
   }
+  return unpredicted;
 }
 
 } // namespace mxi

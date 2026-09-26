@@ -82,7 +82,6 @@ struct RefineOptions {
   //: analytical path exists for single precision, where a finite difference
   //: spends most of its significance on the cancellation.
   bool analytic = false;
-  bool verbose = false;
   //: Ignore the centroid variances and weight every residual equally.
   //:
   //: On a photon-counting detector the centroid variances are nearly constant
@@ -118,6 +117,16 @@ struct RefineOptions {
   double z_weight = 1.0;
 };
 
+//: One macrocycle of refinement: fit to convergence, then reject outliers
+//: against the fitted model. Recorded rather than printed, so the program
+//: decides what to show; the library used to print these itself.
+struct RefineCycle {
+  std::size_t rejected = 0;    //: rejected as outliers after this cycle's fit
+  std::size_t reflections = 0; //: kept, which the RMSDs are over
+  //: RMS observed minus calculated, in pixels, pixels and images.
+  double rmsd_x = 0.0, rmsd_y = 0.0, rmsd_z = 0.0;
+};
+
 struct RefineResult {
   //: Reflections dropped because their rotation angle is not determined by the
   //: data. Reported because it changes which reflections the residual is
@@ -140,6 +149,9 @@ struct RefineResult {
   double rmsd_z = 0.0;
   int iterations = 0;
   bool converged = false;
+  //: Free parameters, and the macrocycles that fitted them.
+  std::size_t n_parameters = 0;
+  std::vector<RefineCycle> cycles;
 };
 
 // Observed minus calculated for one reflection, in pixels and images, plus
@@ -179,7 +191,15 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
 
 // Write xyzcal.px and xyzcal.mm into the table from the current models, so the
 // result can be compared against DIALS' own predictions.
-void update_predictions(const ExperimentList &experiments, Table &reflections);
+//: Returns the rows it could not predict with the model it was given. Their
+//: xyzcal.px and xyzcal.mm are NOT written, so they keep whatever the columns
+//: held -- zero, for columns this made -- which is a position, and a wrong one:
+//: five reflections refined on in a 300 image run, each within a pixel of the
+//: panel's edge, had their predictions moved just off it by the last step and
+//: showed residuals of -2067 px. Reported so that a caller need not mistake
+//: them for predictions; what they should be written as is a separate question.
+std::vector<std::size_t> update_predictions(const ExperimentList &experiments,
+                                            Table &reflections);
 
 //: Add the columns dials.index produces alongside the Miller indices, which
 //: are what dials.refine and dials.integrate then expect to find.
