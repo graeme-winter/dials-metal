@@ -12,7 +12,8 @@ namespace mxi {
 namespace {
 
 //: Poisson draws, deterministic, so a test cannot pass or fail by luck.
-std::vector<double> poisson_sample(double mu, std::size_t n, std::uint64_t seed) {
+std::vector<double> poisson_sample(double mu, std::size_t n,
+                                   std::uint64_t seed) {
   std::vector<double> out;
   out.reserve(n);
   std::uint64_t state = seed;
@@ -37,11 +38,12 @@ std::vector<double> poisson_sample(double mu, std::size_t n, std::uint64_t seed)
 
 double mean_of(const std::vector<double> &v) {
   double s = 0.0;
-  for (double x : v) s += x;
+  for (double x : v)
+    s += x;
   return v.empty() ? 0.0 : s / static_cast<double>(v.size());
 }
 
-}  // namespace
+} // namespace
 
 TEST(with_no_clipping_the_glm_is_the_plain_mean) {
   // The Huber weight with a large tuning constant does nothing, and the
@@ -66,9 +68,11 @@ TEST(the_correction_terms_are_what_they_are_defined_to_be) {
     double c1 = 0.0, c2 = 0.0;
     // Straight from the definition: factorials in long double, no recurrence.
     for (int j = 0; j < 400; ++j) {
-      long double logp = -static_cast<long double>(mu) +
-                         static_cast<long double>(j) * std::log((long double)mu);
-      for (int k = 2; k <= j; ++k) logp -= std::log((long double)k);
+      long double logp =
+          -static_cast<long double>(mu) +
+          static_cast<long double>(j) * std::log((long double)mu);
+      for (int k = 2; k <= j; ++k)
+        logp -= std::log((long double)k);
       const double p = static_cast<double>(std::exp(logp));
       const double d = static_cast<double>(j) - mu;
       double psi = d / root;
@@ -141,4 +145,4 @@ TEST(nothing_at_all_is_a_failure) {
   check::is_true(!r.valid, "no pixels is not a background");
 }
 
-}  // namespace mxi
+} // namespace mxi

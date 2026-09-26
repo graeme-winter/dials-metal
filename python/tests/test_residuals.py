@@ -9,8 +9,9 @@ import pytest
 from mxeq import refl, residuals
 
 
-def table(n=4000, seed=0, offset=(0.0, 0.0, 0.0), error=(0.2, 0.2, 0.1),
-          drift=0.0, sigma=0.05):
+def table(
+    n=4000, seed=0, offset=(0.0, 0.0, 0.0), error=(0.2, 0.2, 0.1), drift=0.0, sigma=0.05
+):
     """An integrated table with planted residuals of known size.
 
     `offset` is a systematic, `error` the prediction scatter, `drift` a
@@ -47,8 +48,11 @@ def test_the_summary_separates_the_offset_the_prediction_and_the_counting(tmp_pa
     out = tmp_path / "r.html"
     residuals.write(t, str(out), least_signal=0.0)
     summary = {s["axis"]: s for s in payload(out)["summary"]}
-    for axis, off, err in (("fast", 0.3, 0.25), ("slow", -0.1, 0.15),
-                           ("image", 0.05, 0.08)):
+    for axis, off, err in (
+        ("fast", 0.3, 0.25),
+        ("slow", -0.1, 0.15),
+        ("image", 0.05, 0.08),
+    ):
         s = summary[axis]
         assert s["median"] == pytest.approx(off, abs=0.02), axis
         assert s["counting"] == pytest.approx(0.05, rel=0.01), axis
@@ -81,7 +85,7 @@ def test_a_perfect_prediction_gives_a_unit_pull(tmp_path):
 
 def test_weak_reflections_are_left_out_unless_asked_for(tmp_path):
     t = table(n=1000)
-    t.columns["intensity.sum.value"][:600] = 10.0   # I/sigma about 0.3
+    t.columns["intensity.sum.value"][:600] = 10.0  # I/sigma about 0.3
     out = tmp_path / "r.html"
     residuals.write(t, str(out), least_signal=10.0)
     assert payload(out)["n"] == 400

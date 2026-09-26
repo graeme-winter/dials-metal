@@ -12,10 +12,10 @@
 #include <string>
 #include <vector>
 
-#include "args.hh"
 #include "../src/expt.hh"
-#include "profile_model.hh"
 #include "../src/refl.hh"
+#include "args.hh"
+#include "profile_model.hh"
 #include "shoebox.hh"
 
 namespace mxi {
@@ -32,17 +32,18 @@ void usage(const char *program) {
       "  --n-sigma N       width of the integration region, in sigmas (3)\n"
       "  --min-zeta Z      drop reflections whose zeta is below Z (0.05)\n"
       "  --compare --compare-sigma-b B --compare-sigma-m M\n"
-      "                    also report the captured fraction for another pair,\n"
+      "                    also report the captured fraction for another "
+      "pair,\n"
       "                    to see which of them the data prefers\n",
       program);
 }
 
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"--all",     "--n-sigma", "--min-zeta",
-                                      "--compare", "--compare-sigma-b",
-                                      "--compare-sigma-m"};
+  const std::set<std::string> known = {
+      "--all",     "--n-sigma",         "--min-zeta",
+      "--compare", "--compare-sigma-b", "--compare-sigma-m"};
   const std::set<std::string> takes_value = {
       "--n-sigma", "--min-zeta", "--compare-sigma-b", "--compare-sigma-m"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
@@ -106,14 +107,15 @@ int run_program(int argc, char **argv) {
           (reflections.at("flags").integer(i) & flag::kUsedInRefinement) == 0) {
         continue;
       }
-      if (std::fabs(compute_zeta(experiments[0], beam)) < min_zeta) continue;
+      if (std::fabs(compute_zeta(experiments[0], beam)) < min_zeta)
+        continue;
       selected.push_back(boxes[i]);
       s1.push_back(beam);
       chosen.push_back(i);
     }
 
-    std::printf("%zu reflections, %zu with shoeboxes, %zu %s\n", reflections.nrows,
-                boxes.size(), selected.size(),
+    std::printf("%zu reflections, %zu with shoeboxes, %zu %s\n",
+                reflections.nrows, boxes.size(), selected.size(),
                 everything ? "used" : "used in refinement and above min-zeta");
 
     std::size_t used = 0;
@@ -132,7 +134,8 @@ int run_program(int argc, char **argv) {
         // A row with no prediction carries uninitialised xyzcal -- denormals,
         // not zeros -- and feeding those to the likelihood put the estimate
         // out by a factor of four.
-        if (!has_prediction(reflections, i)) continue;
+        if (!has_prediction(reflections, i))
+          continue;
         // Kabsch step (vii): reject a spot whose observed centroid is far from
         // where the model puts it. Without this the estimate is 0.506 rather
         // than 0.293 degrees, because a handful of spots whose shoebox sits
@@ -165,10 +168,12 @@ int run_program(int argc, char **argv) {
     if (!samples.empty() && reflections.has("xyzcal.mm")) {
       const Column &cal = reflections.at("xyzcal.mm");
       std::vector<double> phi;
-      for (std::size_t i : chosen) phi.push_back(cal.real(i, 2));
+      for (std::size_t i : chosen)
+        phi.push_back(cal.real(i, 2));
 
       const auto report = [&](const char *label, double sd, double sm) {
-        const Capture c = capture_fractions(experiments[0], selected, s1, phi, sd, sm);
+        const Capture c =
+            capture_fractions(experiments[0], selected, s1, phi, sd, sm);
         std::printf("  %-10s detector  %7.4f %7.4f %7.4f %7.4f\n", label,
                     c.detector[0], c.detector[1], c.detector[2], c.detector[3]);
         std::printf("  %-10s rotation  %7.4f %7.4f %7.4f %7.4f\n", label,
@@ -178,18 +183,21 @@ int run_program(int argc, char **argv) {
       };
       std::printf("\nfraction of counts within n sigma, over %zu spots\n",
                   selected.size());
-      std::printf("  a one-dimensional Gaussian holds 0.6827, 0.9545, 0.9973, 0.99994\n");
+      std::printf("  a one-dimensional Gaussian holds 0.6827, 0.9545, 0.9973, "
+                  "0.99994\n");
       std::printf("  %-10s %-9s %7s %7s %7s %7s\n", "", "", "1", "2", "3", "4");
       report("ours", model.sigma_d, model.sigma_m);
       if (args.has("--compare")) {
         const double other_b = args.number("--compare-sigma-b", 0.0);
         const double other_m = args.number("--compare-sigma-m", 0.0);
-        if (other_b > 0.0 && other_m > 0.0) report("given", other_b, other_m);
+        if (other_b > 0.0 && other_m > 0.0)
+          report("given", other_b, other_m);
       }
-      std::printf(
-          "  A shoebox is small, so at three or four sigma the BOX may run out\n"
-          "  before the model does. A fraction near one there can mean the box\n"
-          "  ended, not that the model held.\n");
+      std::printf("  A shoebox is small, so at three or four sigma the BOX may "
+                  "run out\n"
+                  "  before the model does. A fraction near one there can mean "
+                  "the box\n"
+                  "  ended, not that the model held.\n");
     }
     // Said here rather than only in the documentation, because a number that
     // disagrees with DIALS and does not say so is worse than no number.
@@ -207,6 +215,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

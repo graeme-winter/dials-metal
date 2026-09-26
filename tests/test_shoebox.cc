@@ -12,7 +12,8 @@ namespace mxi {
 
 namespace {
 
-Shoebox made(std::int32_t x0, std::int32_t nx, std::int32_t ny, std::int32_t nz) {
+Shoebox made(std::int32_t x0, std::int32_t nx, std::int32_t ny,
+             std::int32_t nz) {
   Shoebox box;
   box.panel = 0;
   box.bbox[0] = x0;
@@ -25,8 +26,9 @@ Shoebox made(std::int32_t x0, std::int32_t nx, std::int32_t ny, std::int32_t nz)
   const std::size_t n = box.size();
   for (std::size_t i = 0; i < n; ++i) {
     box.data.push_back(static_cast<float>(i % 13));
-    box.mask.push_back(i % 3 == 0 ? shoebox_mask::kValid | shoebox_mask::kForeground
-                                  : shoebox_mask::kValid);
+    box.mask.push_back(i % 3 == 0
+                           ? shoebox_mask::kValid | shoebox_mask::kForeground
+                           : shoebox_mask::kValid);
     box.background.push_back(0.0f);
   }
   return box;
@@ -43,7 +45,7 @@ Table table_with(const std::vector<Shoebox> &boxes) {
   return t;
 }
 
-}  // namespace
+} // namespace
 
 TEST(shoeboxes_survive_an_encode_and_a_decode) {
   const std::vector<Shoebox> boxes = {made(2010, 4, 4, 2), made(1913, 2, 2, 1),
@@ -52,7 +54,8 @@ TEST(shoeboxes_survive_an_encode_and_a_decode) {
 
   check::equal(static_cast<long long>(back.size()), 3, "all three");
   for (std::size_t i = 0; i < boxes.size(); ++i) {
-    check::equal(static_cast<long long>(back[i].panel), boxes[i].panel, "panel");
+    check::equal(static_cast<long long>(back[i].panel), boxes[i].panel,
+                 "panel");
     for (int k = 0; k < 6; ++k) {
       check::equal(static_cast<long long>(back[i].bbox[k]),
                    static_cast<long long>(boxes[i].bbox[k]), "bbox");
@@ -70,12 +73,14 @@ TEST(the_voxel_order_is_z_then_y_then_x) {
   // profile without changing any total, so no test of a summed intensity would
   // ever see it.
   Shoebox box = made(0, 4, 3, 2);
-  for (std::size_t i = 0; i < box.size(); ++i) box.data[i] = static_cast<float>(i);
+  for (std::size_t i = 0; i < box.size(); ++i)
+    box.data[i] = static_cast<float>(i);
   check::close(box.data[box.at(0, 0, 0)], 0.0, 0.0, "first voxel");
   check::close(box.data[box.at(1, 0, 0)], 1.0, 0.0, "x is fastest");
   check::close(box.data[box.at(0, 1, 0)], 4.0, 0.0, "then y, by nx");
   check::close(box.data[box.at(0, 0, 1)], 12.0, 0.0, "then z, by nx * ny");
-  check::equal(static_cast<long long>(box.size()), 24, "and the size is nx ny nz");
+  check::equal(static_cast<long long>(box.size()), 24,
+               "and the size is nx ny nz");
 }
 
 TEST(a_blob_that_does_not_parse_exactly_is_refused) {
@@ -94,7 +99,8 @@ TEST(a_blob_that_does_not_parse_exactly_is_refused) {
   } catch (const ReflError &e) {
     threw = true;
     const std::string what = e.what();
-    check::is_true(what.find("left over") != std::string::npos, "says what is wrong");
+    check::is_true(what.find("left over") != std::string::npos,
+                   "says what is wrong");
   }
   check::is_true(threw, "must refuse trailing bytes");
 
@@ -118,4 +124,4 @@ TEST(a_table_without_shoeboxes_decodes_to_nothing) {
   check::is_true(decode_shoeboxes(t).empty(), "not an error, just empty");
 }
 
-}  // namespace mxi
+} // namespace mxi

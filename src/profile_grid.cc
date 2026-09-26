@@ -13,12 +13,16 @@ void ProfileGrid::reset() {
 
 void ProfileGrid::normalise() {
   double total = 0.0;
-  for (double v : value) total += v;
-  if (!(total > 0.0)) return;
-  for (double &v : value) v /= total;
+  for (double v : value)
+    total += v;
+  if (!(total > 0.0))
+    return;
+  for (double &v : value)
+    v /= total;
 }
 
-ProfileGrid make_grid(int n, double sigma_d, double sigma_m, double half_width) {
+ProfileGrid make_grid(int n, double sigma_d, double sigma_m,
+                      double half_width) {
   ProfileGrid grid;
   grid.n = n;
   grid.sigma_d = sigma_d;
@@ -31,18 +35,22 @@ ProfileGrid make_grid(int n, double sigma_d, double sigma_m, double half_width) 
 void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
                  double phi_calculated, ProfileGrid *grid, int subdivisions,
                  bool recentre) {
-  if (grid == nullptr || subdivisions < 1) return;
-  if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+  if (grid == nullptr || subdivisions < 1)
+    return;
+  if (box.panel < 0 ||
+      static_cast<std::size_t>(box.panel) >= e.detector.size()) {
     return;
   }
   const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
   const KabschFrame frame = kabsch_frame(e, s1);
-  if (!frame.valid) return;
+  if (!frame.valid)
+    return;
 
   const int side = grid->side();
   const double span_d = grid->half_width * grid->sigma_d;
   const double span_m = grid->half_width * grid->sigma_m;
-  if (!(span_d > 0.0) || !(span_m > 0.0)) return;
+  if (!(span_d > 0.0) || !(span_m > 0.0))
+    return;
   // Grid point i covers [-span + i * step, -span + (i + 1) * step).
   const double step_d = 2.0 * span_d / static_cast<double>(side);
   const double step_m = 2.0 * span_m / static_cast<double>(side);
@@ -54,7 +62,8 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
   double centre1 = 0.0, centre2 = 0.0, centre3 = 0.0;
   if (recentre) {
     const SpotMoments moments = spot_moments(e, box, s1, phi_calculated);
-    if (!moments.valid) return;
+    if (!moments.valid)
+      return;
     centre1 = moments.centre1;
     centre2 = moments.centre2;
     centre3 = moments.centre3;
@@ -67,21 +76,27 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
     // than assumed ordered -- a reflection on the other side of the rotation
     // axis would otherwise contribute nothing at all.
     const double image = static_cast<double>(box.bbox[4] + z);
-    const double phi_low = Scan::radians(e.scan.osc_start) +
-                           (image - static_cast<double>(e.scan.z_offset)) * width;
+    const double phi_low =
+        Scan::radians(e.scan.osc_start) +
+        (image - static_cast<double>(e.scan.z_offset)) * width;
     const double phi_high = phi_low + width;
-    double e3_low = Scan::degrees(frame.zeta * (phi_low - phi_calculated)) - centre3;
-    double e3_high = Scan::degrees(frame.zeta * (phi_high - phi_calculated)) - centre3;
-    if (e3_low > e3_high) std::swap(e3_low, e3_high);
+    double e3_low =
+        Scan::degrees(frame.zeta * (phi_low - phi_calculated)) - centre3;
+    double e3_high =
+        Scan::degrees(frame.zeta * (phi_high - phi_calculated)) - centre3;
+    if (e3_low > e3_high)
+      std::swap(e3_low, e3_high);
     const double e3_span = e3_high - e3_low;
 
     for (std::int32_t y = 0; y < box.ny(); ++y) {
       for (std::int32_t x = 0; x < box.nx(); ++x) {
         const std::size_t at = box.at(x, y, z);
-        if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
+        if ((box.mask[at] & shoebox_mask::kValid) == 0)
+          continue;
         const double count = static_cast<double>(box.data[at]) -
                              static_cast<double>(box.background[at]);
-        if (!(count > 0.0)) continue;
+        if (!(count > 0.0))
+          continue;
 
         for (int sy = 0; sy < subdivisions; ++sy) {
           for (int sx = 0; sx < subdivisions; ++sx) {
@@ -92,13 +107,14 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
             const double py = static_cast<double>(box.bbox[2] + y) +
                               (static_cast<double>(sy) + 0.5) /
                                   static_cast<double>(subdivisions);
-            Epsilon eps = epsilon_of(e, frame, p, px, py, phi_low, phi_calculated);
+            Epsilon eps =
+                epsilon_of(e, frame, p, px, py, phi_low, phi_calculated);
             eps.e1 -= centre1;
             eps.e2 -= centre2;
-            const int i1 = static_cast<int>(
-                std::floor((eps.e1 + span_d) / step_d));
-            const int i2 = static_cast<int>(
-                std::floor((eps.e2 + span_d) / step_d));
+            const int i1 =
+                static_cast<int>(std::floor((eps.e1 + span_d) / step_d));
+            const int i2 =
+                static_cast<int>(std::floor((eps.e2 + span_d) / step_d));
             const double portion = count * share;
             grid->counts_added += portion;
             if (i1 < 0 || i1 >= side || i2 < 0 || i2 >= side) {
@@ -114,13 +130,14 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
               const double high = low + step_m;
               const double overlap =
                   std::fmin(e3_high, high) - std::fmax(e3_low, low);
-              if (!(overlap > 0.0)) continue;
-              const double fraction =
-                  e3_span > 0.0 ? overlap / e3_span : 1.0;
+              if (!(overlap > 0.0))
+                continue;
+              const double fraction = e3_span > 0.0 ? overlap / e3_span : 1.0;
               grid->value[grid->at(i1, i2, i3)] += portion * fraction;
               landed = true;
             }
-            if (!landed) grid->counts_outside += portion;
+            if (!landed)
+              grid->counts_outside += portion;
           }
         }
       }
@@ -128,15 +145,17 @@ void add_to_grid(const Experiment &e, const Shoebox &box, const Vec3 &s1,
   }
 }
 
-SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1,
-                         double phi_calculated) {
+SpotMoments spot_moments(const Experiment &e, const Shoebox &box,
+                         const Vec3 &s1, double phi_calculated) {
   SpotMoments out;
-  if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+  if (box.panel < 0 ||
+      static_cast<std::size_t>(box.panel) >= e.detector.size()) {
     return out;
   }
   const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
   const KabschFrame frame = kabsch_frame(e, s1);
-  if (!frame.valid) return out;
+  if (!frame.valid)
+    return out;
   const double width = Scan::radians(e.scan.osc_width);
 
   // Two passes: the centroid, then the spread about it.
@@ -146,7 +165,8 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
   const Vec3 axis = e.goniometer.lab_axis();
   Vec3 along = axis - s0 * (axis.dot(s0) / s0.dot(s0));
   const double along_length = along.norm();
-  if (!(along_length > 0.0)) return out;
+  if (!(along_length > 0.0))
+    return out;
   along = along / along_length;
   const Vec3 across = s0.cross(along).normalized();
 
@@ -161,22 +181,25 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
           const std::size_t at = box.at(x, y, z);
-          if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
+          if ((box.mask[at] & shoebox_mask::kValid) == 0)
+            continue;
           const double count = static_cast<double>(box.data[at]) -
                                static_cast<double>(box.background[at]);
-          if (!(count > 0.0)) continue;
+          if (!(count > 0.0))
+            continue;
           const Epsilon eps = epsilon_of(
               e, frame, p, static_cast<double>(box.bbox[0] + x) + 0.5,
               static_cast<double>(box.bbox[2] + y) + 0.5, phi, phi_calculated);
           // The same offset, resolved in the laboratory instead.
-          const auto mm = p.px_to_mm(static_cast<double>(box.bbox[0] + x) + 0.5,
-                                     static_cast<double>(box.bbox[2] + y) + 0.5);
+          const auto mm =
+              p.px_to_mm(static_cast<double>(box.bbox[0] + x) + 0.5,
+                         static_cast<double>(box.bbox[2] + y) + 0.5);
           const Vec3 lab = p.lab_coord_mm(mm.first, mm.second);
           const double length = frame.s1.norm();
           const double lab_length = lab.norm();
-          const Vec3 offset =
-              lab_length > 0.0 ? lab * (length / lab_length) - frame.s1
-                               : Vec3{0.0, 0.0, 0.0};
+          const Vec3 offset = lab_length > 0.0
+                                  ? lab * (length / lab_length) - frame.s1
+                                  : Vec3{0.0, 0.0, 0.0};
           const double ea = Scan::degrees(along.dot(offset) / length);
           const double ec = Scan::degrees(across.dot(offset) / length);
           if (pass == 0) {
@@ -197,7 +220,8 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
       }
     }
     if (pass == 0) {
-      if (!(sum > 1.0)) return out;
+      if (!(sum > 1.0))
+        return out;
       m1 /= sum;
       m2 /= sum;
       m3 /= sum;
@@ -232,13 +256,14 @@ SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1
 
 double sensor_depth_width(double mu, double thickness, double obliquity,
                           double path) {
-  if (!(mu > 0.0) || !(thickness > 0.0) || !(path > 0.0)) return 0.0;
+  if (!(mu > 0.0) || !(thickness > 0.0) || !(path > 0.0))
+    return 0.0;
   // Depth of absorption: exponential, cut off at the back of the sensor.
   const double transmitted = std::exp(-mu * thickness);
   const double survive = 1.0 - transmitted;
-  if (!(survive > 0.0)) return 0.0;
-  const double mean =
-      1.0 / mu - thickness * transmitted / survive;
+  if (!(survive > 0.0))
+    return 0.0;
+  const double mean = 1.0 / mu - thickness * transmitted / survive;
   const double second =
       (2.0 / (mu * mu) * survive -
        (thickness * thickness + 2.0 * thickness / mu) * transmitted) /
@@ -251,10 +276,11 @@ double sensor_depth_width(double mu, double thickness, double obliquity,
 }
 
 double source_extent_width(double extent, double obliquity, double path) {
-  if (!(extent > 0.0) || !(path > 0.0)) return 0.0;
+  if (!(extent > 0.0) || !(path > 0.0))
+    return 0.0;
   // extent * tan(obliquity) on the face; seen from the crystal that subtends
   // extent * sin(obliquity) / path, the same form as the sensor's smear.
   return Scan::degrees(std::sin(obliquity) * extent / path);
 }
 
-}  // namespace mxi
+} // namespace mxi

@@ -17,10 +17,11 @@ int summation_limit(double mu) {
   return static_cast<int>(std::ceil(limit));
 }
 
-}  // namespace
+} // namespace
 
 double glm_c1(double mu, double tuning) {
-  if (!(mu > 0.0)) return 0.0;
+  if (!(mu > 0.0))
+    return 0.0;
   const double root = std::sqrt(mu);
   const int top = summation_limit(mu);
   // Poisson by recurrence from P(0) = exp(-mu): no factorials, no overflow.
@@ -34,7 +35,8 @@ double glm_c1(double mu, double tuning) {
 }
 
 double glm_c2(double mu, double tuning) {
-  if (!(mu > 0.0)) return 0.0;
+  if (!(mu > 0.0))
+    return 0.0;
   const double root = std::sqrt(mu);
   const int top = summation_limit(mu);
   double p = std::exp(-mu);
@@ -51,10 +53,12 @@ BackgroundResult glm_background(const std::vector<double> &values,
                                 const BackgroundOptions &options) {
   BackgroundResult out;
   out.n = values.size();
-  if (values.empty()) return out;
+  if (values.empty())
+    return out;
 
   double sum = 0.0;
-  for (double v : values) sum += v;
+  for (double v : values)
+    sum += v;
   const double n = static_cast<double>(values.size());
   const double mean = sum / n;
 
@@ -74,10 +78,12 @@ BackgroundResult glm_background(const std::vector<double> &values,
     const double mu = std::exp(theta);
     const double root = std::sqrt(mu);
     double score = 0.0;
-    for (double v : values) score += huber((v - mu) / root, options.tuning);
+    for (double v : values)
+      score += huber((v - mu) / root, options.tuning);
     const double c1 = glm_c1(mu, options.tuning);
     const double c2 = glm_c2(mu, options.tuning);
-    if (!(std::fabs(c2) > 0.0)) break;
+    if (!(std::fabs(c2) > 0.0))
+      break;
     const double step = (score - n * c1) / (n * c2);
     theta += step;
     out.iterations = i + 1;
@@ -88,11 +94,12 @@ BackgroundResult glm_background(const std::vector<double> &values,
     // A background cannot be enormous and the iteration should not wander
     // there looking for one; without this a shoebox of nothing but outliers
     // can take theta off to infinity.
-    if (theta > 30.0 || theta < -60.0) break;
+    if (theta > 30.0 || theta < -60.0)
+      break;
   }
   out.valid = true;
   out.mean = std::exp(theta);
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

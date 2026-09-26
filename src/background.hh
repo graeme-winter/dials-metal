@@ -86,4 +86,4 @@ BackgroundResult glm_background(const std::vector<double> &values,
 double glm_c1(double mu, double tuning);
 double glm_c2(double mu, double tuning);
 
-}  // namespace mxi
+} // namespace mxi

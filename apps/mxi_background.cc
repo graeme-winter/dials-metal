@@ -23,15 +23,17 @@ void usage(const char *program) {
   std::printf(
       "usage: %s [--tuning K] [FILE]\n"
       "\n"
-      "  Fit a robust Poisson GLM background (Parkhurst et al. 2016) to each line\n"
+      "  Fit a robust Poisson GLM background (Parkhurst et al. 2016) to each "
+      "line\n"
       "  of FILE, or of standard input when no FILE is given. A line is one\n"
       "  shoebox's pixel counts, whitespace separated; the output is one line\n"
-      "  per input line: the fitted mean, the iterations, and 1 if it converged.\n"
+      "  per input line: the fitted mean, the iterations, and 1 if it "
+      "converged.\n"
       "\n"
       "  --tuning K        the Huber tuning constant (1.345)\n",
       program);
 }
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"--tuning"};
@@ -66,13 +68,14 @@ int run_program(int argc, char **argv) {
     std::istringstream row(line);
     std::vector<double> values;
     double v = 0.0;
-    while (row >> v) values.push_back(v);
+    while (row >> v)
+      values.push_back(v);
     const BackgroundResult r = glm_background(values, options);
     std::printf("%.10g %d %d\n", r.mean, r.iterations, r.converged ? 1 : 0);
   }
   return 0;
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

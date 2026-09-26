@@ -71,6 +71,17 @@ release, were invisible here and visible there. Clang is installable in this
 container: `apt-get update && apt-get install -y --no-install-recommends clang`,
 then `CC=clang CXX=clang++ cmake -S . -B /tmp/bclang`.
 
+**Format before committing: `clang-format` for C++, `black` for Python.** Neither
+was installed where most of this was written, and neither was run, so 77 of 105
+C++ files and 16 of 46 Python files were out of format before anyone noticed.
+The tree was formatted with clang-format 18.1.3 (`.clang-format`: LLVM) and
+black 26.5.1; clang-format's output varies between versions, so a different
+version reformats lines that were already right, and that churn is worth
+avoiding. Both install here: `apt-get install -y --no-install-recommends
+clang-format` and `pip install black --break-system-packages`. The CUDA and
+Metal sources are not formatted, because nothing here can compile them to show
+a format change left them working.
+
 **A test run after a failed build tests the old binary.** `cmake --build` then
 `mxi_tests` reports success from whatever was last linked if the build fails,
 and the failure scrolls past above it. Check the build's exit status, or check

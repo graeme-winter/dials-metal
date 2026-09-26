@@ -102,9 +102,7 @@ def gather(table: refl.ReflectionTable, least_signal: float):
         "image": table.columns["xyzcal.px"][rows, 2],
         "d": table.columns["d"].ravel()[rows] if "d" in table.columns else None,
         "total": table.nrows,
-        "with_centre": int(
-            (np.all(np.isfinite(r), axis=1)).sum()
-        ),
+        "with_centre": int((np.all(np.isfinite(r), axis=1)).sum()),
     }
 
 
@@ -112,8 +110,13 @@ AXES = ("fast", "slow", "image")
 UNITS = ("px", "px", "images")
 
 
-def build(table: refl.ReflectionTable, least_signal: float = 10.0, n_bins: int = 30,
-          cells: int = 12, image_size=None) -> dict:
+def build(
+    table: refl.ReflectionTable,
+    least_signal: float = 10.0,
+    n_bins: int = 30,
+    cells: int = 12,
+    image_size=None,
+) -> dict:
     g = gather(table, least_signal)
     n = len(g["rows"])
     if n == 0:
@@ -122,8 +125,14 @@ def build(table: refl.ReflectionTable, least_signal: float = 10.0, n_bins: int =
             f"{least_signal:g}; lower --least-signal"
         )
     r, v = g["residual"], g["variance"]
-    out = {"n": n, "total": g["total"], "with_centre": g["with_centre"],
-           "least_signal": least_signal, "axes": list(AXES), "units": list(UNITS)}
+    out = {
+        "n": n,
+        "total": g["total"],
+        "with_centre": g["with_centre"],
+        "least_signal": least_signal,
+        "axes": list(AXES),
+        "units": list(UNITS),
+    }
 
     # The summary a reader wants first: the systematic offset and how much
     # scatter there is beyond counting noise.
@@ -131,14 +140,23 @@ def build(table: refl.ReflectionTable, least_signal: float = 10.0, n_bins: int =
     spread = 1.4826 * np.median(np.abs(r - median), axis=0)
     counting = np.sqrt(np.median(v, axis=0))
     out["summary"] = [
-        {"axis": a, "unit": u, "median": float(median[k]), "spread": float(spread[k]),
-         "counting": float(counting[k]),
-         "prediction": float(np.sqrt(max(spread[k] ** 2 - counting[k] ** 2, 0.0)))}
+        {
+            "axis": a,
+            "unit": u,
+            "median": float(median[k]),
+            "spread": float(spread[k]),
+            "counting": float(counting[k]),
+            "prediction": float(np.sqrt(max(spread[k] ** 2 - counting[k] ** 2, 0.0))),
+        }
         for k, (a, u) in enumerate(zip(AXES, UNITS))
     ]
 
     out["against_image"] = [
-        dict(zip(("x", "median", "spread", "count"), _binned(g["image"], r[:, k], n_bins)))
+        dict(
+            zip(
+                ("x", "median", "spread", "count"), _binned(g["image"], r[:, k], n_bins)
+            )
+        )
         for k in range(3)
     ]
     if g["d"] is not None:
@@ -146,8 +164,15 @@ def build(table: refl.ReflectionTable, least_signal: float = 10.0, n_bins: int =
         blocks = []
         for k in range(3):
             x, med, spr, cnt = _binned(inverse, r[:, k], n_bins)
-            blocks.append({"x": x, "median": med, "spread": spr, "count": cnt,
-                           "ticks": [f"{1.0 / np.sqrt(t):.2f}" if t > 0 else "" for t in x]})
+            blocks.append(
+                {
+                    "x": x,
+                    "median": med,
+                    "spread": spr,
+                    "count": cnt,
+                    "ticks": [f"{1.0 / np.sqrt(t):.2f}" if t > 0 else "" for t in x],
+                }
+            )
         out["against_resolution"] = blocks
 
     if image_size is None:
@@ -155,8 +180,12 @@ def build(table: refl.ReflectionTable, least_signal: float = 10.0, n_bins: int =
     maps = []
     for k in range(2):
         grid, count = _map(g["fast"], g["slow"], r[:, k], image_size, cells)
-        maps.append({"z": [[None if not np.isfinite(c) else c for c in row] for row in grid],
-                     "count": count.tolist()})
+        maps.append(
+            {
+                "z": [[None if not np.isfinite(c) else c for c in row] for row in grid],
+                "count": count.tolist(),
+            }
+        )
     out["maps"] = maps
     out["image_size"] = list(image_size)
 
@@ -165,9 +194,18 @@ def build(table: refl.ReflectionTable, least_signal: float = 10.0, n_bins: int =
         p = r[:, k] / np.sqrt(v[:, k])
         p = p[np.isfinite(p)]
         clipped = p[np.abs(p) < 20]
-        pulls.append({"values": clipped.tolist() if clipped.size <= 20000
-                      else np.random.default_rng(0).choice(clipped, 20000, replace=False).tolist(),
-                      "rms": float(np.sqrt(np.mean(p ** 2))) if p.size else float("nan")})
+        pulls.append(
+            {
+                "values": (
+                    clipped.tolist()
+                    if clipped.size <= 20000
+                    else np.random.default_rng(0)
+                    .choice(clipped, 20000, replace=False)
+                    .tolist()
+                ),
+                "rms": float(np.sqrt(np.mean(p**2))) if p.size else float("nan"),
+            }
+        )
     out["pulls"] = pulls
     return out
 
@@ -257,9 +295,15 @@ R.pulls.forEach((pull, k) => {
 """
 
 
-def write(table: refl.ReflectionTable, path: str, least_signal: float = 10.0,
-          n_bins: int = 30, cells: int = 12, title: str = "position residuals",
-          plotly_src: str = PLOTLY_CDN) -> str:
+def write(
+    table: refl.ReflectionTable,
+    path: str,
+    least_signal: float = 10.0,
+    n_bins: int = 30,
+    cells: int = 12,
+    title: str = "position residuals",
+    plotly_src: str = PLOTLY_CDN,
+) -> str:
     data = build(table, least_signal, n_bins, cells)
     subtitle = (
         f"{data['n']} reflections with I/sigma of at least {least_signal:g}, of "
@@ -267,17 +311,24 @@ def write(table: refl.ReflectionTable, path: str, least_signal: float = 10.0,
         "Observed centre less predicted, in the images' own frame. Bands are the "
         "robust spread."
     )
-    page = (PAGE.replace("__TITLE__", html.escape(title))
-            .replace("__SUBTITLE__", html.escape(subtitle))
-            .replace("__PLOTLY__", html.escape(plotly_src, quote=True))
-            .replace("__DATA__", json.dumps(data)))
+    page = (
+        PAGE.replace("__TITLE__", html.escape(title))
+        .replace("__SUBTITLE__", html.escape(subtitle))
+        .replace("__PLOTLY__", html.escape(plotly_src, quote=True))
+        .replace("__DATA__", json.dumps(data))
+    )
     with open(path, "w") as f:
         f.write(page)
     lines = [subtitle, ""]
-    lines.append("  %-8s %9s %9s %9s %11s" % ("axis", "median", "spread", "counting", "prediction"))
+    lines.append(
+        "  %-8s %9s %9s %9s %11s"
+        % ("axis", "median", "spread", "counting", "prediction")
+    )
     for s in data["summary"]:
-        lines.append("  %-8s %9.3f %9.3f %9.3f %11.3f" % (
-            s["axis"], s["median"], s["spread"], s["counting"], s["prediction"]))
+        lines.append(
+            "  %-8s %9.3f %9.3f %9.3f %11.3f"
+            % (s["axis"], s["median"], s["spread"], s["counting"], s["prediction"])
+        )
     lines.append("")
     lines.append(f"wrote {path}")
     return "\n".join(lines)

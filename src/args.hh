@@ -33,7 +33,8 @@ struct Arguments {
   bool help = false;
 
   bool has(const std::string &flag) const { return options.count(flag) > 0; }
-  std::string value(const std::string &flag, const std::string &fallback = "") const {
+  std::string value(const std::string &flag,
+                    const std::string &fallback = "") const {
     auto it = options.find(flag);
     return it == options.end() ? fallback : it->second;
   }
@@ -44,7 +45,8 @@ struct Arguments {
 // beginning with a dash and not in `known` is an error, which is deliberate:
 // silently ignoring a misspelled option is how a run comes to use settings
 // nobody chose.
-Arguments parse_arguments(int argc, char **argv, const std::set<std::string> &known,
+Arguments parse_arguments(int argc, char **argv,
+                          const std::set<std::string> &known,
                           const std::set<std::string> &takes_value);
 
-}  // namespace mxi
+} // namespace mxi

@@ -30,10 +30,10 @@ namespace mxi {
 
 //: A cube of (2n+1) points a side, spanning plus and minus `half_width` sigmas.
 struct ProfileGrid {
-  int n = 4;  //: so the side is 2n + 1
+  int n = 4; //: so the side is 2n + 1
   double sigma_d = 0.0;
   double sigma_m = 0.0;
-  double half_width = 3.0;  //: in sigmas
+  double half_width = 3.0; //: in sigmas
   std::vector<double> value;
   //: How many spots were added, and how much of their signal landed inside.
   std::size_t n_spots = 0;
@@ -94,7 +94,7 @@ struct SpotMoments {
   //: model predicts it, in degrees. Not small: a mean of 0.0135 on the
   //: detector, which is 0.44 sigma_D.
   double centre1 = 0.0, centre2 = 0.0, centre3 = 0.0;
-  double width1 = 0.0, width2 = 0.0, width3 = 0.0;  //: degrees
+  double width1 = 0.0, width2 = 0.0, width3 = 0.0; //: degrees
   //: The same spread resolved along two axes FIXED IN THE LABORATORY rather
   //: than in the reflection's own frame: along the rotation axis, and
   //: perpendicular to both it and the beam.
@@ -109,11 +109,11 @@ struct SpotMoments {
   //: Where it sits, for binning: distance from the beam centre in millimetres,
   //: and the angle between the incident ray and the detector normal.
   double radius_mm = 0.0;
-  double obliquity = 0.0;  //: radians
-  double path_mm = 0.0;    //: crystal to pixel
+  double obliquity = 0.0; //: radians
+  double path_mm = 0.0;   //: crystal to pixel
 };
-SpotMoments spot_moments(const Experiment &e, const Shoebox &box, const Vec3 &s1,
-                         double phi_calculated);
+SpotMoments spot_moments(const Experiment &e, const Shoebox &box,
+                         const Vec3 &s1, double phi_calculated);
 
 //: The width a sensor of this thickness and absorption adds to a spot, in
 //: degrees, for a ray striking at `obliquity` and recorded `path` away.
@@ -147,4 +147,4 @@ double sensor_depth_width(double mu, double thickness, double obliquity,
 //: deviation of T / sqrt(12), which is what `extent` means here.
 double source_extent_width(double extent, double obliquity, double path);
 
-}  // namespace mxi
+} // namespace mxi

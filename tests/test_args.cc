@@ -22,16 +22,17 @@ Arguments run(const std::vector<std::string> &words) {
   std::vector<char *> argv;
   std::vector<std::string> owned = words;
   argv.push_back(const_cast<char *>("prog"));
-  for (std::string &w : owned) argv.push_back(const_cast<char *>(w.c_str()));
-  static const std::set<std::string> known = {"--beam", "--strong-only",
-                                              "--outlier-sigma", "--output-expt"};
+  for (std::string &w : owned)
+    argv.push_back(const_cast<char *>(w.c_str()));
+  static const std::set<std::string> known = {
+      "--beam", "--strong-only", "--outlier-sigma", "--output-expt"};
   static const std::set<std::string> takes_value = {"--outlier-sigma",
                                                     "--output-expt"};
   return parse_arguments(static_cast<int>(argv.size()), argv.data(), known,
                          takes_value);
 }
 
-}  // namespace
+} // namespace
 
 TEST(options_may_come_before_the_file_names) {
   const Arguments a = run({"--beam", "indexed.expt", "indexed.refl"});
@@ -75,7 +76,8 @@ TEST(an_unknown_option_is_refused_rather_than_ignored) {
 TEST(a_missing_value_is_reported) {
   const Arguments a = run({"a.expt", "b.refl", "--outlier-sigma"});
   check::is_true(!a.ok, "must be refused");
-  check::is_true(a.error.find("needs a value") != std::string::npos, "says why");
+  check::is_true(a.error.find("needs a value") != std::string::npos,
+                 "says why");
 }
 
 TEST(help_is_recognised_anywhere) {
@@ -97,4 +99,4 @@ TEST(defaults_are_returned_for_absent_options) {
                  "string default kept");
 }
 
-}  // namespace mxi
+} // namespace mxi

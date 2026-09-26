@@ -28,7 +28,7 @@ using Object = std::map<std::string, Value>;
 using Array = std::vector<Value>;
 
 class ParseError : public std::runtime_error {
- public:
+public:
   ParseError(const std::string &what, std::size_t offset)
       : std::runtime_error(what + " at offset " + std::to_string(offset)),
         offset(offset) {}
@@ -36,7 +36,7 @@ class ParseError : public std::runtime_error {
 };
 
 class Value {
- public:
+public:
   enum class Type { Null, Bool, Number, String, Array, Object };
 
   Value() = default;
@@ -105,7 +105,7 @@ class Value {
   std::vector<double> numbers() const;
   bool numbers(std::size_t expected, double *out) const;
 
- private:
+private:
   Type type_ = Type::Null;
   bool bool_ = false;
   double number_ = 0.0;
@@ -124,5 +124,5 @@ Value parse_file(const std::string &path);
 std::string dump(const Value &value, int indent = 1);
 void dump_file(const std::string &path, const Value &value, int indent = 1);
 
-}  // namespace json
-}  // namespace mxi
+} // namespace json
+} // namespace mxi

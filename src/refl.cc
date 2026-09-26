@@ -38,15 +38,18 @@ const std::map<std::string, TypeInfo> &type_table() {
 // ------------------------------------------------------------------ reading
 
 class Reader {
- public:
-  Reader(const std::uint8_t *data, std::size_t size) : p_(data), end_(data + size) {}
+public:
+  Reader(const std::uint8_t *data, std::size_t size)
+      : p_(data), end_(data + size) {}
 
   std::uint8_t peek() const {
-    if (p_ >= end_) throw ReflError("unexpected end of file");
+    if (p_ >= end_)
+      throw ReflError("unexpected end of file");
     return *p_;
   }
   std::uint8_t byte() {
-    if (p_ >= end_) throw ReflError("unexpected end of file");
+    if (p_ >= end_)
+      throw ReflError("unexpected end of file");
     return *p_++;
   }
   void need(std::size_t n) const {
@@ -57,34 +60,46 @@ class Reader {
   std::uint64_t big_endian(std::size_t n) {
     need(n);
     std::uint64_t v = 0;
-    for (std::size_t i = 0; i < n; ++i) v = (v << 8) | *p_++;
+    for (std::size_t i = 0; i < n; ++i)
+      v = (v << 8) | *p_++;
     return v;
   }
 
   std::size_t array_header() {
     const std::uint8_t c = byte();
-    if ((c & 0xF0) == 0x90) return c & 0x0F;
-    if (c == 0xDC) return static_cast<std::size_t>(big_endian(2));
-    if (c == 0xDD) return static_cast<std::size_t>(big_endian(4));
+    if ((c & 0xF0) == 0x90)
+      return c & 0x0F;
+    if (c == 0xDC)
+      return static_cast<std::size_t>(big_endian(2));
+    if (c == 0xDD)
+      return static_cast<std::size_t>(big_endian(4));
     throw ReflError("expected an array");
   }
 
   std::size_t map_header() {
     const std::uint8_t c = byte();
-    if ((c & 0xF0) == 0x80) return c & 0x0F;
-    if (c == 0xDE) return static_cast<std::size_t>(big_endian(2));
-    if (c == 0xDF) return static_cast<std::size_t>(big_endian(4));
+    if ((c & 0xF0) == 0x80)
+      return c & 0x0F;
+    if (c == 0xDE)
+      return static_cast<std::size_t>(big_endian(2));
+    if (c == 0xDF)
+      return static_cast<std::size_t>(big_endian(4));
     throw ReflError("expected a map");
   }
 
   std::string text() {
     const std::uint8_t c = byte();
     std::size_t n = 0;
-    if ((c & 0xE0) == 0xA0) n = c & 0x1F;
-    else if (c == 0xD9 || c == 0xC4) n = static_cast<std::size_t>(big_endian(1));
-    else if (c == 0xDA || c == 0xC5) n = static_cast<std::size_t>(big_endian(2));
-    else if (c == 0xDB || c == 0xC6) n = static_cast<std::size_t>(big_endian(4));
-    else throw ReflError("expected a string");
+    if ((c & 0xE0) == 0xA0)
+      n = c & 0x1F;
+    else if (c == 0xD9 || c == 0xC4)
+      n = static_cast<std::size_t>(big_endian(1));
+    else if (c == 0xDA || c == 0xC5)
+      n = static_cast<std::size_t>(big_endian(2));
+    else if (c == 0xDB || c == 0xC6)
+      n = static_cast<std::size_t>(big_endian(4));
+    else
+      throw ReflError("expected a string");
     need(n);
     std::string out(reinterpret_cast<const char *>(p_), n);
     p_ += n;
@@ -93,18 +108,29 @@ class Reader {
 
   std::int64_t integer() {
     const std::uint8_t c = byte();
-    if (c <= 0x7F) return c;
-    if (c >= 0xE0) return static_cast<std::int8_t>(c);
+    if (c <= 0x7F)
+      return c;
+    if (c >= 0xE0)
+      return static_cast<std::int8_t>(c);
     switch (c) {
-      case 0xCC: return static_cast<std::int64_t>(big_endian(1));
-      case 0xCD: return static_cast<std::int64_t>(big_endian(2));
-      case 0xCE: return static_cast<std::int64_t>(big_endian(4));
-      case 0xCF: return static_cast<std::int64_t>(big_endian(8));
-      case 0xD0: return static_cast<std::int8_t>(big_endian(1));
-      case 0xD1: return static_cast<std::int16_t>(big_endian(2));
-      case 0xD2: return static_cast<std::int32_t>(big_endian(4));
-      case 0xD3: return static_cast<std::int64_t>(big_endian(8));
-      default: throw ReflError("expected an integer");
+    case 0xCC:
+      return static_cast<std::int64_t>(big_endian(1));
+    case 0xCD:
+      return static_cast<std::int64_t>(big_endian(2));
+    case 0xCE:
+      return static_cast<std::int64_t>(big_endian(4));
+    case 0xCF:
+      return static_cast<std::int64_t>(big_endian(8));
+    case 0xD0:
+      return static_cast<std::int8_t>(big_endian(1));
+    case 0xD1:
+      return static_cast<std::int16_t>(big_endian(2));
+    case 0xD2:
+      return static_cast<std::int32_t>(big_endian(4));
+    case 0xD3:
+      return static_cast<std::int64_t>(big_endian(8));
+    default:
+      throw ReflError("expected an integer");
     }
   }
 
@@ -112,14 +138,22 @@ class Reader {
   std::pair<const std::uint8_t *, std::size_t> blob() {
     const std::uint8_t c = byte();
     std::size_t n = 0;
-    if (c == 0xC4) n = static_cast<std::size_t>(big_endian(1));
-    else if (c == 0xC5) n = static_cast<std::size_t>(big_endian(2));
-    else if (c == 0xC6) n = static_cast<std::size_t>(big_endian(4));
-    else if ((c & 0xE0) == 0xA0) n = c & 0x1F;
-    else if (c == 0xD9) n = static_cast<std::size_t>(big_endian(1));
-    else if (c == 0xDA) n = static_cast<std::size_t>(big_endian(2));
-    else if (c == 0xDB) n = static_cast<std::size_t>(big_endian(4));
-    else throw ReflError("expected a binary payload");
+    if (c == 0xC4)
+      n = static_cast<std::size_t>(big_endian(1));
+    else if (c == 0xC5)
+      n = static_cast<std::size_t>(big_endian(2));
+    else if (c == 0xC6)
+      n = static_cast<std::size_t>(big_endian(4));
+    else if ((c & 0xE0) == 0xA0)
+      n = c & 0x1F;
+    else if (c == 0xD9)
+      n = static_cast<std::size_t>(big_endian(1));
+    else if (c == 0xDA)
+      n = static_cast<std::size_t>(big_endian(2));
+    else if (c == 0xDB)
+      n = static_cast<std::size_t>(big_endian(4));
+    else
+      throw ReflError("expected a binary payload");
     need(n);
     const std::uint8_t *start = p_;
     p_ += n;
@@ -131,14 +165,20 @@ class Reader {
     const std::uint8_t c = peek();
     if ((c & 0xF0) == 0x90 || c == 0xDC || c == 0xDD) {
       const std::size_t n = array_header();
-      for (std::size_t i = 0; i < n; ++i) skip();
+      for (std::size_t i = 0; i < n; ++i)
+        skip();
     } else if ((c & 0xF0) == 0x80 || c == 0xDE || c == 0xDF) {
       const std::size_t n = map_header();
-      for (std::size_t i = 0; i < 2 * n; ++i) skip();
+      for (std::size_t i = 0; i < 2 * n; ++i)
+        skip();
     } else if (c == 0xC0 || c == 0xC2 || c == 0xC3) {
       byte();
-    } else if (c == 0xCA) { byte(); big_endian(4);
-    } else if (c == 0xCB) { byte(); big_endian(8);
+    } else if (c == 0xCA) {
+      byte();
+      big_endian(4);
+    } else if (c == 0xCB) {
+      byte();
+      big_endian(8);
     } else if (c == 0xC4 || c == 0xC5 || c == 0xC6) {
       blob();
     } else if ((c & 0xE0) == 0xA0 || c == 0xD9 || c == 0xDA || c == 0xDB) {
@@ -148,37 +188,48 @@ class Reader {
     }
   }
 
- private:
+private:
   const std::uint8_t *p_;
   const std::uint8_t *end_;
 };
 
 double read_double_le(const std::uint8_t *p) {
   std::uint64_t bits = 0;
-  for (int i = 7; i >= 0; --i) bits = (bits << 8) | p[static_cast<std::size_t>(i)];
+  for (int i = 7; i >= 0; --i)
+    bits = (bits << 8) | p[static_cast<std::size_t>(i)];
   double out;
   std::memcpy(&out, &bits, sizeof(out));
   return out;
 }
 
-std::int64_t read_int_le(const std::uint8_t *p, std::size_t bytes, bool is_unsigned) {
+std::int64_t read_int_le(const std::uint8_t *p, std::size_t bytes,
+                         bool is_unsigned) {
   std::uint64_t bits = 0;
-  for (std::size_t i = bytes; i-- > 0;) bits = (bits << 8) | p[i];
-  if (is_unsigned) return static_cast<std::int64_t>(bits);
+  for (std::size_t i = bytes; i-- > 0;)
+    bits = (bits << 8) | p[i];
+  if (is_unsigned)
+    return static_cast<std::int64_t>(bits);
   switch (bytes) {
-    case 1: return static_cast<std::int8_t>(bits);
-    case 2: return static_cast<std::int16_t>(bits);
-    case 4: return static_cast<std::int32_t>(bits);
-    default: return static_cast<std::int64_t>(bits);
+  case 1:
+    return static_cast<std::int8_t>(bits);
+  case 2:
+    return static_cast<std::int16_t>(bits);
+  case 4:
+    return static_cast<std::int32_t>(bits);
+  default:
+    return static_cast<std::int64_t>(bits);
   }
 }
 
 // ------------------------------------------------------------------ writing
 
-void put(std::string &out, std::uint8_t b) { out.push_back(static_cast<char>(b)); }
+void put(std::string &out, std::uint8_t b) {
+  out.push_back(static_cast<char>(b));
+}
 
 void put_big_endian(std::string &out, std::uint64_t v, std::size_t n) {
-  for (std::size_t i = n; i-- > 0;) put(out, static_cast<std::uint8_t>(v >> (8 * i)));
+  for (std::size_t i = n; i-- > 0;)
+    put(out, static_cast<std::uint8_t>(v >> (8 * i)));
 }
 
 void put_text(std::string &out, const std::string &s) {
@@ -223,7 +274,7 @@ void put_uint(std::string &out, std::uint64_t v) {
 //: that gets near it, at about 34 kB a reflection.
 constexpr std::uint64_t kBlobLimit = 0xFFFFFFFFull;
 
-}  // namespace
+} // namespace
 
 void check_blob_size(std::uint64_t size) {
   if (size > kBlobLimit) {
@@ -280,13 +331,14 @@ void append_int_le(std::string &out, std::int64_t v, std::size_t bytes) {
   }
 }
 
-}  // namespace
+} // namespace
 
 const Column &Table::at(const std::string &name) const {
   auto it = columns_.find(name);
   if (it == columns_.end()) {
     std::ostringstream have;
-    for (const auto &c : columns_) have << (have.tellp() ? ", " : "") << c.first;
+    for (const auto &c : columns_)
+      have << (have.tellp() ? ", " : "") << c.first;
     throw ReflError("no column '" + name + "'; have " + have.str());
   }
   return it->second;
@@ -294,7 +346,8 @@ const Column &Table::at(const std::string &name) const {
 
 std::vector<std::string> Table::names() const {
   std::vector<std::string> out;
-  for (const auto &c : columns_) out.push_back(c.first);
+  for (const auto &c : columns_)
+    out.push_back(c.first);
   return out;
 }
 
@@ -321,17 +374,21 @@ Column &Table::int_column(const std::string &name, const std::string &type,
 }
 
 bool has_prediction(const Table &table, std::size_t row) {
-  if (!table.has("miller_index") || !table.has("xyzcal.px")) return false;
+  if (!table.has("miller_index") || !table.has("xyzcal.px"))
+    return false;
   const Column &miller = table.at("miller_index");
-  if (!miller.integer(row, 0) && !miller.integer(row, 1) && !miller.integer(row, 2)) {
+  if (!miller.integer(row, 0) && !miller.integer(row, 1) &&
+      !miller.integer(row, 2)) {
     return false;
   }
   const Column &cal = table.at("xyzcal.px");
   bool written = false;
   for (std::size_t k = 0; k < 3; ++k) {
     const double v = std::abs(cal.real(row, k));
-    if (v > 0.0 && v < 1e-30) return false;  // never written
-    if (v != 0.0) written = true;
+    if (v > 0.0 && v < 1e-30)
+      return false; // never written
+    if (v != 0.0)
+      written = true;
   }
   return written;
 }
@@ -339,7 +396,8 @@ bool has_prediction(const Table &table, std::size_t row) {
 Column &Table::modify_int_column(const std::string &name,
                                  const std::string &type, std::size_t width) {
   auto it = columns_.find(name);
-  if (it != columns_.end() && it->second.integral && it->second.width == width) {
+  if (it != columns_.end() && it->second.integral &&
+      it->second.width == width) {
     return it->second;
   }
   return int_column(name, type, width);
@@ -349,15 +407,16 @@ void Table::validate() const {
   for (const auto &entry : columns_) {
     if (entry.second.rows() != nrows) {
       throw ReflError("column '" + entry.first + "' has " +
-                      std::to_string(entry.second.rows()) + " rows, table has " +
-                      std::to_string(nrows));
+                      std::to_string(entry.second.rows()) +
+                      " rows, table has " + std::to_string(nrows));
     }
   }
 }
 
 Table read_reflections(const std::string &path) {
   std::ifstream in(path, std::ios::binary);
-  if (!in) throw ReflError("cannot open " + path);
+  if (!in)
+    throw ReflError("cannot open " + path);
   // Size, resize, one read. The obvious
   //
   //   std::string raw((std::istreambuf_iterator<char>(in)), {});
@@ -367,7 +426,8 @@ Table read_reflections(const std::string &path) {
   // it was a third of what mxi_refine spent on a scan-varying refinement.
   in.seekg(0, std::ios::end);
   const std::streamoff size = in.tellg();
-  if (size < 0) throw ReflError("cannot size " + path);
+  if (size < 0)
+    throw ReflError("cannot size " + path);
   in.seekg(0, std::ios::beg);
   std::string raw(static_cast<std::size_t>(size), '\0');
   if (size > 0) {
@@ -386,10 +446,12 @@ Table read_reflections(const std::string &path) {
                     std::to_string(top));
   }
   const std::string tag = r.text();
-  if (tag != kTag) throw ReflError("unexpected tag '" + tag + "'");
+  if (tag != kTag)
+    throw ReflError("unexpected tag '" + tag + "'");
 
   Table table;
-  if (top == 3) table.version = static_cast<int>(r.integer());
+  if (top == 3)
+    table.version = static_cast<int>(r.integer());
 
   const std::size_t entries = r.map_header();
   bool seen_data = false;
@@ -418,7 +480,8 @@ Table read_reflections(const std::string &path) {
       const std::size_t n = r.map_header();
       for (std::size_t k = 0; k < n; ++k) {
         const std::string name = r.text();
-        if (r.array_header() != 2) throw ReflError("column is not [type, payload]");
+        if (r.array_header() != 2)
+          throw ReflError("column is not [type, payload]");
         const std::string type = r.text();
         std::size_t declared = 0;
         if (r.peek() == 0x92) {
@@ -426,13 +489,15 @@ Table read_reflections(const std::string &path) {
           declared = static_cast<std::size_t>(r.integer());
         }
         const auto payload = r.blob();
-        pending.push_back({name, type, payload.first, payload.second, declared});
+        pending.push_back(
+            {name, type, payload.first, payload.second, declared});
       }
     } else {
       r.skip();
     }
   }
-  if (!seen_data) throw ReflError("no 'data' map in the reflection table");
+  if (!seen_data)
+    throw ReflError("no 'data' map in the reflection table");
 
   for (const Pending &p : pending) {
     auto info = type_table().find(p.type);
@@ -455,7 +520,8 @@ Table read_reflections(const std::string &path) {
     const std::size_t stride = info->second.element_bytes * info->second.width;
     if (p.bytes != stride * table.nrows) {
       throw ReflError("column '" + p.name + "' has " + std::to_string(p.bytes) +
-                      " bytes, expected " + std::to_string(stride * table.nrows));
+                      " bytes, expected " +
+                      std::to_string(stride * table.nrows));
     }
     Column c;
     c.type = p.type;
@@ -465,9 +531,9 @@ Table read_reflections(const std::string &path) {
     if (c.integral) {
       c.ints.resize(count);
       for (std::size_t i = 0; i < count; ++i) {
-        c.ints[i] = read_int_le(p.data + i * info->second.element_bytes,
-                                info->second.element_bytes,
-                                info->second.is_unsigned);
+        c.ints[i] =
+            read_int_le(p.data + i * info->second.element_bytes,
+                        info->second.element_bytes, info->second.is_unsigned);
       }
     } else {
       c.reals.resize(count);
@@ -489,7 +555,8 @@ void write_reflections(const std::string &path, const Table &table) {
   // way there copies everything it has each time it runs out.
   {
     std::size_t expected = 4096;
-    for (const auto &entry : table.opaque()) expected += entry.second.bytes.size();
+    for (const auto &entry : table.opaque())
+      expected += entry.second.bytes.size();
     for (const std::string &name : table.names()) {
       const Column &c = table.at(name);
       expected += name.size() + 32;
@@ -540,7 +607,8 @@ void write_reflections(const std::string &path, const Table &table) {
     const Column &c = table.at(name);
     auto info = type_table().find(c.type);
     if (info == type_table().end()) {
-      throw ReflError("cannot write column '" + name + "' of type '" + c.type + "'");
+      throw ReflError("cannot write column '" + name + "' of type '" + c.type +
+                      "'");
     }
     put_text(out, name);
     put(out, 0x92);
@@ -556,7 +624,8 @@ void write_reflections(const std::string &path, const Table &table) {
         append_int_le(blob, c.ints[i], info->second.element_bytes);
       }
     } else {
-      for (std::size_t i = 0; i < count; ++i) append_double_le(blob, c.reals[i]);
+      for (std::size_t i = 0; i < count; ++i)
+        append_double_le(blob, c.reals[i]);
     }
     put_blob(out, blob);
   }
@@ -572,8 +641,9 @@ void write_reflections(const std::string &path, const Table &table) {
   }
 
   std::ofstream file(path, std::ios::binary);
-  if (!file) throw ReflError("cannot write " + path);
+  if (!file)
+    throw ReflError("cannot write " + path);
   file.write(out.data(), static_cast<std::streamsize>(out.size()));
 }
 
-}  // namespace mxi
+} // namespace mxi

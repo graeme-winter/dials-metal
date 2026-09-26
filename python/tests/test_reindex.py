@@ -8,7 +8,6 @@ import pytest
 import fixtures
 from mxeq import reindex
 
-
 # gemmi is optional in mxeq -- the code checks for it and returns None without
 # it -- so a test that needs it is skipped when it is absent rather than
 # reported as a failure of code that is working. A fresh environment without it

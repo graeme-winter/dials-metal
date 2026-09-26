@@ -50,7 +50,10 @@ def _beam_centre(table: refl.ReflectionTable) -> tuple[float, float]:
 
 
 def explanatory_variables(
-    a: refl.ReflectionTable, index: np.ndarray, reference: refl.ReflectionTable, ref_index: np.ndarray
+    a: refl.ReflectionTable,
+    index: np.ndarray,
+    reference: refl.ReflectionTable,
+    ref_index: np.ndarray,
 ) -> list[Explanatory]:
     """The variables worth binning a disagreement against.
 
@@ -68,7 +71,10 @@ def explanatory_variables(
     if d is not None:
         out.append(
             Explanatory(
-                "resolution", d.ravel(), "A", descending=True,
+                "resolution",
+                d.ravel(),
+                "A",
+                descending=True,
                 scale="inverse_square",
             )
         )
@@ -103,9 +109,7 @@ def explanatory_variables(
     back = column(a, index, "background.mean")
     if back is not None:
         out.append(
-            Explanatory(
-                "background (ours)", back.ravel(), "counts/pixel", scale="log"
-            )
+            Explanatory("background (ours)", back.ravel(), "counts/pixel", scale="log")
         )
 
     px = column(reference, ref_index, "xyzcal.px")
@@ -215,9 +219,7 @@ def trend(
         # reported none. A disagreement of five per cent is worth counting
         # whatever the rest of the bin is doing.
         limit = max(5.0 * spread, 0.05 * abs(middle))
-        outliers = (
-            int(np.sum(np.abs(ratio - middle) > limit)) if limit > 0 else 0
-        )
+        outliers = int(np.sum(np.abs(ratio - middle) > limit)) if limit > 0 else 0
         rows.append(
             Row(
                 low=float(low),
@@ -254,9 +256,7 @@ def format_trend(against: Explanatory, rows: list[Row], value: str) -> str:
     return "\n".join(lines)
 
 
-def worst_offenders(
-    a, ia: np.ndarray, b, ib: np.ndarray, value: str, n: int
-) -> str:
+def worst_offenders(a, ia: np.ndarray, b, ib: np.ndarray, value: str, n: int) -> str:
     """The reflections that disagree most, so they can be looked at.
 
     A count of outliers says how many there are.  Only their Miller indices and

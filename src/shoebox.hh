@@ -36,7 +36,7 @@ constexpr std::uint8_t kValid = 1 << 0;
 constexpr std::uint8_t kBackground = 1 << 1;
 constexpr std::uint8_t kForeground = 1 << 2;
 constexpr std::uint8_t kOverlapped = 1 << 3;
-}  // namespace shoebox_mask
+} // namespace shoebox_mask
 
 struct Shoebox {
   std::int32_t panel = 0;
@@ -88,4 +88,4 @@ void to_dials_convention(Shoebox *box);
 
 std::string encode_shoeboxes(const std::vector<Shoebox> &boxes);
 
-}  // namespace mxi
+} // namespace mxi

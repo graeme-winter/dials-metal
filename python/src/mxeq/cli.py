@@ -176,8 +176,12 @@ def build_parser() -> argparse.ArgumentParser:
         "prediction; lower it to see the weak ones too",
     )
     rs.add_argument("--bins", type=int, default=30, help="bins along each axis")
-    rs.add_argument("--cells", type=int, default=12,
-                    help="the detector map is this many cells a side")
+    rs.add_argument(
+        "--cells",
+        type=int,
+        default=12,
+        help="the detector map is this many cells a side",
+    )
     rs.add_argument("--title", default="position residuals")
 
     ex = sub.add_parser(
@@ -318,7 +322,11 @@ def main(argv: list[str] | None = None) -> int:
             (args.b, b, a, ib),
         ):
             why = matching.explain_unpartnered(
-                *cols(first), *cols(second), matched, args.radius, turn,
+                *cols(first),
+                *cols(second),
+                matched,
+                args.radius,
+                turn,
                 sample=args.sample,
             )
             total = sum(why.values())

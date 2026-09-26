@@ -6,29 +6,35 @@
 namespace mxi {
 
 double quantum_efficiency(const Panel &panel, const Vec3 &s1) {
-  if (!(panel.mu > 0.0) || !(panel.thickness > 0.0)) return 1.0;
+  if (!(panel.mu > 0.0) || !(panel.thickness > 0.0))
+    return 1.0;
   const double length = s1.norm();
-  if (!(length > 0.0)) return 1.0;
+  if (!(length > 0.0))
+    return 1.0;
   const Vec3 normal = panel.fast.cross(panel.slow).normalized();
   const double cosine = std::fabs((s1 / length).dot(normal));
-  if (!(cosine > 0.0)) return 1.0;
+  if (!(cosine > 0.0))
+    return 1.0;
   return 1.0 - std::exp(-panel.mu * panel.thickness / cosine);
 }
 
 double resolution(const Crystal &crystal, int h, int k, int l) {
   // A rather than A_at: the static cell is what the column holds, even for a
   // scan-varying crystal.
-  const Vec3 q = crystal.A * Vec3{static_cast<double>(h), static_cast<double>(k),
-                                  static_cast<double>(l)};
+  const Vec3 q =
+      crystal.A * Vec3{static_cast<double>(h), static_cast<double>(k),
+                       static_cast<double>(l)};
   const double length = q.norm();
-  if (!(length > 0.0)) return 0.0;
+  if (!(length > 0.0))
+    return 0.0;
   return 1.0 / length;
 }
 
 double partiality(const Scan &scan, double phi, double zeta, double sigma_m,
                   std::int32_t z_first, std::int32_t z_last) {
   const double spread = Scan::radians(sigma_m) / std::fabs(zeta);
-  if (!(spread > 0.0)) return 1.0;
+  if (!(spread > 0.0))
+    return 1.0;
   const double a = scan.phi_from_z(static_cast<double>(z_first));
   const double b = scan.phi_from_z(static_cast<double>(z_last));
   const double lo = std::fmin(a, b);
@@ -44,7 +50,8 @@ double lorentz_polarization(const Beam &beam, const Goniometer &goniometer,
   const Vec3 s0 = beam.s0();
   const double s1_length = s1.norm();
   const double s0_length = s0.norm();
-  if (!(s1_length > 0.0) || !(s0_length > 0.0)) return 0.0;
+  if (!(s1_length > 0.0) || !(s0_length > 0.0))
+    return 0.0;
   const Vec3 m2 = goniometer.lab_axis();
 
   const double lorentz =
@@ -54,9 +61,11 @@ double lorentz_polarization(const Beam &beam, const Goniometer &goniometer,
   const double p = beam.polarization_fraction;
   const double to_normal = u.dot(beam.polarization_normal);
   const double to_beam = u.dot(s0 / s0_length);
-  const double polarization = (1.0 - p) + (2.0 * p - 1.0) * to_normal * to_normal +
+  const double polarization = (1.0 - p) +
+                              (2.0 * p - 1.0) * to_normal * to_normal +
                               p * to_beam * to_beam;
-  if (!(polarization > 0.0)) return 0.0;
+  if (!(polarization > 0.0))
+    return 0.0;
   return lorentz / polarization;
 }
 
@@ -67,15 +76,18 @@ std::int64_t summation_flags(const IntegratedReflection &r) {
   } else if (r.valid) {
     f |= flag::kIntegratedSum;
   }
-  if (r.n_background_bad > 0) f |= flag::kBackgroundIncludesBadPixels;
+  if (r.n_background_bad > 0)
+    f |= flag::kBackgroundIncludesBadPixels;
   return f;
 }
 
 IntegratedReflection integrate_shoebox(Shoebox *box,
                                        const IntegrateOptions &options) {
   IntegratedReflection out;
-  if (box == nullptr || box->data.size() != box->size()) return out;
-  if (box->mask.size() != box->size()) return out;
+  if (box == nullptr || box->data.size() != box->size())
+    return out;
+  if (box->mask.size() != box->size())
+    return out;
 
   std::vector<double> background_values;
   double foreground_sum = 0.0;
@@ -86,8 +98,10 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
     if ((m & shoebox_mask::kValid) == 0) {
       // Counted before it is skipped: a bad pixel keeps its region bit, so
       // this is where it is known which region lost a measurement.
-      if (m & shoebox_mask::kForeground) ++out.n_foreground_bad;
-      else if (m & shoebox_mask::kBackground) ++out.n_background_bad;
+      if (m & shoebox_mask::kForeground)
+        ++out.n_foreground_bad;
+      else if (m & shoebox_mask::kBackground)
+        ++out.n_background_bad;
       continue;
     }
     ++n_valid;
@@ -136,10 +150,13 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
       for (std::int32_t y = 0; y < box->ny(); ++y) {
         for (std::int32_t x = 0; x < box->nx(); ++x) {
           const std::size_t i = box->at(x, y, z);
-          if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
-          if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+          if ((box->mask[i] & shoebox_mask::kForeground) == 0)
+            continue;
+          if ((box->mask[i] & shoebox_mask::kValid) == 0)
+            continue;
           const double w = static_cast<double>(box->data[i]) - background.mean;
-          if (!(w > 0.0)) continue;
+          if (!(w > 0.0))
+            continue;
           weight += w;
           mf += w * (static_cast<double>(box->bbox[0] + x) + 0.5);
           ms += w * (static_cast<double>(box->bbox[2] + y) + 0.5);
@@ -157,10 +174,14 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
         for (std::int32_t y = 0; y < box->ny(); ++y) {
           for (std::int32_t x = 0; x < box->nx(); ++x) {
             const std::size_t i = box->at(x, y, z);
-            if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
-            if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
-            const double w = static_cast<double>(box->data[i]) - background.mean;
-            if (!(w > 0.0)) continue;
+            if ((box->mask[i] & shoebox_mask::kForeground) == 0)
+              continue;
+            if ((box->mask[i] & shoebox_mask::kValid) == 0)
+              continue;
+            const double w =
+                static_cast<double>(box->data[i]) - background.mean;
+            if (!(w > 0.0))
+              continue;
             const double df =
                 static_cast<double>(box->bbox[0] + x) + 0.5 - out.centroid_fast;
             const double ds =
@@ -212,8 +233,10 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
       for (std::int32_t y = 0; y < box->ny(); ++y) {
         for (std::int32_t x = 0; x < box->nx(); ++x) {
           const std::size_t i = box->at(x, y, z);
-          if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
-          if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+          if ((box->mask[i] & shoebox_mask::kForeground) == 0)
+            continue;
+          if ((box->mask[i] & shoebox_mask::kValid) == 0)
+            continue;
           const double w = static_cast<double>(box->data[i]) - background.mean;
           weight += w;
           mf += w * (static_cast<double>(box->bbox[0] + x) + 0.5);
@@ -235,8 +258,10 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
     // intensity cut chosen for the purpose.
     double counts = 0.0;
     for (std::size_t i = 0; i < box->size(); ++i) {
-      if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
-      if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+      if ((box->mask[i] & shoebox_mask::kForeground) == 0)
+        continue;
+      if ((box->mask[i] & shoebox_mask::kValid) == 0)
+        continue;
       counts += static_cast<double>(box->data[i]);
     }
     const bool detected =
@@ -251,8 +276,10 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
         for (std::int32_t y = 0; y < box->ny(); ++y) {
           for (std::int32_t x = 0; x < box->nx(); ++x) {
             const std::size_t i = box->at(x, y, z);
-            if ((box->mask[i] & shoebox_mask::kForeground) == 0) continue;
-            if ((box->mask[i] & shoebox_mask::kValid) == 0) continue;
+            if ((box->mask[i] & shoebox_mask::kForeground) == 0)
+              continue;
+            if ((box->mask[i] & shoebox_mask::kValid) == 0)
+              continue;
             const double count = static_cast<double>(box->data[i]);
             const double df =
                 static_cast<double>(box->bbox[0] + x) + 0.5 - out.unbiased_fast;
@@ -272,10 +299,12 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
       // And inside its own box. With every weight positive a centre of mass
       // cannot leave the region it was taken over; with signed weights it
       // can, and one that has is describing the noise and not the spot.
-      const bool inside =
-          out.unbiased_fast >= box->bbox[0] && out.unbiased_fast <= box->bbox[1] &&
-          out.unbiased_slow >= box->bbox[2] && out.unbiased_slow <= box->bbox[3] &&
-          out.unbiased_z >= box->bbox[4] && out.unbiased_z <= box->bbox[5];
+      const bool inside = out.unbiased_fast >= box->bbox[0] &&
+                          out.unbiased_fast <= box->bbox[1] &&
+                          out.unbiased_slow >= box->bbox[2] &&
+                          out.unbiased_slow <= box->bbox[3] &&
+                          out.unbiased_z >= box->bbox[4] &&
+                          out.unbiased_z <= box->bbox[5];
       out.unbiased_valid = inside;
     }
   }
@@ -295,4 +324,4 @@ IntegratedReflection integrate_shoebox(Shoebox *box,
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

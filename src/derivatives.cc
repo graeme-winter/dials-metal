@@ -10,14 +10,16 @@ namespace mxi {
 PredictionState prediction_state(const Experiment &e, std::size_t panel, int h,
                                  int k, int l, double z) {
   PredictionState s;
-  if (!e.crystal || panel >= e.detector.size()) return s;
+  if (!e.crystal || panel >= e.detector.size())
+    return s;
 
   const Vec3 hkl{static_cast<double>(h), static_cast<double>(k),
                  static_cast<double>(l)};
   s.r0 = e.setting_at(z) * hkl;
 
   const Intersections cross = ewald_intersections(e, s.r0);
-  if (!cross.any) return s;
+  if (!cross.any)
+    return s;
 
   // The root nearer the observation, matching what the refinement target does.
   const double phi_obs = e.scan.phi_from_z(z);
@@ -25,8 +27,10 @@ PredictionState prediction_state(const Experiment &e, std::size_t panel, int h,
   double best_gap = 1e30;
   for (int i = 0; i < 2; ++i) {
     double gap = std::fmod(cross.phi[i] - phi_obs, two_pi);
-    if (gap > 0.5 * two_pi) gap -= two_pi;
-    if (gap < -0.5 * two_pi) gap += two_pi;
+    if (gap > 0.5 * two_pi)
+      gap -= two_pi;
+    if (gap < -0.5 * two_pi)
+      gap += two_pi;
     if (std::abs(gap) < best_gap) {
       best_gap = std::abs(gap);
       s.phi = phi_obs + gap;
@@ -44,7 +48,8 @@ PredictionState prediction_state(const Experiment &e, std::size_t panel, int h,
   // d (X, Y, 1)^T = alpha s1 reproduces eqn (1). Building it from rows would
   // transpose the detector, which is the obvious way to get this wrong.
   s.D = Mat3::from_columns(p.fast, p.slow, p.origin).inverse(&ok);
-  if (!ok) return s;
+  if (!ok)
+    return s;
   s.v = s.D * s.s1;
 
   s.volume = s.axis.cross(s.r_phi).dot(e.beam.s0());
@@ -55,7 +60,8 @@ PredictionState prediction_state(const Experiment &e, std::size_t panel, int h,
 std::array<CentroidDerivative, 9> crystal_derivatives(const PredictionState &s,
                                                       int h, int k, int l) {
   std::array<CentroidDerivative, 9> out{};
-  if (!s.valid || s.volume == 0.0) return out;
+  if (!s.valid || s.volume == 0.0)
+    return out;
 
   const double hkl[3] = {static_cast<double>(h), static_cast<double>(k),
                          static_cast<double>(l)};
@@ -96,11 +102,12 @@ namespace {
 
 // The panel centre, in the laboratory frame. Rotations act about this point.
 Vec3 panel_centre(const Panel &p) {
-  return p.lab_coord_mm(0.5 * static_cast<double>(p.image_size[0]) * p.pixel_size[0],
-                        0.5 * static_cast<double>(p.image_size[1]) * p.pixel_size[1]);
+  return p.lab_coord_mm(
+      0.5 * static_cast<double>(p.image_size[0]) * p.pixel_size[0],
+      0.5 * static_cast<double>(p.image_size[1]) * p.pixel_size[1]);
 }
 
-}  // namespace
+} // namespace
 
 Panel perturb_panel(const Panel &p, const double shift[6]) {
   Panel out = p;
@@ -121,7 +128,8 @@ Beam perturb_beam(const Beam &b, const double shift[2]) {
   Beam out = b;
   const Vec3 d = b.direction.normalized();
   Vec3 u = Vec3{0.0, 0.0, 1.0}.cross(d);
-  if (u.norm() < 1e-6) u = Vec3{1.0, 0.0, 0.0}.cross(d);
+  if (u.norm() < 1e-6)
+    u = Vec3{1.0, 0.0, 0.0}.cross(d);
   u = u.normalized();
   const Vec3 v = d.cross(u);
   out.direction = (d + u * shift[0] + v * shift[1]).normalized();
@@ -131,7 +139,8 @@ Beam perturb_beam(const Beam &b, const double shift[2]) {
 std::array<CentroidDerivative, 6> detector_derivatives(const PredictionState &s,
                                                        const Panel &p) {
   std::array<CentroidDerivative, 6> out{};
-  if (!s.valid) return out;
+  if (!s.valid)
+    return out;
 
   const Vec3 centre = panel_centre(p);
   const double w = s.v.z;
@@ -141,7 +150,7 @@ std::array<CentroidDerivative, 6> detector_derivatives(const PredictionState &s,
     // Columns of dd/dp: the derivative of (fast | slow | origin).
     Vec3 dfast{0.0, 0.0, 0.0}, dslow{0.0, 0.0, 0.0}, dorigin{0.0, 0.0, 0.0};
     if (k < 3) {
-      dorigin[k] = 1.0;  // a pure translation moves only the origin
+      dorigin[k] = 1.0; // a pure translation moves only the origin
     } else {
       // The derivative of a rotation at the identity is the cross product with
       // the axis, so an infinitesimal rotation about laboratory axis j takes
@@ -167,11 +176,13 @@ std::array<CentroidDerivative, 6> detector_derivatives(const PredictionState &s,
 std::array<CentroidDerivative, 2> beam_derivatives(const PredictionState &s,
                                                    const Beam &b) {
   std::array<CentroidDerivative, 2> out{};
-  if (!s.valid || s.volume == 0.0) return out;
+  if (!s.valid || s.volume == 0.0)
+    return out;
 
   const Vec3 d = b.direction.normalized();
   Vec3 u = Vec3{0.0, 0.0, 1.0}.cross(d);
-  if (u.norm() < 1e-6) u = Vec3{1.0, 0.0, 0.0}.cross(d);
+  if (u.norm() < 1e-6)
+    u = Vec3{1.0, 0.0, 0.0}.cross(d);
   u = u.normalized();
   const Vec3 basis[2] = {u, d.cross(u)};
 
@@ -206,7 +217,8 @@ SplineWeights spline_weights(const Experiment &e, double z) {
   }
   const auto n = static_cast<long>(e.crystal->A_points.size());
   const double images = static_cast<double>(e.scan.num_images());
-  const double t = images > 0.0 ? std::fmax(0.0, std::fmin(1.0, z / images)) : 0.0;
+  const double t =
+      images > 0.0 ? std::fmax(0.0, std::fmin(1.0, z / images)) : 0.0;
   const double segments = static_cast<double>(n + 1);
   const double u = t * segments;
   const auto i = static_cast<long>(std::fmin(std::floor(u), segments - 1.0));
@@ -227,4 +239,4 @@ SplineWeights spline_weights(const Experiment &e, double z) {
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

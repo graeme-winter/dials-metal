@@ -8,10 +8,10 @@
 #include <set>
 #include <string>
 
-#include "args.hh"
 #include "../src/expt.hh"
-#include "refine.hh"
 #include "../src/refl.hh"
+#include "args.hh"
+#include "refine.hh"
 
 namespace mxi {
 
@@ -20,7 +20,8 @@ void usage() {
   std::printf(
       "usage: mxi_refine INDEXED.expt INDEXED.refl [options]\n"
       "  --no-crystal      hold the crystal fixed\n"
-      "  --jacobian-threads N  threads for the Jacobian; 0 is one per core (0)\n"
+      "  --jacobian-threads N  threads for the Jacobian; 0 is one per core "
+      "(0)\n"
       "  --no-detector     hold the detector fixed\n"
       "  --beam            refine the beam direction too (off: correlated\n"
       "                    with the detector on a single sweep)\n"
@@ -32,7 +33,8 @@ void usage() {
       "  --analytic        analytical derivatives, not finite differences\n"
       "  --timing          where the time went, by phase\n"
       "  --normal-threads N  threads for the normal equations; 0 is one per\n"
-      "                   core (0). A reduction, so a threaded run differs from\n"
+      "                   core (0). A reduction, so a threaded run differs "
+      "from\n"
       "                   a serial one in the last bits; 1 to avoid that\n"
       "  --detector-in-scan-varying  keep refining the detector during the\n"
       "                    scan-varying pass; it is degenerate with the cell\n"
@@ -44,7 +46,7 @@ void usage() {
       "  --output-expt P   (refined.expt)\n"
       "  --output-refl P   (refined.refl)\n");
 }
-}  // namespace
+} // namespace
 
 namespace {
 double now_wall() {
@@ -52,20 +54,35 @@ double now_wall() {
              std::chrono::steady_clock::now().time_since_epoch())
       .count();
 }
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
   const double t_start = now_wall();
   double t_read = 0.0;
   double t_write = 0.0;
-  const std::set<std::string> known = {
-      "--no-crystal",   "--no-detector",  "--beam",         "--separate",
-      "--macrocycles",  "--outlier-sigma", "--output-expt", "--output-refl",
-      "--conditional-depth", "--scan-varying", "--unit-weights",
-      "--strong-only",  "--z-weight",  "--analytic", "--min-volume", "--detector-in-scan-varying", "--jacobian-threads", "--timing", "--normal-threads"};
+  const std::set<std::string> known = {"--no-crystal",
+                                       "--no-detector",
+                                       "--beam",
+                                       "--separate",
+                                       "--macrocycles",
+                                       "--outlier-sigma",
+                                       "--output-expt",
+                                       "--output-refl",
+                                       "--conditional-depth",
+                                       "--scan-varying",
+                                       "--unit-weights",
+                                       "--strong-only",
+                                       "--z-weight",
+                                       "--analytic",
+                                       "--min-volume",
+                                       "--detector-in-scan-varying",
+                                       "--jacobian-threads",
+                                       "--timing",
+                                       "--normal-threads"};
   const std::set<std::string> takes_value = {
-      "--macrocycles", "--outlier-sigma", "--output-expt", "--output-refl",
-      "--scan-varying", "--z-weight", "--min-volume", "--jacobian-threads", "--normal-threads"};
+      "--macrocycles", "--outlier-sigma",    "--output-expt",
+      "--output-refl", "--scan-varying",     "--z-weight",
+      "--min-volume",  "--jacobian-threads", "--normal-threads"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   // 0 means one per core, 1 means none. Exposed because a threading change
   // that cannot be switched off cannot be measured against its absence.
@@ -115,7 +132,8 @@ int run_program(int argc, char **argv) {
     t_read = now_wall() - t_read_start;
     if (conditional_depth) {
       for (Experiment &e : experiments) {
-        for (Panel &p : e.detector.panels) p.parallax_conditional = true;
+        for (Panel &p : e.detector.panels)
+          p.parallax_conditional = true;
       }
       std::printf("using the conditional absorption depth\n");
     }
@@ -142,9 +160,8 @@ int run_program(int argc, char **argv) {
       // only gives crystal drift somewhere else to go.
       if (!args.has("--detector-in-scan-varying")) {
         options.detector = false;
-        std::printf(
-            "holding the detector for the scan-varying pass; "
-            "--detector-in-scan-varying to refine it too\n");
+        std::printf("holding the detector for the scan-varying pass; "
+                    "--detector-in-scan-varying to refine it too\n");
       }
       result = refine(experiments, reflections, options);
     }
@@ -164,10 +181,11 @@ int run_program(int argc, char **argv) {
     std::printf("rmsd %.4f px  %.4f px  %.4f images\n", result.rmsd_x,
                 result.rmsd_y, result.rmsd_z);
     for (std::size_t i = 0; i < experiments.size(); ++i) {
-      if (!experiments[i].crystal) continue;
+      if (!experiments[i].crystal)
+        continue;
       const UnitCell c = experiments[i].crystal->cell();
-      std::printf("  [%zu] cell %.4f %.4f %.4f  %.3f %.3f %.3f  V %.1f\n", i, c.a,
-                  c.b, c.c, c.alpha, c.beta, c.gamma, c.volume());
+      std::printf("  [%zu] cell %.4f %.4f %.4f  %.3f %.3f %.3f  V %.1f\n", i,
+                  c.a, c.b, c.c, c.alpha, c.beta, c.gamma, c.volume());
     }
 
     // s1, rlp and entering follow the refined model, as they do in DIALS.
@@ -207,6 +225,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

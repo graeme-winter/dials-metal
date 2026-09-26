@@ -54,13 +54,13 @@ struct CentroidDerivative {
 //: is computed once rather than nine times.
 struct PredictionState {
   bool valid = false;
-  Vec3 r0;      // reciprocal lattice point in the crystal frame
-  Vec3 r_phi;   // rotated into the laboratory frame
-  Vec3 s1;      // diffracted beam
-  Vec3 v;       // D s1, homogeneous panel coordinates
-  Mat3 D;       // inverse of (fast | slow | origin) as columns
-  Mat3 R_phi;   // the goniometer rotation at the diffracting angle
-  Vec3 axis;    // the rotation axis in the laboratory frame
+  Vec3 r0;    // reciprocal lattice point in the crystal frame
+  Vec3 r_phi; // rotated into the laboratory frame
+  Vec3 s1;    // diffracted beam
+  Vec3 v;     // D s1, homogeneous panel coordinates
+  Mat3 D;     // inverse of (fast | slow | origin) as columns
+  Mat3 R_phi; // the goniometer rotation at the diffracting angle
+  Vec3 axis;  // the rotation axis in the laboratory frame
   double phi = 0.0;
   //: (e x r_phi) . s0, the denominator of eqn (40). Small means phi is ill
   //: determined; DIALS discards below 0.05.
@@ -123,4 +123,4 @@ std::array<CentroidDerivative, 6> detector_derivatives(const PredictionState &s,
 std::array<CentroidDerivative, 2> beam_derivatives(const PredictionState &s,
                                                    const Beam &b);
 
-}  // namespace mxi
+} // namespace mxi

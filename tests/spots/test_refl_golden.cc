@@ -54,8 +54,8 @@ void build(std::vector<dials_spots::Spot> *spots,
       for (int y = 0; y < 3; ++y) {
         for (int x = 0; x < 3; ++x) {
           dials_spots::Pixel p;
-          p.index = static_cast<std::uint32_t>(
-              (10 + s * 7 + y) * width + 12 + s * 5 + x);
+          p.index = static_cast<std::uint32_t>((10 + s * 7 + y) * width + 12 +
+                                               s * 5 + x);
           p.frame = static_cast<std::int32_t>(z + s);
           p.value = static_cast<std::uint32_t>(3 + (x + y + z + s) % 7);
           pixels->push_back(p);
@@ -70,7 +70,7 @@ void build(std::vector<dials_spots::Spot> *spots,
   }
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   std::vector<dials_spots::Spot> spots;
@@ -114,9 +114,9 @@ int main() {
   check(bytes.size() == expected_size,
         "size is " + std::to_string(bytes.size()) + ", was " +
             std::to_string(expected_size));
-  check(checksum == expected_checksum,
-        "checksum is " + std::to_string(checksum) + ", was " +
-            std::to_string(expected_checksum));
+  check(checksum == expected_checksum, "checksum is " +
+                                           std::to_string(checksum) + ", was " +
+                                           std::to_string(expected_checksum));
 
   std::printf("%s: the golden reflection table, %d failures\n",
               failures == 0 ? "PASS" : "FAIL", failures);

@@ -314,7 +314,7 @@ def explain_unpartnered(
     _, ids = np.unique(both, axis=0, return_inverse=True)
     ids = ids.ravel()
     ids_a = ids[: len(hkl_a)]
-    ids_b = ids[len(hkl_a):]
+    ids_b = ids[len(hkl_a) :]
     order_b = np.argsort(ids_b, kind="stable")
     sorted_b = ids_b[order_b]
 
@@ -337,9 +337,12 @@ def explain_unpartnered(
         gap = z_b[nearest] - z_a[i]
         if entering_b[nearest] != entering_a[i] and abs(gap) <= radius:
             out["entering flag disagrees"] += 1
-        elif turn and abs(gap) > radius and abs(
-            abs(gap) - turn * round(abs(gap) / turn)
-        ) <= radius and round(abs(gap) / turn) >= 1:
+        elif (
+            turn
+            and abs(gap) > radius
+            and abs(abs(gap) - turn * round(abs(gap) / turn)) <= radius
+            and round(abs(gap) / turn) >= 1
+        ):
             out["a whole number of turns apart"] += 1
         elif abs(gap) > radius:
             out["further apart than the radius"] += 1

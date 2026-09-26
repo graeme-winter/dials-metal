@@ -28,13 +28,16 @@ namespace {
 // does not interpret: nothing else in this repository needs to know where the
 // images are, and the spot finder needs nothing else from it.
 void read_imageset(const mxi::json::Value &document, Info *info) {
-  if (!document.is_object()) return;
+  if (!document.is_object())
+    return;
   const mxi::json::Value &imagesets = document["imageset"];
-  if (!imagesets.is_array() || imagesets.as_array().empty()) return;
+  if (!imagesets.is_array() || imagesets.as_array().empty())
+    return;
   info->imagesets = imagesets.as_array().size();
 
   const mxi::json::Value &first = imagesets.as_array()[0];
-  if (!first.is_object()) return;
+  if (!first.is_object())
+    return;
   const mxi::json::Value &tmpl = first["template"];
   if (tmpl.is_string() && !tmpl.as_string().empty()) {
     info->has_imageset = true;
@@ -43,7 +46,8 @@ void read_imageset(const mxi::json::Value &document, Info *info) {
   }
 
   const mxi::json::Value &indices = first["single_file_indices"];
-  if (!indices.is_array() || indices.as_array().empty()) return;
+  if (!indices.is_array() || indices.as_array().empty())
+    return;
   const mxi::json::Array &items = indices.as_array();
   info->frames = items.size();
   info->first_index = static_cast<std::int64_t>(items.front().as_number());
@@ -60,7 +64,7 @@ void read_imageset(const mxi::json::Value &document, Info *info) {
   }
 }
 
-}  // namespace
+} // namespace
 
 namespace {
 
@@ -69,15 +73,18 @@ const mxi::json::Value *model_of(const mxi::json::Value &document,
                                  const mxi::json::Value &experiment,
                                  const char *name) {
   const mxi::json::Value &index = experiment[name];
-  if (!index.is_number()) return nullptr;
+  if (!index.is_number())
+    return nullptr;
   const mxi::json::Value &list = document[name];
-  if (!list.is_array()) return nullptr;
+  if (!list.is_array())
+    return nullptr;
   const auto at = static_cast<std::size_t>(index.as_number());
-  if (at >= list.as_array().size()) return nullptr;
+  if (at >= list.as_array().size())
+    return nullptr;
   return &list.as_array()[at];
 }
 
-}  // namespace
+} // namespace
 
 Info read(const std::string &path) {
   Info info;
@@ -92,7 +99,8 @@ Info read(const std::string &path) {
   }
   const mxi::json::Array &experiments = document["experiment"].as_array();
   info.experiments = experiments.size();
-  if (experiments.empty()) return info;
+  if (experiments.empty())
+    return info;
   const mxi::json::Value &first = experiments[0];
 
   if (first["identifier"].is_string()) {
@@ -104,20 +112,25 @@ Info read(const std::string &path) {
     const mxi::json::Value &range = (*scan)["image_range"];
     if (range.is_array() && range.as_array().size() == 2) {
       info.has_scan = true;
-      info.first_image = static_cast<std::int64_t>(range.as_array()[0].as_number());
-      info.last_image = static_cast<std::int64_t>(range.as_array()[1].as_number());
+      info.first_image =
+          static_cast<std::int64_t>(range.as_array()[0].as_number());
+      info.last_image =
+          static_cast<std::int64_t>(range.as_array()[1].as_number());
     }
   }
 
-  if (const mxi::json::Value *detector = model_of(document, first, "detector")) {
+  if (const mxi::json::Value *detector =
+          model_of(document, first, "detector")) {
     const mxi::json::Value &panels = (*detector)["panels"];
     if (panels.is_array() && !panels.as_array().empty()) {
       info.has_detector = true;
       info.panels = panels.as_array().size();
       const mxi::json::Value &size = panels.as_array()[0]["image_size"];
       if (size.is_array() && size.as_array().size() == 2) {
-        info.image_fast = static_cast<std::size_t>(size.as_array()[0].as_number());
-        info.image_slow = static_cast<std::size_t>(size.as_array()[1].as_number());
+        info.image_fast =
+            static_cast<std::size_t>(size.as_array()[0].as_number());
+        info.image_slow =
+            static_cast<std::size_t>(size.as_array()[1].as_number());
       }
     }
   }
@@ -128,7 +141,8 @@ Info read(const std::string &path) {
 
 std::string describe(const Info &info) {
   std::string result = std::to_string(info.experiments) + " experiment";
-  if (info.experiments != 1) result += "s";
+  if (info.experiments != 1)
+    result += "s";
   if (info.has_scan) {
     result += ", images " + std::to_string(info.first_image) + " to " +
               std::to_string(info.last_image);
@@ -141,12 +155,14 @@ std::string describe(const Info &info) {
   }
   if (info.has_detector) {
     result += ", " + std::to_string(info.panels) + " panel";
-    if (info.panels != 1) result += "s";
+    if (info.panels != 1)
+      result += "s";
     result += " of " + std::to_string(info.image_slow) + " x " +
               std::to_string(info.image_fast);
   }
-  if (!info.identifier.empty()) result += ", identifier " + info.identifier;
+  if (!info.identifier.empty())
+    result += ", identifier " + info.identifier;
   return result;
 }
 
-}  // namespace expt
+} // namespace expt

@@ -18,11 +18,14 @@ TEST(a_table_survives_a_read_and_a_write_byte_for_byte) {
   Table t;
   t.nrows = 7;
   Column &m = t.int_column("miller_index", "cctbx::miller::index<>", 3);
-  for (std::size_t i = 0; i < t.nrows * 3; ++i) m.ints[i] = static_cast<int>(i) - 10;
+  for (std::size_t i = 0; i < t.nrows * 3; ++i)
+    m.ints[i] = static_cast<int>(i) - 10;
   Column &x = t.real_column("xyzobs.px.value", "vec3<double>", 3);
-  for (std::size_t i = 0; i < t.nrows * 3; ++i) x.reals[i] = 0.5 * static_cast<double>(i);
+  for (std::size_t i = 0; i < t.nrows * 3; ++i)
+    x.reals[i] = 0.5 * static_cast<double>(i);
   Column &f = t.int_column("flags", "std::size_t", 1);
-  for (std::size_t i = 0; i < t.nrows; ++i) f.ints[i] = 32;
+  for (std::size_t i = 0; i < t.nrows; ++i)
+    f.ints[i] = 32;
   Table::Opaque blob;
   blob.type = "Shoebox<>";
   blob.rows = t.nrows;
@@ -47,7 +50,8 @@ TEST(a_table_survives_a_read_and_a_write_byte_for_byte) {
   const std::string a = slurp(first);
   const std::string b = slurp(second);
   check::is_true(!a.empty(), "something was written");
-  check::equal(static_cast<long long>(b.size()), static_cast<long long>(a.size()),
+  check::equal(static_cast<long long>(b.size()),
+               static_cast<long long>(a.size()),
                "same size after a round trip");
   check::is_true(a == b, "byte for byte identical after a round trip");
 }
@@ -115,30 +119,38 @@ TEST(a_saved_shoebox_follows_dials_mask_convention) {
   // as an invalid structure, however far under the size limit it was.
   Shoebox box;
   box.panel = 0;
-  box.bbox[0] = 0; box.bbox[1] = 2;
-  box.bbox[2] = 0; box.bbox[3] = 2;
-  box.bbox[4] = 0; box.bbox[5] = 1;
+  box.bbox[0] = 0;
+  box.bbox[1] = 2;
+  box.bbox[2] = 0;
+  box.bbox[3] = 2;
+  box.bbox[4] = 0;
+  box.bbox[5] = 1;
   box.data.assign(4, 1.0f);
   box.background.assign(4, 0.5f);
   box.mask = {
-      static_cast<std::uint8_t>(shoebox_mask::kValid | shoebox_mask::kForeground),
-      static_cast<std::uint8_t>(shoebox_mask::kValid | shoebox_mask::kBackground),
-      shoebox_mask::kForeground,   // a foreground voxel in a module gap
-      shoebox_mask::kBackground,   // and a background one
+      static_cast<std::uint8_t>(shoebox_mask::kValid |
+                                shoebox_mask::kForeground),
+      static_cast<std::uint8_t>(shoebox_mask::kValid |
+                                shoebox_mask::kBackground),
+      shoebox_mask::kForeground, // a foreground voxel in a module gap
+      shoebox_mask::kBackground, // and a background one
   };
   to_dials_convention(&box);
-  check::equal(static_cast<long long>(box.mask[0]),
-               static_cast<long long>(shoebox_mask::kValid | shoebox_mask::kForeground),
-               "a measured foreground voxel is left alone");
-  check::equal(static_cast<long long>(box.mask[1]),
-               static_cast<long long>(shoebox_mask::kValid | shoebox_mask::kBackground),
-               "and so is a measured background one");
+  check::equal(
+      static_cast<long long>(box.mask[0]),
+      static_cast<long long>(shoebox_mask::kValid | shoebox_mask::kForeground),
+      "a measured foreground voxel is left alone");
+  check::equal(
+      static_cast<long long>(box.mask[1]),
+      static_cast<long long>(shoebox_mask::kValid | shoebox_mask::kBackground),
+      "and so is a measured background one");
   check::equal(static_cast<long long>(box.mask[2]), 0,
                "an unmeasured foreground voxel is zero, not Foreground alone");
   check::equal(static_cast<long long>(box.mask[3]), 0,
                "and an unmeasured background voxel likewise");
   for (std::uint8_t m : box.mask) {
-    const bool region = (m & (shoebox_mask::kForeground | shoebox_mask::kBackground)) != 0;
+    const bool region =
+        (m & (shoebox_mask::kForeground | shoebox_mask::kBackground)) != 0;
     check::is_true(!region || (m & shoebox_mask::kValid) != 0,
                    "no region bit without Valid");
   }
@@ -154,7 +166,8 @@ TEST(the_msgpack_size_rule_holds_at_its_exact_boundary) {
   } catch (const ReflError &) {
     largest_refused = true;
   }
-  check::is_true(!largest_refused, "the largest size bin32 can describe is written");
+  check::is_true(!largest_refused,
+                 "the largest size bin32 can describe is written");
 
   bool over_refused = false;
   std::string said;
@@ -169,4 +182,4 @@ TEST(the_msgpack_size_rule_holds_at_its_exact_boundary) {
   check::is_true(said.find("slice") != std::string::npos, "and what to do");
 }
 
-}  // namespace mxi
+} // namespace mxi

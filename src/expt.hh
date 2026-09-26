@@ -24,12 +24,11 @@
 
 #include "geometry.hh"
 #include "json.hh"
-#include "json.hh"
 
 namespace mxi {
 
 class ExptError : public std::runtime_error {
- public:
+public:
   using std::runtime_error::runtime_error;
 };
 
@@ -41,8 +40,8 @@ class ExptError : public std::runtime_error {
 //: line.
 struct ProfileBlock {
   bool present = false;
-  double sigma_b = 0.0;  //: degrees
-  double sigma_m = 0.0;  //: degrees
+  double sigma_b = 0.0; //: degrees
+  double sigma_m = 0.0; //: degrees
   double n_sigma = 3.0;
 };
 
@@ -101,4 +100,4 @@ ExperimentList experiments_from_json(const json::Value &document);
 json::Value experiments_to_json(const ExperimentList &list);
 void write_experiments(const std::string &path, const ExperimentList &list);
 
-}  // namespace mxi
+} // namespace mxi

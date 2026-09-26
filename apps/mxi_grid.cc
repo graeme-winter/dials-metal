@@ -8,17 +8,17 @@
 // across -- and the reference is what says whether its shape is the spot's or
 // the sampling's.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <algorithm>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "args.hh"
 #include "../src/expt.hh"
-#include "profile_grid.hh"
 #include "../src/refl.hh"
+#include "args.hh"
+#include "profile_grid.hh"
 #include "shoebox.hh"
 
 namespace mxi {
@@ -34,9 +34,11 @@ void usage(const char *program) {
       "  --half-width W    grid spans plus and minus W sigma (3)\n"
       "  --neighbours K    spots averaged for the reference profile (200)\n"
       "  --spots N         how many example spots to write (4)\n"
-      "  --recentre        put each spot on its own centroid before adding it,\n"
+      "  --recentre        put each spot on its own centroid before adding "
+      "it,\n"
       "                    rather than on its predicted position. The\n"
-      "                    prediction is off by 0.44 sigma_D on average, which\n"
+      "                    prediction is off by 0.44 sigma_D on average, "
+      "which\n"
       "                    blurs an aggregate by about root two\n"
       "  --subdivisions S  split each pixel S ways per axis; 1 to see the\n"
       "                    undersampling raw (5)\n"
@@ -44,12 +46,14 @@ void usage(const char *program) {
       program);
 }
 
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"--out",      "--n",        "--half-width",
-                                       "--neighbours", "--spots",  "--subdivisions",
-                                       "--sigma-b",  "--sigma-m", "--map", "--recentre"};
+  const std::set<std::string> known = {"--out",        "--n",
+                                       "--half-width", "--neighbours",
+                                       "--spots",      "--subdivisions",
+                                       "--sigma-b",    "--sigma-m",
+                                       "--map",        "--recentre"};
   // Not every known option takes a value: passing one set as both made
   // --recentre demand an argument.
   std::set<std::string> takes_value = known;
@@ -98,8 +102,10 @@ int run_program(int argc, char **argv) {
         continue;
       }
       const Vec3 beam{s.real(i, 0), s.real(i, 1), s.real(i, 2)};
-      if (std::fabs(compute_zeta(e, beam)) < 0.05) continue;
-      if (!has_prediction(reflections, i)) continue;
+      if (std::fabs(compute_zeta(e, beam)) < 0.05)
+        continue;
+      if (!has_prediction(reflections, i))
+        continue;
       chosen.push_back(i);
     }
     if (chosen.size() < 10) {
@@ -117,19 +123,21 @@ int run_program(int argc, char **argv) {
         const Vec3 beam{s.real(i, 0), s.real(i, 1), s.real(i, 2)};
         selected.push_back(boxes[i]);
         beams.push_back(beam);
-        for (const RangeSample &sample :
-             range_samples(e, boxes[i], cal.real(i, 2), compute_zeta(e, beam))) {
+        for (const RangeSample &sample : range_samples(
+                 e, boxes[i], cal.real(i, 2), compute_zeta(e, beam))) {
           samples.push_back(sample);
         }
       }
       std::size_t used = 0;
-      if (!(sigma_b > 0.0)) sigma_b = beam_divergence(e, selected, beams, &used);
+      if (!(sigma_b > 0.0))
+        sigma_b = beam_divergence(e, selected, beams, &used);
       if (!(sigma_m > 0.0)) {
-        sigma_m = reflecting_range(samples, Scan::radians(e.scan.osc_width), 0.0);
+        sigma_m =
+            reflecting_range(samples, Scan::radians(e.scan.osc_width), 0.0);
       }
     }
-    std::printf("sigma_b %.6f  sigma_m %.6f  over %zu spots\n", sigma_b, sigma_m,
-                chosen.size());
+    std::printf("sigma_b %.6f  sigma_m %.6f  over %zu spots\n", sigma_b,
+                sigma_m, chosen.size());
 
     const int n = static_cast<int>(args.number("--n", 4));
     const double half = args.number("--half-width", 3.0);
@@ -152,7 +160,8 @@ int run_program(int argc, char **argv) {
     const auto write = [&](const char *label, const ProfileGrid &grid) {
       std::fprintf(out, "%s %zu %.6g %.6g\n", label, grid.n_spots,
                    grid.counts_added, grid.counts_outside);
-      for (double v : grid.value) std::fprintf(out, "%.9g\n", v);
+      for (double v : grid.value)
+        std::fprintf(out, "%.9g\n", v);
     };
 
     // Everything, as the reference of last resort.
@@ -167,10 +176,11 @@ int run_program(int argc, char **argv) {
 
     // A few examples, each with the spots nearest it on the detector.
     for (std::size_t k = 0; k < examples && k < chosen.size(); ++k) {
-      const std::size_t centre = chosen[(k + 1) * chosen.size() / (examples + 1)];
+      const std::size_t centre =
+          chosen[(k + 1) * chosen.size() / (examples + 1)];
       ProfileGrid one = make_grid(n, sigma_b, sigma_m, half);
-      add_to_grid(e, boxes[centre], {s.real(centre, 0), s.real(centre, 1),
-                                     s.real(centre, 2)},
+      add_to_grid(e, boxes[centre],
+                  {s.real(centre, 0), s.real(centre, 1), s.real(centre, 2)},
                   cal.real(centre, 2), &one, subdivisions, recentre);
       one.normalise();
 
@@ -179,14 +189,15 @@ int run_program(int argc, char **argv) {
       // different images are far more alike than two at opposite corners.
       std::vector<std::pair<double, std::size_t>> distance;
       for (std::size_t i : chosen) {
-        if (i == centre) continue;
+        if (i == centre)
+          continue;
         const double dx = obs.real(i, 0) - obs.real(centre, 0);
         const double dy = obs.real(i, 1) - obs.real(centre, 1);
         distance.emplace_back(dx * dx + dy * dy, i);
       }
       std::partial_sort(distance.begin(),
-                        distance.begin() +
-                            static_cast<long>(std::min(neighbours, distance.size())),
+                        distance.begin() + static_cast<long>(std::min(
+                                               neighbours, distance.size())),
                         distance.end());
       ProfileGrid reference = make_grid(n, sigma_b, sigma_m, half);
       for (std::size_t j = 0; j < neighbours && j < distance.size(); ++j) {
@@ -228,12 +239,14 @@ int run_program(int argc, char **argv) {
         const SpotMoments mom = spot_moments(
             e, boxes[i], {s.real(i, 0), s.real(i, 1), s.real(i, 2)},
             cal.real(i, 2));
-        if (!mom.valid) continue;
+        if (!mom.valid)
+          continue;
         const double predicted =
             sensor_depth_width(p0.mu, p0.thickness, mom.obliquity, mom.path_mm);
         // The angular smear a source of one millimetre would give, so any
         // extent can be tested afterwards without recomputing the geometry.
-        const double per_mm = source_extent_width(1.0, mom.obliquity, mom.path_mm);
+        const double per_mm =
+            source_extent_width(1.0, mom.obliquity, mom.path_mm);
         std::fprintf(m,
                      "%.3f %.3f %.4f %.5f %.6f %.6f %.6f %.6g %.6f %.6f %.6f "
                      "%.8f\n",
@@ -254,6 +267,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

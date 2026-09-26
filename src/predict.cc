@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <thread>
 #include <cmath>
+#include <thread>
 
 namespace mxi {
 
@@ -17,11 +17,12 @@ constexpr double kPi = 3.14159265358979323846;
 double wrap_from(double phi, double from) {
   const double two_pi = 2.0 * kPi;
   double d = std::fmod(phi - from, two_pi);
-  if (d < 0.0) d += two_pi;
+  if (d < 0.0)
+    d += two_pi;
   return from + d;
 }
 
-}  // namespace
+} // namespace
 
 Intersections ewald_intersections(const Experiment &e, const Vec3 &r0) {
   Intersections out;
@@ -34,9 +35,11 @@ Intersections ewald_intersections(const Experiment &e, const Vec3 &r0) {
   const Vec3 u = e.goniometer.fixed * r0;
 
   const double r_squared = u.norm_squared();
-  if (r_squared <= 0.0) return out;
+  if (r_squared <= 0.0)
+    return out;
   // Beyond twice the Ewald radius nothing can reach the sphere at any angle.
-  if (r_squared > 4.0 * e.beam.s0().norm_squared()) return out;
+  if (r_squared > 4.0 * e.beam.s0().norm_squared())
+    return out;
 
   const double u_parallel = u.dot(m2);
   const double s_parallel = s0p.dot(m2);
@@ -46,12 +49,14 @@ Intersections ewald_intersections(const Experiment &e, const Vec3 &r0) {
   const double d = -0.5 * r_squared - a0;
 
   const double amplitude = std::sqrt(b * b + c * c);
-  if (amplitude <= 0.0) return out;
+  if (amplitude <= 0.0)
+    return out;
   const double cosine = d / amplitude;
   // A point whose component along the axis never brings it to the sphere.
   // The equality case is a tangential grazing, which is a measure-zero event
   // that acos handles without special-casing.
-  if (cosine < -1.0 || cosine > 1.0) return out;
+  if (cosine < -1.0 || cosine > 1.0)
+    return out;
 
   const double centre = std::atan2(c, b);
   const double offset = std::acos(cosine);
@@ -148,7 +153,8 @@ struct Converged {
 double into_scan(const Experiment &e, double phi) {
   const double lo = std::min(e.scan.phi_start(), e.scan.phi_end());
   const double span = std::abs(e.scan.phi_end() - e.scan.phi_start());
-  if (span >= 2.0 * kPi) return wrap_from(phi, lo);
+  if (span >= 2.0 * kPi)
+    return wrap_from(phi, lo);
   const double middle = lo + 0.5 * span;
   return wrap_from(phi, middle - kPi);
 }
@@ -189,13 +195,15 @@ Converged converge_root(const Experiment &e, const Vec3 &h, double phi_seed,
   for (int pass = 0; pass < 3; ++pass) {
     const Vec3 trial = e.setting_at(e.scan.z_from_phi(out.phi)) * h;
     const Intersections cross = ewald_intersections(e, trial);
-    if (!cross.any) return out;
+    if (!cross.any)
+      return out;
     const double first = in_this_turn(cross.phi[0]);
     const double second = in_this_turn(cross.phi[1]);
     // Stay on the root we started from: the same side of the sphere, which is
     // what distinguishes the two crossings, and then the nearer in angle.
     int which;
-    if (cross.entering[0] == entering_seed && cross.entering[1] != entering_seed) {
+    if (cross.entering[0] == entering_seed &&
+        cross.entering[1] != entering_seed) {
       which = 0;
     } else if (cross.entering[1] == entering_seed &&
                cross.entering[0] != entering_seed) {
@@ -213,8 +221,7 @@ Converged converge_root(const Experiment &e, const Vec3 &h, double phi_seed,
 
 // Turn one Ewald intersection into a Prediction, or reject it.
 bool build(const Experiment &e, const PredictOptions &options, int h, int k,
-           int l, const Vec3 &r0, double phi, bool entering,
-           Prediction *out) {
+           int l, const Vec3 &r0, double phi, bool entering, Prediction *out) {
   if (!options.allow_outside_scan) {
     const double start = e.scan.phi_start();
     const double end = e.scan.phi_end();
@@ -231,7 +238,8 @@ bool build(const Experiment &e, const PredictOptions &options, int h, int k,
     // already in the turn its caller meant it to be in.
     if (phi < lo || phi > lo + span) {
       const double wrapped = wrap_from(phi, lo);
-      if (wrapped > lo + span) return false;
+      if (wrapped > lo + span)
+        return false;
       phi = wrapped;
     }
   }
@@ -240,7 +248,8 @@ bool build(const Experiment &e, const PredictOptions &options, int h, int k,
   const Vec3 s1 = e.beam.s0() + r * r0;
 
   auto hit = e.detector.intersect(s1);
-  if (!hit) return false;
+  if (!hit)
+    return false;
 
   out->h = h;
   out->k = k;
@@ -255,7 +264,7 @@ bool build(const Experiment &e, const PredictOptions &options, int h, int k,
   return true;
 }
 
-}  // namespace
+} // namespace
 
 //: Emit one prediction per rotation of the scan.
 //:
@@ -269,9 +278,9 @@ bool build(const Experiment &e, const PredictOptions &options, int h, int k,
 //: phi + 2 pi k, because with a scan-varying crystal the setting matrix at
 //: turn nine is not the one at turn zero and the reflection is not in quite
 //: the same place.
-void emit_turns(const Experiment &e, const PredictOptions &options, int h, int k,
-                int l, const Vec3 &hkl, const Converged &first, bool entering,
-                std::vector<Prediction> *out) {
+void emit_turns(const Experiment &e, const PredictOptions &options, int h,
+                int k, int l, const Vec3 &hkl, const Converged &first,
+                bool entering, std::vector<Prediction> *out) {
   const double lo = std::min(e.scan.phi_start(), e.scan.phi_end());
   const double span = std::abs(e.scan.phi_end() - e.scan.phi_start());
   const double two_pi = 2.0 * kPi;
@@ -282,7 +291,8 @@ void emit_turns(const Experiment &e, const PredictOptions &options, int h, int k
   const double base = wrap_from(first.phi, lo);
   for (int turn = 0; turn < turns; ++turn) {
     const double seed = base + two_pi * static_cast<double>(turn);
-    if (!options.allow_outside_scan && seed > lo + span) break;
+    if (!options.allow_outside_scan && seed > lo + span)
+      break;
     // The first turn uses the root it was given. Re-converging it from the
     // wrapped seed is not the same calculation and lost nine reflections of a
     // thirty degree sweep, which is a scan of less than one turn and should
@@ -295,7 +305,8 @@ void emit_turns(const Experiment &e, const PredictOptions &options, int h, int k
     Converged c = first;
     if (turn > 0) {
       c = converge_root(e, hkl, seed, entering);
-      if (!c.any) continue;
+      if (!c.any)
+        continue;
       // converge_root answers with a crossing from ewald_intersections, which
       // is in a principal 2 pi interval whatever it was seeded with, so the
       // turn is lost on the way out. Put it back: the nearest turn to the
@@ -314,24 +325,29 @@ void emit_turns(const Experiment &e, const PredictOptions &options, int h, int k
   }
 }
 
-std::vector<Prediction> predict_indices(
-    const Experiment &e, const std::vector<std::array<int, 3>> &indices,
-    const PredictOptions &options) {
+std::vector<Prediction>
+predict_indices(const Experiment &e,
+                const std::vector<std::array<int, 3>> &indices,
+                const PredictOptions &options) {
   std::vector<Prediction> out;
-  if (!e.crystal) return out;
-
+  if (!e.crystal)
+    return out;
 
   for (const std::array<int, 3> &hkl : indices) {
-    if (hkl[0] == 0 && hkl[1] == 0 && hkl[2] == 0) continue;
+    if (hkl[0] == 0 && hkl[1] == 0 && hkl[2] == 0)
+      continue;
     const Vec3 h{static_cast<double>(hkl[0]), static_cast<double>(hkl[1]),
                  static_cast<double>(hkl[2])};
     const Intersections cross = ewald_intersections(e, e.crystal->A * h);
-    if (!cross.any) continue;
+    if (!cross.any)
+      continue;
     for (int i = 0; i < 2; ++i) {
       const Converged c =
           converge_root(e, h, into_scan(e, cross.phi[i]), cross.entering[i]);
-      if (!c.any) continue;
-      emit_turns(e, options, hkl[0], hkl[1], hkl[2], h, c, cross.entering[i], &out);
+      if (!c.any)
+        continue;
+      emit_turns(e, options, hkl[0], hkl[1], hkl[2], h, c, cross.entering[i],
+                 &out);
     }
   }
   return out;
@@ -340,7 +356,8 @@ std::vector<Prediction> predict_indices(
 std::vector<Prediction> predict(const Experiment &e,
                                 const PredictOptions &options) {
   std::vector<Prediction> out;
-  if (!e.crystal) return out;
+  if (!e.crystal)
+    return out;
 
   double d_min = options.d_min;
   if (d_min <= 0.0) {
@@ -362,11 +379,11 @@ std::vector<Prediction> predict(const Experiment &e,
   std::size_t threads = options.threads;
   if (threads == 0) {
     threads = std::thread::hardware_concurrency();
-    if (threads == 0) threads = 1;
+    if (threads == 0)
+      threads = 1;
   }
   const int first_h = -bounds[0];
-  const std::size_t rows =
-      static_cast<std::size_t>(2 * bounds[0] + 1);
+  const std::size_t rows = static_cast<std::size_t>(2 * bounds[0] + 1);
   std::vector<std::vector<Prediction>> by_h(rows);
 
   const auto one_h = [&](std::size_t row) {
@@ -374,19 +391,22 @@ std::vector<Prediction> predict(const Experiment &e,
     std::vector<Prediction> &out = by_h[row];
     for (int k = -bounds[1]; k <= bounds[1]; ++k) {
       for (int l = -bounds[2]; l <= bounds[2]; ++l) {
-        if (h == 0 && k == 0 && l == 0) continue;
+        if (h == 0 && k == 0 && l == 0)
+          continue;
         const Vec3 hkl{static_cast<double>(h), static_cast<double>(k),
                        static_cast<double>(l)};
         const Vec3 r0 = A * hkl;
-        if (r0.norm() > q_max) continue;
+        if (r0.norm() > q_max)
+          continue;
 
         const Intersections cross = ewald_intersections(e, r0);
-        if (!cross.any) continue;
+        if (!cross.any)
+          continue;
         for (int i = 0; i < 2; ++i) {
-          const Converged c =
-              converge_root(e, hkl, into_scan(e, cross.phi[i]),
-                            cross.entering[i]);
-          if (!c.any) continue;
+          const Converged c = converge_root(e, hkl, into_scan(e, cross.phi[i]),
+                                            cross.entering[i]);
+          if (!c.any)
+            continue;
           emit_turns(e, options, h, k, l, hkl, c, cross.entering[i], &out);
         }
       }
@@ -394,7 +414,8 @@ std::vector<Prediction> predict(const Experiment &e,
   };
 
   if (threads <= 1 || rows < 2) {
-    for (std::size_t row = 0; row < rows; ++row) one_h(row);
+    for (std::size_t row = 0; row < rows; ++row)
+      one_h(row);
   } else {
     std::atomic<std::size_t> next{0};
     std::vector<std::thread> pool;
@@ -403,17 +424,21 @@ std::vector<Prediction> predict(const Experiment &e,
     const auto run = [&]() {
       for (;;) {
         const std::size_t row = next.fetch_add(1);
-        if (row >= rows) break;
+        if (row >= rows)
+          break;
         one_h(row);
       }
     };
-    for (std::size_t t = 1; t < n; ++t) pool.emplace_back(run);
+    for (std::size_t t = 1; t < n; ++t)
+      pool.emplace_back(run);
     run();
-    for (std::thread &t : pool) t.join();
+    for (std::thread &t : pool)
+      t.join();
   }
 
   std::size_t total = 0;
-  for (const std::vector<Prediction> &v : by_h) total += v.size();
+  for (const std::vector<Prediction> &v : by_h)
+    total += v.size();
   out.reserve(total);
   for (std::vector<Prediction> &v : by_h) {
     out.insert(out.end(), v.begin(), v.end());
@@ -423,4 +448,4 @@ std::vector<Prediction> predict(const Experiment &e,
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

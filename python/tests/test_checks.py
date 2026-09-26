@@ -12,7 +12,6 @@ from mxeq import expt
 from mxeq.checks import indexed, integrated, refined, scaled, strong
 from mxeq.checks.refined import misorientation, rotation_angle
 
-
 # gemmi is optional in mxeq -- the code checks for it and returns None without
 # it -- so a test that needs it is skipped when it is absent rather than
 # reported as a failure of code that is working. A fresh environment without it

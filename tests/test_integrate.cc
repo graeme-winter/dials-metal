@@ -54,7 +54,7 @@ Shoebox planted(double background, double signal_per_pixel, int signal_pixels) {
   return box;
 }
 
-}  // namespace
+} // namespace
 
 TEST(the_quantum_efficiency_is_the_fraction_the_sensor_stops) {
   // 1 - exp(-mu t / cos theta). Checked against the qe column of a DIALS
@@ -102,7 +102,8 @@ TEST(a_planted_intensity_comes_back) {
   options.background.tuning = 1e6;
   const IntegratedReflection r = integrate_shoebox(&box, options);
   check::is_true(r.valid, "integrated");
-  check::equal(static_cast<long long>(r.n_foreground), pixels, "foreground count");
+  check::equal(static_cast<long long>(r.n_foreground), pixels,
+               "foreground count");
   check::close(r.background_mean, background, 1e-6, "background recovered");
   check::close(r.intensity, excess * pixels, 1e-4 * excess * pixels,
                "and the intensity is the excess over it");
@@ -116,7 +117,7 @@ TEST(the_variance_is_leslies_and_the_background_term_is_in_it) {
   const double background = 3.0;
   Shoebox box = planted(background, 10.0, 25);
   IntegrateOptions options;
-  options.background.tuning = 1e6;  // the mean, so the arithmetic is exact
+  options.background.tuning = 1e6; // the mean, so the arithmetic is exact
   const IntegratedReflection r = integrate_shoebox(&box, options);
   check::is_true(r.valid, "integrated");
 
@@ -139,7 +140,8 @@ TEST(a_negative_intensity_still_has_a_positive_variance) {
   // the difference.
   Shoebox box = planted(5.0, 0.0, 25);
   for (std::size_t i = 0; i < box.size(); ++i) {
-    if (box.mask[i] & shoebox_mask::kForeground) box.data[i] = 3.0f;
+    if (box.mask[i] & shoebox_mask::kForeground)
+      box.data[i] = 3.0f;
   }
   const IntegratedReflection r = integrate_shoebox(&box);
   check::is_true(r.valid, "integrated");
@@ -162,7 +164,8 @@ TEST(the_gain_multiplies_the_variance_and_not_the_intensity) {
 TEST(too_few_background_pixels_is_refused_rather_than_guessed) {
   Shoebox box = planted(2.0, 20.0, 25);
   for (std::size_t i = 0; i < box.size(); ++i) {
-    if (box.mask[i] & shoebox_mask::kBackground) box.mask[i] = 0;
+    if (box.mask[i] & shoebox_mask::kBackground)
+      box.mask[i] = 0;
   }
   const IntegratedReflection r = integrate_shoebox(&box);
   check::is_true(!r.valid, "not integrated");
@@ -199,14 +202,13 @@ TEST(the_lp_factor_collapses_to_the_unpolarized_form) {
   const Vec3 s0 = beam.s0();
   for (double angle : {0.1, 0.4, 0.9}) {
     // A diffracted beam at 2theta = angle, in the plane containing the axis.
-    const Vec3 s1 =
-        (s0 * std::cos(angle) + Vec3{0.0, 1.0, 0.0} * std::sin(angle) * s0.norm())
-            .normalized() *
-        s0.norm();
+    const Vec3 s1 = (s0 * std::cos(angle) +
+                     Vec3{0.0, 1.0, 0.0} * std::sin(angle) * s0.norm())
+                        .normalized() *
+                    s0.norm();
     const double cos_two_theta = (s1 / s1.norm()).dot(s0 / s0.norm());
-    const double lorentz =
-        std::fabs(s1.dot(goniometer.lab_axis().cross(s0))) /
-        (s1.norm() * s0.norm());
+    const double lorentz = std::fabs(s1.dot(goniometer.lab_axis().cross(s0))) /
+                           (s1.norm() * s0.norm());
     const double expected =
         lorentz / (0.5 * (1.0 + cos_two_theta * cos_two_theta));
     check::close(lorentz_polarization(beam, goniometer, s1), expected,
@@ -233,9 +235,10 @@ TEST(a_polarized_beam_makes_the_normal_matter) {
   goniometer.axis = {1.0, 0.0, 0.0};
   const Vec3 s0 = beam.s0();
 
-  const Vec3 along = (s0 * std::cos(0.6) +
-                      Vec3{0.0, 1.0, 0.0} * std::sin(0.6) * s0.norm())
-                         .normalized() * s0.norm();
+  const Vec3 along =
+      (s0 * std::cos(0.6) + Vec3{0.0, 1.0, 0.0} * std::sin(0.6) * s0.norm())
+          .normalized() *
+      s0.norm();
   Beam turned = beam;
   turned.polarization_normal = {0.0, 0.0, 1.0};
   check::is_true(std::fabs(lorentz_polarization(beam, goniometer, along) -
@@ -254,7 +257,8 @@ TEST(the_observed_centroid_is_where_the_signal_is) {
   // pixel in the same direction.
   Shoebox box = planted(2.0, 0.0, 25);
   for (std::size_t i = 0; i < box.size(); ++i) {
-    if (box.mask[i] & shoebox_mask::kForeground) box.data[i] = 2.0f;
+    if (box.mask[i] & shoebox_mask::kForeground)
+      box.data[i] = 2.0f;
   }
   const std::size_t lit = box.at(7, 8, 1);
   box.data[lit] = 500.0f;
@@ -283,7 +287,8 @@ TEST(the_centroid_ignores_the_background_and_the_rim) {
   // it 0.15 to 0.19 pixels away from DIALS' on real data.
   Shoebox box = planted(1.0, 0.0, 25);
   for (std::size_t i = 0; i < box.size(); ++i) {
-    if (box.mask[i] & shoebox_mask::kForeground) box.data[i] = 1.0f;
+    if (box.mask[i] & shoebox_mask::kForeground)
+      box.data[i] = 1.0f;
   }
   box.data[box.at(6, 7, 1)] = 101.0f;
   box.data[box.at(8, 7, 1)] = 101.0f;
@@ -312,8 +317,8 @@ TEST(the_resolution_column_comes_from_the_static_cell) {
   // while 1/|s1 - s0| and the scan-varying A are both 2.6e-4 out. A tolerance
   // of a part in a thousand would have accepted any of them.
   const double a = 78.0;
-  const Crystal cubic = Crystal::from_real_space({a, 0.0, 0.0}, {0.0, a, 0.0},
-                                                 {0.0, 0.0, a});
+  const Crystal cubic =
+      Crystal::from_real_space({a, 0.0, 0.0}, {0.0, a, 0.0}, {0.0, 0.0, a});
   check::close(resolution(cubic, 1, 0, 0), a, 1e-9, "the 100 is the cell edge");
   check::close(resolution(cubic, 2, 0, 0), a / 2.0, 1e-9, "the 200 is half it");
   check::close(resolution(cubic, 1, 1, 0), a / std::sqrt(2.0), 1e-9, "the 110");
@@ -331,11 +336,11 @@ TEST(partiality_is_the_part_of_the_rocking_curve_inside_the_box) {
   scan.osc_start = 0.0;
   scan.osc_width = 0.1;
   const double sigma_m = 0.1;
-  const double zeta = 1.0;  // so the rocking curve is sigma_m wide in phi
+  const double zeta = 1.0; // so the rocking curve is sigma_m wide in phi
 
   // A box of plus and minus three sigma about a reflection in the middle.
   const double phi = scan.phi_from_z(500.0);
-  const std::int32_t half = 3;  // 3 images = 0.3 degrees = 3 sigma
+  const std::int32_t half = 3; // 3 images = 0.3 degrees = 3 sigma
   const double full =
       partiality(scan, phi, zeta, sigma_m, 500 - half, 500 + half);
   check::close(full, 0.9973, 0.001, "three sigma holds 0.9973 of the curve");
@@ -345,7 +350,8 @@ TEST(partiality_is_the_part_of_the_rocking_curve_inside_the_box) {
   check::close(narrow, 0.6827, 0.01, "one sigma holds 0.6827");
 
   // A reflection whose box is cut off at the start of the scan is partial.
-  const double edge = partiality(scan, scan.phi_from_z(0.0), zeta, sigma_m, 0, 3);
+  const double edge =
+      partiality(scan, scan.phi_from_z(0.0), zeta, sigma_m, 0, 3);
   check::is_true(edge > 0.45 && edge < 0.55,
                  "half the curve when the box starts at the reflection");
 
@@ -383,9 +389,12 @@ TEST(the_position_uncertainty_is_honest_on_spots_at_known_positions) {
         const double cz = 5.5 + where(rng);
         Shoebox box;
         box.panel = 0;
-        box.bbox[0] = 0; box.bbox[1] = 21;
-        box.bbox[2] = 0; box.bbox[3] = 21;
-        box.bbox[4] = 0; box.bbox[5] = 11;
+        box.bbox[0] = 0;
+        box.bbox[1] = 21;
+        box.bbox[2] = 0;
+        box.bbox[3] = 21;
+        box.bbox[4] = 0;
+        box.bbox[5] = 11;
         const std::size_t size = box.size();
         box.data.assign(size, 0.0f);
         box.background.assign(size, 0.0f);
@@ -401,25 +410,29 @@ TEST(the_position_uncertainty_is_honest_on_spots_at_known_positions) {
               const std::size_t at = box.at(x, y, z);
               shape[at] = std::exp(-0.5 * (dx * dx + dy * dy + dz * dz));
               total += shape[at];
-              if (std::fabs(x + 0.5 - cx) < 5.0 && std::fabs(y + 0.5 - cy) < 5.0) {
+              if (std::fabs(x + 0.5 - cx) < 5.0 &&
+                  std::fabs(y + 0.5 - cy) < 5.0) {
                 box.mask[at] = shoebox_mask::kValid | shoebox_mask::kForeground;
               }
             }
           }
         }
         for (std::size_t i = 0; i < size; ++i) {
-          std::poisson_distribution<int> counts(background + signal * shape[i] / total);
+          std::poisson_distribution<int> counts(background +
+                                                signal * shape[i] / total);
           box.data[i] = static_cast<float>(counts(rng));
         }
         IntegrateOptions options;
         options.background.tuning = 1e6;
         const IntegratedReflection r = integrate_shoebox(&box, options);
-        if (!r.unbiased_valid) continue;
+        if (!r.unbiased_valid)
+          continue;
         const double d[3] = {r.unbiased_fast - cx, r.unbiased_slow - cy,
                              r.unbiased_z - cz};
         const double v[3] = {r.unbiased_variance_fast, r.unbiased_variance_slow,
                              r.unbiased_variance_z};
-        for (int k = 0; k < 3; ++k) sum2[k] += d[k] * d[k] / v[k];
+        for (int k = 0; k < 3; ++k)
+          sum2[k] += d[k] * d[k] / v[k];
         ++n;
       }
       check::is_true(n > 1000, "nearly every trial has a centre");
@@ -448,9 +461,12 @@ TEST(an_undetected_reflection_has_no_centre_rather_than_a_wild_one) {
   for (int trial = 0; trial < 2000; ++trial) {
     Shoebox box;
     box.panel = 0;
-    box.bbox[0] = 100; box.bbox[1] = 121;
-    box.bbox[2] = 200; box.bbox[3] = 221;
-    box.bbox[4] = 30;  box.bbox[5] = 41;
+    box.bbox[0] = 100;
+    box.bbox[1] = 121;
+    box.bbox[2] = 200;
+    box.bbox[3] = 221;
+    box.bbox[4] = 30;
+    box.bbox[5] = 41;
     const std::size_t size = box.size();
     box.data.assign(size, 0.0f);
     box.background.assign(size, 0.0f);
@@ -471,7 +487,8 @@ TEST(an_undetected_reflection_has_no_centre_rather_than_a_wild_one) {
     IntegrateOptions options;
     options.background.tuning = 1e6;
     const IntegratedReflection r = integrate_shoebox(&box, options);
-    if (!r.unbiased_valid) continue;
+    if (!r.unbiased_valid)
+      continue;
     ++claimed;
     if (r.unbiased_fast < box.bbox[0] || r.unbiased_fast > box.bbox[1] ||
         r.unbiased_slow < box.bbox[2] || r.unbiased_slow > box.bbox[3] ||
@@ -489,23 +506,27 @@ TEST(an_undetected_reflection_has_no_centre_rather_than_a_wild_one) {
 TEST(a_reflection_reaching_a_masked_pixel_is_not_flagged_as_summed) {
   // DIALS' convention, read from its source and confirmed on a real
   // integration: 95.6 per cent of gap-crossing reflections carry
-  // ForegroundIncludesBadPixels and only 4.4 per cent IntegratedSum. dials.scale
-  // needs IntegratedSum and IntegratedPrf together, so a truncated sum flagged
-  // as good went into scaling -- 1415 of them here against DIALS' 62 -- and was
-  // rejected there, clustered along every module edge.
+  // ForegroundIncludesBadPixels and only 4.4 per cent IntegratedSum.
+  // dials.scale needs IntegratedSum and IntegratedPrf together, so a truncated
+  // sum flagged as good went into scaling -- 1415 of them here against DIALS'
+  // 62 -- and was rejected there, clustered along every module edge.
   const auto box = [](bool foreground_gap, bool background_gap) {
     Shoebox b;
     b.panel = 0;
-    b.bbox[0] = 0; b.bbox[1] = 9;
-    b.bbox[2] = 0; b.bbox[3] = 9;
-    b.bbox[4] = 0; b.bbox[5] = 1;
+    b.bbox[0] = 0;
+    b.bbox[1] = 9;
+    b.bbox[2] = 0;
+    b.bbox[3] = 9;
+    b.bbox[4] = 0;
+    b.bbox[5] = 1;
     const std::size_t n = b.size();
     b.data.assign(n, 2.0f);
     b.background.assign(n, 0.0f);
     b.mask.assign(n, shoebox_mask::kValid | shoebox_mask::kBackground);
     for (std::int32_t y = 3; y < 6; ++y)
       for (std::int32_t x = 3; x < 6; ++x) {
-        b.mask[b.at(x, y, 0)] = shoebox_mask::kValid | shoebox_mask::kForeground;
+        b.mask[b.at(x, y, 0)] =
+            shoebox_mask::kValid | shoebox_mask::kForeground;
         b.data[b.at(x, y, 0)] = 50.0f;
       }
     // A bad pixel keeps its region and loses Valid, as the integrator records
@@ -521,13 +542,16 @@ TEST(a_reflection_reaching_a_masked_pixel_is_not_flagged_as_summed) {
 
   Shoebox clean = box(false, false);
   const std::int64_t fc = summation_flags(integrate_shoebox(&clean, o));
-  check::is_true((fc & flag::kIntegratedSum) != 0, "a clean reflection is summed");
-  check::is_true((fc & flag::kForegroundIncludesBadPixels) == 0, "and not flagged");
+  check::is_true((fc & flag::kIntegratedSum) != 0,
+                 "a clean reflection is summed");
+  check::is_true((fc & flag::kForegroundIncludesBadPixels) == 0,
+                 "and not flagged");
 
   Shoebox gap = box(true, false);
   const IntegratedReflection rg = integrate_shoebox(&gap, o);
   const std::int64_t fg = summation_flags(rg);
-  check::equal(static_cast<long long>(rg.n_foreground_bad), 1, "one foreground voxel lost");
+  check::equal(static_cast<long long>(rg.n_foreground_bad), 1,
+               "one foreground voxel lost");
   check::is_true((fg & flag::kIntegratedSum) == 0,
                  "a foreground with a pixel missing is NOT flagged as summed");
   check::is_true((fg & flag::kForegroundIncludesBadPixels) != 0, "it says why");
@@ -542,4 +566,4 @@ TEST(a_reflection_reaching_a_masked_pixel_is_not_flagged_as_summed) {
                  "but it is recorded");
 }
 
-}  // namespace mxi
+} // namespace mxi

@@ -8,10 +8,12 @@ namespace mxi {
 
 std::pair<double, double> Panel::parallax_offset(double mm_fast,
                                                  double mm_slow) const {
-  if (!parallax || mu <= 0.0 || thickness <= 0.0) return {0.0, 0.0};
+  if (!parallax || mu <= 0.0 || thickness <= 0.0)
+    return {0.0, 0.0};
   const Vec3 u = lab_coord_mm(mm_fast, mm_slow).normalized();
   const double cos_theta = std::abs(u.dot(normal()));
-  if (cos_theta <= 0.0) return {0.0, 0.0};
+  if (cos_theta <= 0.0)
+    return {0.0, 0.0};
   const double attenuation_length = 1.0 / mu;
   // Mean depth of interaction along the ray, truncated by the sensor: a photon
   // that gets through the full thickness is not recorded at all, which is the
@@ -21,7 +23,8 @@ std::pair<double, double> Panel::parallax_offset(double mm_fast,
   double depth = attenuation_length - (path + attenuation_length) * transmitted;
   if (parallax_conditional) {
     const double absorbed = 1.0 - transmitted;
-    if (absorbed > 0.0) depth /= absorbed;
+    if (absorbed > 0.0)
+      depth /= absorbed;
   }
   return {depth * u.dot(fast), depth * u.dot(slow)};
 }
@@ -42,18 +45,21 @@ std::pair<double, double> Panel::mm_to_px(double mm_fast,
 }
 
 Scan Scan::from_oscillation(const std::vector<double> &oscillation_deg,
-                           std::int64_t first, std::int64_t last) {
+                            std::int64_t first, std::int64_t last) {
   Scan s;
   s.first_image = first;
   s.last_image = last;
-  if (oscillation_deg.empty()) return s;
+  if (oscillation_deg.empty())
+    return s;
   s.osc_start = oscillation_deg.front();
   const std::size_t n = oscillation_deg.size();
-  if (n < 2) return s;
+  if (n < 2)
+    return s;
 
   s.osc_width = (oscillation_deg.back() - oscillation_deg.front()) /
                 static_cast<double>(n - 1);
-  if (s.osc_width == 0.0) return s;
+  if (s.osc_width == 0.0)
+    return s;
   for (std::size_t i = 1; i < n; ++i) {
     const double width = oscillation_deg[i] - oscillation_deg[i - 1];
     s.max_width_deviation =
@@ -63,22 +69,26 @@ Scan Scan::from_oscillation(const std::vector<double> &oscillation_deg,
   return s;
 }
 
-void Panel::mm_to_px_jacobian(double mm_fast, double mm_slow, double out[4]) const {
+void Panel::mm_to_px_jacobian(double mm_fast, double mm_slow,
+                              double out[4]) const {
   // Without the correction it is just the pixel size.
   out[0] = 1.0 / pixel_size[0];
   out[1] = 0.0;
   out[2] = 0.0;
   out[3] = 1.0 / pixel_size[1];
-  if (!parallax || mu <= 0.0 || thickness <= 0.0) return;
+  if (!parallax || mu <= 0.0 || thickness <= 0.0)
+    return;
 
   const Vec3 lab = lab_coord_mm(mm_fast, mm_slow);
   const double length = lab.norm();
-  if (!(length > 0.0)) return;
+  if (!(length > 0.0))
+    return;
   const Vec3 u = lab / length;
   const Vec3 n = normal();
   const double cosine = u.dot(n);
   const double c = std::abs(cosine);
-  if (!(c > 0.0)) return;
+  if (!(c > 0.0))
+    return;
 
   const double attenuation_length = 1.0 / mu;
   const double path = thickness / c;
@@ -108,7 +118,8 @@ Goniometer Goniometer::from_axes(const std::vector<Vec3> &axes,
                                  const std::vector<double> &angles_deg,
                                  std::size_t scan_axis) {
   Goniometer g;
-  if (scan_axis >= axes.size()) return g;
+  if (scan_axis >= axes.size())
+    return g;
   g.axis = axes[scan_axis].normalized();
 
   // The axes are numbered from the SAMPLE outwards towards the laboratory.
@@ -137,17 +148,20 @@ Goniometer Goniometer::from_axes(const std::vector<Vec3> &axes,
   return g;
 }
 
-std::optional<std::pair<double, double>> Panel::intersect(const Vec3 &s1) const {
+std::optional<std::pair<double, double>>
+Panel::intersect(const Vec3 &s1) const {
   // Solve origin + u*fast_mm + v*slow_mm = t*s1_hat for (u, v, t).
   const Vec3 d = s1.normalized();
   const Mat3 basis = Mat3::from_columns(fast, slow, -d);
   bool ok = false;
   const Mat3 inv = basis.inverse(&ok);
-  if (!ok) return std::nullopt;  // ray parallel to the panel
+  if (!ok)
+    return std::nullopt; // ray parallel to the panel
 
   const Vec3 uvt = inv * (-origin);
   const double t = uvt.z;
-  if (!(t > 0.0)) return std::nullopt;  // behind the sample
+  if (!(t > 0.0))
+    return std::nullopt; // behind the sample
 
   // uvt is where the ray meets the panel face, in millimetres; the pixel that
   // fires is displaced from it by the parallax offset.
@@ -177,8 +191,8 @@ std::optional<std::pair<double, double>> Panel::intersect(const Vec3 &s1) const 
   return std::make_pair(px_fast, px_slow);
 }
 
-std::optional<std::tuple<std::size_t, double, double>> Detector::intersect(
-    const Vec3 &s1) const {
+std::optional<std::tuple<std::size_t, double, double>>
+Detector::intersect(const Vec3 &s1) const {
   for (std::size_t i = 0; i < panels.size(); ++i) {
     if (auto hit = panels[i].intersect(s1)) {
       return std::make_tuple(i, hit->first, hit->second);
@@ -227,7 +241,8 @@ UnitCell Crystal::cell() const {
 
 Mat3 Crystal::A_at(double t) const {
   const std::size_t n = A_points.size();
-  if (n < 2) return A;
+  if (n < 2)
+    return A;
 
   // The control points are padded by two copies at each end, which is what
   // clamps the curve so that it passes through the first and last exactly.
@@ -269,8 +284,10 @@ Mat3 Crystal::A_at(double t) const {
 }
 
 Mat3 Experiment::setting_at(double z) const {
-  if (!crystal) return Mat3::identity();
-  if (!crystal->scan_varying()) return crystal->A;
+  if (!crystal)
+    return Mat3::identity();
+  if (!crystal->scan_varying())
+    return crystal->A;
   const double n = static_cast<double>(scan.num_images());
   return crystal->A_at(n > 0.0 ? z / n : 0.0);
 }
@@ -302,8 +319,9 @@ Vec3 reciprocal_lattice_point(const Experiment &e, std::size_t panel,
   return inverse_rotation * q;
 }
 
-std::vector<Vec3> reciprocal_lattice_points(const Experiment &e,
-                                            const std::vector<Observation> &obs) {
+std::vector<Vec3>
+reciprocal_lattice_points(const Experiment &e,
+                          const std::vector<Observation> &obs) {
   std::vector<Vec3> out;
   out.reserve(obs.size());
   for (const Observation &o : obs) {
@@ -313,4 +331,4 @@ std::vector<Vec3> reciprocal_lattice_points(const Experiment &e,
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

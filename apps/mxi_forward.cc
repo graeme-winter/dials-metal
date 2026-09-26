@@ -13,11 +13,11 @@
 #include <string>
 #include <vector>
 
-#include "args.hh"
 #include "../src/expt.hh"
+#include "../src/refl.hh"
+#include "args.hh"
 #include "forward.hh"
 #include "profile_model.hh"
-#include "../src/refl.hh"
 #include "shoebox.hh"
 
 namespace mxi {
@@ -37,7 +37,7 @@ void usage(const char *program) {
       program);
 }
 
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"--out", "--sigma-b", "--sigma-m",
@@ -81,8 +81,10 @@ int run_program(int argc, char **argv) {
         continue;
       }
       const Vec3 beam{s.real(i, 0), s.real(i, 1), s.real(i, 2)};
-      if (std::fabs(compute_zeta(e, beam)) < 0.05) continue;
-      if (!has_prediction(t, i)) continue;
+      if (std::fabs(compute_zeta(e, beam)) < 0.05)
+        continue;
+      if (!has_prediction(t, i))
+        continue;
       chosen.push_back(i);
       beams.push_back(beam);
       for (const RangeSample &sample :
@@ -98,7 +100,8 @@ int run_program(int argc, char **argv) {
     options.depth_samples = static_cast<int>(args.number("--depth-samples", 8));
     if (!(options.sigma_d > 0.0)) {
       std::vector<Shoebox> selected;
-      for (std::size_t i : chosen) selected.push_back(boxes[i]);
+      for (std::size_t i : chosen)
+        selected.push_back(boxes[i]);
       std::size_t used = 0;
       options.sigma_d = beam_divergence(e, selected, beams, &used);
     }
@@ -117,9 +120,8 @@ int run_program(int argc, char **argv) {
       std::fprintf(stderr, "mxi_forward: cannot write %s\n", path.c_str());
       return 1;
     }
-    std::fprintf(out,
-                 "# obliquity_deg counts shift_fast shift_slow shift_z "
-                 "obs_wf obs_ws obs_wz mod_wf mod_ws mod_wz\n");
+    std::fprintf(out, "# obliquity_deg counts shift_fast shift_slow shift_z "
+                      "obs_wf obs_ws obs_wz mod_wf mod_ws mod_wz\n");
 
     const Panel &p0 = e.detector[0];
     const Vec3 normal = p0.fast.cross(p0.slow).normalized();
@@ -129,7 +131,8 @@ int run_program(int argc, char **argv) {
       const Shoebox &box = boxes[i];
       const std::vector<double> model =
           render_shoebox(e, box, beams[k], cal.real(i, 2), options);
-      if (model.empty()) continue;
+      if (model.empty())
+        continue;
 
       std::vector<double> observed(box.size(), 0.0);
       for (std::size_t j = 0; j < box.size(); ++j) {
@@ -137,17 +140,17 @@ int run_program(int argc, char **argv) {
       }
       const Moments a = moments_of(box, observed, true);
       const Moments b = moments_of(box, model, false);
-      if (!a.valid || !b.valid || a.total <= 50.0) continue;
+      if (!a.valid || !b.valid || a.total <= 50.0)
+        continue;
 
       const Vec3 direction = beams[k] / beams[k].norm();
       const double obliquity =
           std::acos(std::fmin(1.0, std::fabs(direction.dot(normal))));
-      std::fprintf(out,
-                   "%.5f %.6g %+.6f %+.6f %+.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
-                   Scan::degrees(obliquity), a.total, a.com_fast - b.com_fast,
-                   a.com_slow - b.com_slow, a.com_z - b.com_z, a.width_fast,
-                   a.width_slow, a.width_z, b.width_fast, b.width_slow,
-                   b.width_z);
+      std::fprintf(
+          out, "%.5f %.6g %+.6f %+.6f %+.6f %.6f %.6f %.6f %.6f %.6f %.6f\n",
+          Scan::degrees(obliquity), a.total, a.com_fast - b.com_fast,
+          a.com_slow - b.com_slow, a.com_z - b.com_z, a.width_fast,
+          a.width_slow, a.width_z, b.width_fast, b.width_slow, b.width_z);
       ++written;
     }
     std::fclose(out);
@@ -159,6 +162,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

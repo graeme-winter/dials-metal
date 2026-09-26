@@ -212,7 +212,8 @@ void set_indexed_flags(Table &reflections);
 //: the number was computed from.
 void set_refinement_flags(const RefineResult &result, Table &reflections);
 
-void add_observed_columns(const ExperimentList &experiments, Table &reflections);
+void add_observed_columns(const ExperimentList &experiments,
+                          Table &reflections);
 
 //: s1, rlp, entering and imageset_id, which DIALS recomputes from the CURRENT
 //: model rather than freezing at import.
@@ -225,7 +226,8 @@ void add_observed_columns(const ExperimentList &experiments, Table &reflections)
 //: after refining, so the two groups of columns describe the same observations
 //: through different models. Anything joining or comparing them has to know
 //: which.
-void add_reciprocal_columns(const ExperimentList &experiments, Table &reflections);
+void add_reciprocal_columns(const ExperimentList &experiments,
+                            Table &reflections);
 
 //: Seconds spent building the Jacobian and accumulating the normal equations,
 //: summed over every refinement since the process started. For deciding what
@@ -238,10 +240,10 @@ void add_reciprocal_columns(const ExperimentList &experiments, Table &reflection
 //: Globals for the same reason the Jacobian's are: refine() is on a public
 //: header and its signature is not worth changing to answer a question about
 //: where the time goes.
-extern double g_observations_seconds;  //: building the target rows
-extern double g_solve_seconds;         //: the damped solve and the step
-extern double g_outlier_seconds;       //: rejecting outliers between cycles
-extern double g_residual_seconds;      //: residuals outside the Jacobian
+extern double g_observations_seconds; //: building the target rows
+extern double g_solve_seconds;        //: the damped solve and the step
+extern double g_outlier_seconds;      //: rejecting outliers between cycles
+extern double g_residual_seconds;     //: residuals outside the Jacobian
 
 extern std::size_t g_jacobian_threads;
 
@@ -255,4 +257,4 @@ extern std::size_t g_normal_threads;
 extern double g_jacobian_seconds;
 extern double g_normal_seconds;
 
-}  // namespace mxi
+} // namespace mxi

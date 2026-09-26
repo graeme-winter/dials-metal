@@ -415,7 +415,8 @@ private:
         path = std::filesystem::path(master_);
       } else {
         path = std::filesystem::path(filename);
-        if (path.is_relative() && !directory.empty()) path = directory / path;
+        if (path.is_relative() && !directory.empty())
+          path = directory / path;
       }
       block.filename = path.string();
 

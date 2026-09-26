@@ -32,8 +32,8 @@
 namespace mxi {
 
 struct ForwardOptions {
-  double sigma_d = 0.0;  //: degrees
-  double sigma_m = 0.0;  //: degrees
+  double sigma_d = 0.0; //: degrees
+  double sigma_m = 0.0; //: degrees
   //: Subdivisions of each pixel per axis when integrating the model over it.
   int subdivisions = 5;
   //: Samples through the sensor depth. One puts every photon at the mean
@@ -61,4 +61,4 @@ struct Moments {
 Moments moments_of(const Shoebox &box, const std::vector<double> &counts,
                    bool subtract_background);
 
-}  // namespace mxi
+} // namespace mxi

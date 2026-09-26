@@ -4,14 +4,16 @@
 
 namespace mxi {
 
-bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &s1,
-                           double *variance) {
-  if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+bool spot_angular_variance(const Experiment &e, const Shoebox &box,
+                           const Vec3 &s1, double *variance) {
+  if (box.panel < 0 ||
+      static_cast<std::size_t>(box.panel) >= e.detector.size()) {
     return false;
   }
   const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
   const double length = s1.norm();
-  if (!(length > 0.0)) return false;
+  if (!(length > 0.0))
+    return false;
   const Vec3 direction = s1 / length;
 
   double weight = 0.0;
@@ -25,9 +27,11 @@ bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &
         // subtract it; DIALS does not, and carries a note saying so. Matching
         // DIALS is the point here, and on a table out of dials.find_spots the
         // background is zero in any case.
-        if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
+        if ((box.mask[at] & shoebox_mask::kValid) == 0)
+          continue;
         const double count = static_cast<double>(box.data[at]);
-        if (!(count > 0.0)) continue;
+        if (!(count > 0.0))
+          continue;
 
         // The direction of the ray that would have landed in the middle of
         // this pixel, through the SAME px-to-mm mapping the s1 it is compared
@@ -38,7 +42,8 @@ bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &
                                    static_cast<double>(box.bbox[2] + y) + 0.5);
         const Vec3 lab = p.lab_coord_mm(mm.first, mm.second);
         const double n = lab.norm();
-        if (!(n > 0.0)) continue;
+        if (!(n > 0.0))
+          continue;
 
         double cosine = (lab / n).dot(direction);
         cosine = std::fmax(-1.0, std::fmin(1.0, cosine));
@@ -50,7 +55,8 @@ bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &
   }
   // One count has no spread, and the sample variance of a single observation
   // is not zero, it is undefined.
-  if (!(weight > 1.0)) return false;
+  if (!(weight > 1.0))
+    return false;
   *variance = weighted / (weight - 1.0);
   return true;
 }
@@ -59,14 +65,16 @@ double compute_zeta(const Experiment &e, const Vec3 &s1) {
   const Vec3 axis = e.goniometer.lab_axis();
   const Vec3 e1 = s1.cross(e.beam.s0());
   const double length = e1.norm();
-  if (!(length > 0.0)) return 0.0;
+  if (!(length > 0.0))
+    return 0.0;
   return axis.dot(e1 / length);
 }
 
 double recorded_fraction(double delta, double zeta, double sigma,
                          double oscillation) {
   const double spread = sigma / std::fabs(zeta);
-  if (!(spread > 0.0) || !(oscillation > 0.0)) return 0.0;
+  if (!(spread > 0.0) || !(oscillation > 0.0))
+    return 0.0;
   const double scale = std::sqrt(2.0) * spread;
   const double upper = std::erf((delta + 0.5 * oscillation) / scale);
   const double lower = std::erf((delta - 0.5 * oscillation) / scale);
@@ -88,26 +96,31 @@ std::vector<RangeSample> range_samples(const Experiment &e, const Shoebox &box,
     bool marked = false;
     for (std::int32_t y = 0; y < box.ny() && !marked; ++y) {
       for (std::int32_t x = 0; x < box.nx() && !marked; ++x) {
-        if (box.mask[box.at(x, y, z)] == wanted) marked = true;
+        if (box.mask[box.at(x, y, z)] == wanted)
+          marked = true;
       }
     }
-    if (!marked) continue;
+    if (!marked)
+      continue;
     // The centre of this image, in radians.
     const double image = static_cast<double>(box.bbox[4] + z) + 0.5;
-    const double centre = Scan::radians(e.scan.osc_start) +
-                          (image - static_cast<double>(e.scan.z_offset)) * width;
+    const double centre =
+        Scan::radians(e.scan.osc_start) +
+        (image - static_cast<double>(e.scan.z_offset)) * width;
     out.push_back({phi_calculated - centre, zeta});
   }
   return out;
 }
 
-double reflecting_range(const std::vector<RangeSample> &samples, double oscillation,
-                        double min_zeta) {
+double reflecting_range(const std::vector<RangeSample> &samples,
+                        double oscillation, double min_zeta) {
   std::vector<RangeSample> used;
   for (const RangeSample &s : samples) {
-    if (std::fabs(s.zeta) >= min_zeta) used.push_back(s);
+    if (std::fabs(s.zeta) >= min_zeta)
+      used.push_back(s);
   }
-  if (used.size() < 2) return 0.0;
+  if (used.size() < 2)
+    return 0.0;
 
   const auto negative_log_likelihood = [&](double sigma) {
     double total = 0.0;
@@ -154,15 +167,18 @@ KabschFrame kabsch_frame(const Experiment &e, const Vec3 &s1) {
   const Vec3 s0 = e.beam.s0();
   const Vec3 cross = s1.cross(s0);
   const double length = cross.norm();
-  if (!(length > 0.0) || !(s1.norm() > 0.0)) return out;
+  if (!(length > 0.0) || !(s1.norm() > 0.0))
+    return out;
   out.e1 = cross / length;
   const Vec3 second = s1.cross(out.e1);
   const double second_length = second.norm();
-  if (!(second_length > 0.0)) return out;
+  if (!(second_length > 0.0))
+    return out;
   out.e2 = second / second_length;
   const Vec3 third = s1 + s0;
   const double third_length = third.norm();
-  if (!(third_length > 0.0)) return out;
+  if (!(third_length > 0.0))
+    return out;
   out.e3 = third / third_length;
   out.s1 = s1;
   out.zeta = e.goniometer.lab_axis().dot(out.e1);
@@ -170,16 +186,18 @@ KabschFrame kabsch_frame(const Experiment &e, const Vec3 &s1) {
   return out;
 }
 
-Epsilon epsilon_of(const Experiment &e, const KabschFrame &frame, const Panel &p,
-                   double px_fast, double px_slow, double phi_image,
-                   double phi_calculated) {
+Epsilon epsilon_of(const Experiment &e, const KabschFrame &frame,
+                   const Panel &p, double px_fast, double px_slow,
+                   double phi_image, double phi_calculated) {
   Epsilon out;
-  if (!frame.valid) return out;
+  if (!frame.valid)
+    return out;
   const double length = frame.s1.norm();
   const auto mm = p.px_to_mm(px_fast, px_slow);
   const Vec3 lab = p.lab_coord_mm(mm.first, mm.second);
   const double lab_length = lab.norm();
-  if (!(lab_length > 0.0)) return out;
+  if (!(lab_length > 0.0))
+    return out;
   // The diffracted beam that would have gone through this pixel, of the same
   // length as the reflection's own: the scattering is elastic.
   const Vec3 s_prime = lab * (length / lab_length);
@@ -193,7 +211,8 @@ Epsilon epsilon_of(const Experiment &e, const KabschFrame &frame, const Panel &p
   return out;
 }
 
-Capture capture_fractions(const Experiment &e, const std::vector<Shoebox> &boxes,
+Capture capture_fractions(const Experiment &e,
+                          const std::vector<Shoebox> &boxes,
                           const std::vector<Vec3> &s1,
                           const std::vector<double> &phi_calculated,
                           double sigma_d, double sigma_m) {
@@ -207,12 +226,14 @@ Capture capture_fractions(const Experiment &e, const std::vector<Shoebox> &boxes
 
   for (std::size_t i = 0; i < n && i < phi_calculated.size(); ++i) {
     const Shoebox &box = boxes[i];
-    if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+    if (box.panel < 0 ||
+        static_cast<std::size_t>(box.panel) >= e.detector.size()) {
       continue;
     }
     const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
     const KabschFrame frame = kabsch_frame(e, s1[i]);
-    if (!frame.valid) continue;
+    if (!frame.valid)
+      continue;
     ++out.n_spots;
 
     for (std::int32_t z = 0; z < box.nz(); ++z) {
@@ -222,23 +243,28 @@ Capture capture_fractions(const Experiment &e, const std::vector<Shoebox> &boxes
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
           const std::size_t at = box.at(x, y, z);
-          if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
+          if ((box.mask[at] & shoebox_mask::kValid) == 0)
+            continue;
           const double count = static_cast<double>(box.data[at]) -
                                static_cast<double>(box.background[at]);
-          if (!(count > 0.0)) continue;
-          const Epsilon eps =
-              epsilon_of(e, frame, p, static_cast<double>(box.bbox[0] + x) + 0.5,
-                         static_cast<double>(box.bbox[2] + y) + 0.5, phi,
-                         phi_calculated[i]);
+          if (!(count > 0.0))
+            continue;
+          const Epsilon eps = epsilon_of(
+              e, frame, p, static_cast<double>(box.bbox[0] + x) + 0.5,
+              static_cast<double>(box.bbox[2] + y) + 0.5, phi,
+              phi_calculated[i]);
           total += count;
           for (int k = 0; k < 4; ++k) {
             const double limit = static_cast<double>(k + 1);
             const bool on_detector = std::fabs(eps.e1) <= limit * sigma_d &&
                                      std::fabs(eps.e2) <= limit * sigma_d;
             const bool in_rotation_range = std::fabs(eps.e3) <= limit * sigma_m;
-            if (on_detector) in_detector[k] += count;
-            if (in_rotation_range) in_rotation[k] += count;
-            if (on_detector && in_rotation_range) inside[k] += count;
+            if (on_detector)
+              in_detector[k] += count;
+            if (in_rotation_range)
+              in_rotation[k] += count;
+            if (on_detector && in_rotation_range)
+              inside[k] += count;
           }
         }
       }
@@ -262,13 +288,16 @@ double beam_divergence(const Experiment &e, const std::vector<Shoebox> &boxes,
   const std::size_t n = std::min(boxes.size(), s1.size());
   for (std::size_t i = 0; i < n; ++i) {
     double variance = 0.0;
-    if (!spot_angular_variance(e, boxes[i], s1[i], &variance)) continue;
+    if (!spot_angular_variance(e, boxes[i], s1[i], &variance))
+      continue;
     total += variance;
     ++used;
   }
-  if (n_used != nullptr) *n_used = used;
-  if (used == 0) return 0.0;
+  if (n_used != nullptr)
+    *n_used = used;
+  if (used == 0)
+    return 0.0;
   return Scan::degrees(std::sqrt(total / static_cast<double>(used)));
 }
 
-}  // namespace mxi
+} // namespace mxi

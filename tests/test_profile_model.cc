@@ -8,10 +8,10 @@
 #include <cmath>
 #include <vector>
 
+#include "../src/profile_grid.hh"
 #include "../src/profile_model.hh"
 #include "../src/shoebox.hh"
 #include "check.hh"
-#include "../src/profile_grid.hh"
 
 namespace mxi {
 
@@ -55,11 +55,12 @@ Shoebox one_pixel(std::int32_t x, std::int32_t y, float count) {
 
 Vec3 ray_through(const Experiment &e, double px_fast, double px_slow) {
   const Panel &p = e.detector[0];
-  const Vec3 lab = p.lab_coord_mm(px_fast * p.pixel_size[0], px_slow * p.pixel_size[1]);
+  const Vec3 lab =
+      p.lab_coord_mm(px_fast * p.pixel_size[0], px_slow * p.pixel_size[1]);
   return lab / lab.norm();
 }
 
-}  // namespace
+} // namespace
 
 TEST(a_spot_on_its_own_beam_has_no_angular_spread) {
   // One pixel, and the beam through its centre: the only angle in the sum is
@@ -69,7 +70,8 @@ TEST(a_spot_on_its_own_beam_has_no_angular_spread) {
   const Shoebox box = one_pixel(500, 500, 100.0f);
   const Vec3 s1 = ray_through(e, 500.5, 500.5);
   double variance = -1.0;
-  check::is_true(spot_angular_variance(e, box, s1, &variance), "has a variance");
+  check::is_true(spot_angular_variance(e, box, s1, &variance),
+                 "has a variance");
   check::close(variance, 0.0, 1e-24, "and it is zero");
 }
 
@@ -87,11 +89,13 @@ TEST(the_spread_of_two_pixels_is_the_angle_between_them) {
   box.bbox[4] = 0;
   box.bbox[5] = 1;
   box.data = {50.0f, 50.0f};
-  box.mask = {static_cast<std::uint8_t>(shoebox_mask::kValid | shoebox_mask::kForeground),
-              static_cast<std::uint8_t>(shoebox_mask::kValid | shoebox_mask::kForeground)};
+  box.mask = {static_cast<std::uint8_t>(shoebox_mask::kValid |
+                                        shoebox_mask::kForeground),
+              static_cast<std::uint8_t>(shoebox_mask::kValid |
+                                        shoebox_mask::kForeground)};
   box.background = {0.0f, 0.0f};
 
-  const Vec3 s1 = ray_through(e, 501.0, 500.5);  // midway between the two
+  const Vec3 s1 = ray_through(e, 501.0, 500.5); // midway between the two
   // The two angles are computed rather than assumed equal: a pixel half a
   // pixel to the left and one half a pixel to the right do not subtend the
   // same angle, because the angle is not linear in position. Assuming they did
@@ -104,10 +108,11 @@ TEST(the_spread_of_two_pixels_is_the_angle_between_them) {
       std::acos(std::fmin(1.0, ray_through(e, 501.5, 500.5).dot(reference)));
 
   double variance = 0.0;
-  check::is_true(spot_angular_variance(e, box, s1, &variance), "has a variance");
+  check::is_true(spot_angular_variance(e, box, s1, &variance),
+                 "has a variance");
   // 50 counts on each, over (100 - 1).
-  check::close(variance, (50.0 * left * left + 50.0 * right * right) / 99.0, 1e-20,
-               "known exactly");
+  check::close(variance, (50.0 * left * left + 50.0 * right * right) / 99.0,
+               1e-20, "known exactly");
 }
 
 TEST(the_variance_is_weighted_by_the_counts) {
@@ -221,7 +226,8 @@ TEST(sigma_d_is_the_root_mean_of_the_variances_in_degrees) {
   std::size_t used = 0;
   const double sigma = beam_divergence(e, boxes, s1, &used);
   check::equal(static_cast<long long>(used), 3, "all three used");
-  check::close(sigma, Scan::degrees(std::sqrt(one)), 1e-15, "root mean, in degrees");
+  check::close(sigma, Scan::degrees(std::sqrt(one)), 1e-15,
+               "root mean, in degrees");
 }
 
 // --------------------------------------------------------------------------
@@ -235,7 +241,8 @@ TEST(the_recorded_fraction_is_a_density_in_delta) {
   const double sigma = Scan::radians(0.08);
   double total = 0.0;
   const double step = Scan::radians(0.002);
-  for (double delta = -Scan::radians(3.0); delta < Scan::radians(3.0); delta += step) {
+  for (double delta = -Scan::radians(3.0); delta < Scan::radians(3.0);
+       delta += step) {
     total += recorded_fraction(delta, 0.7, sigma, oscillation) * step;
   }
   check::close(total, 1.0, 1e-6, "integrates to one");
@@ -313,7 +320,7 @@ TEST(one_sample_per_image_not_one_per_reflection) {
   box.bbox[2] = 500;
   box.bbox[3] = 501;
   box.bbox[4] = 10;
-  box.bbox[5] = 14;  // four images
+  box.bbox[5] = 14; // four images
   const std::uint8_t on = shoebox_mask::kValid | shoebox_mask::kForeground;
   // The criterion is the MASK, not the counts: an image counts if the spot
   // finder marked any pixel on it as valid foreground, whatever its value.
@@ -329,8 +336,8 @@ TEST(one_sample_per_image_not_one_per_reflection) {
 
   // An image the spot finder did not mark at all is not a sample.
   box.mask = {on, on, on, 0};
-  check::equal(static_cast<long long>(range_samples(e, box, phi, 0.7).size()), 3,
-               "an unmarked image is not one");
+  check::equal(static_cast<long long>(range_samples(e, box, phi, 0.7).size()),
+               3, "an unmarked image is not one");
   // The images are consecutive, so the gaps step by exactly one oscillation.
   check::close(samples[0].delta - samples[1].delta, Scan::radians(0.1), 1e-12,
                "consecutive images are one oscillation apart");
@@ -363,9 +370,8 @@ TEST(a_pixel_on_the_beam_sits_at_the_origin_of_the_frame) {
   const Experiment e = simple_experiment(200.0);
   const Vec3 s1 = ray_through(e, 620.5, 540.5) * (1.0 / e.beam.wavelength);
   const KabschFrame f = kabsch_frame(e, s1);
-  const Epsilon eps =
-      epsilon_of(e, f, e.detector[0], 620.5, 540.5, Scan::radians(1.0),
-                 Scan::radians(1.0));
+  const Epsilon eps = epsilon_of(e, f, e.detector[0], 620.5, 540.5,
+                                 Scan::radians(1.0), Scan::radians(1.0));
   check::close(eps.e1, 0.0, 1e-12, "eps1 is zero at the reflection");
   check::close(eps.e2, 0.0, 1e-12, "eps2 too");
   check::close(eps.e3, 0.0, 1e-12, "and eps3 when the image is at the angle");
@@ -380,8 +386,10 @@ TEST(eps3_is_the_rotation_offset_scaled_by_zeta) {
   const KabschFrame f = kabsch_frame(e, s1);
   const double phi = Scan::radians(1.0);
   const double offset = Scan::radians(0.03);
-  const Epsilon eps = epsilon_of(e, f, e.detector[0], 620.0, 540.0, phi + offset, phi);
-  check::close(eps.e3, Scan::degrees(f.zeta * offset), 1e-12, "zeta times the offset");
+  const Epsilon eps =
+      epsilon_of(e, f, e.detector[0], 620.0, 540.0, phi + offset, phi);
+  check::close(eps.e3, Scan::degrees(f.zeta * offset), 1e-12,
+               "zeta times the offset");
   check::is_true(std::abs(f.zeta) < 1.0, "and zeta is less than one here");
 }
 
@@ -414,11 +422,14 @@ TEST(the_captured_fraction_counts_what_is_inside) {
   const double step = Scan::degrees(std::abs(f.zeta) * width);
 
   // A sigma_M just over the step puts both inside; just under puts one in.
-  const double generous = 1e6;  // sigma_D large enough that the detector never cuts
-  const Capture wide = capture_fractions(e, {box}, {s1}, {phi}, generous, step * 1.01);
+  const double generous =
+      1e6; // sigma_D large enough that the detector never cuts
+  const Capture wide =
+      capture_fractions(e, {box}, {s1}, {phi}, generous, step * 1.01);
   check::close(wide.rotation[0], 1.0, 1e-12, "both images inside one sigma");
 
-  const Capture narrow = capture_fractions(e, {box}, {s1}, {phi}, generous, step * 0.99);
+  const Capture narrow =
+      capture_fractions(e, {box}, {s1}, {phi}, generous, step * 0.99);
   check::close(narrow.rotation[0], 0.5, 1e-12, "only the nearer one");
   check::close(narrow.rotation[1], 1.0, 1e-12, "and both by two sigma");
 }
@@ -442,11 +453,13 @@ TEST(the_detector_and_rotation_directions_are_reported_apart) {
   box.data = {10.0f, 10.0f, 10.0f};
   box.mask = {on, on, on};
   box.background = {0.0f, 0.0f, 0.0f};
-  const double phi = Scan::radians(e.scan.osc_start) + 20.5 * Scan::radians(0.05);
+  const double phi =
+      Scan::radians(e.scan.osc_start) + 20.5 * Scan::radians(0.05);
 
   // Rotation wide open, detector tight: the rotation fraction must stay one.
   const Capture c = capture_fractions(e, {box}, {s1}, {phi}, 1e-6, 1e6);
-  check::close(c.rotation[0], 1.0, 1e-12, "the rotation direction is untouched");
+  check::close(c.rotation[0], 1.0, 1e-12,
+               "the rotation direction is untouched");
   check::is_true(c.detector[0] < 1.0, "while the detector direction cuts");
   check::close(c.fraction[0], c.detector[0], 1e-12,
                "and the combined figure follows the one that cuts");
@@ -455,7 +468,6 @@ TEST(the_detector_and_rotation_directions_are_reported_apart) {
 // --------------------------------------------------------------------------
 // the Kabsch-space grid
 // --------------------------------------------------------------------------
-
 
 TEST(a_spot_on_its_own_beam_lands_in_the_middle_of_the_grid) {
   Experiment e = simple_experiment(200.0);
@@ -482,7 +494,8 @@ TEST(a_spot_on_its_own_beam_lands_in_the_middle_of_the_grid) {
 
   const int middle = grid.n;
   double inside = 0.0;
-  for (double v : grid.value) inside += v;
+  for (double v : grid.value)
+    inside += v;
   check::is_true(inside > 0.0, "something landed");
   // The middle cell must hold the most.
   double best = 0.0;
@@ -522,7 +535,8 @@ TEST(the_transform_conserves_counts) {
     box.background.push_back(0.0f);
   }
   double total = 0.0;
-  for (float v : box.data) total += v;
+  for (float v : box.data)
+    total += v;
   const double phi =
       Scan::radians(e.scan.osc_start) + 21.0 * Scan::radians(e.scan.osc_width);
 
@@ -532,7 +546,8 @@ TEST(the_transform_conserves_counts) {
     check::close(grid.counts_added, total, 1e-9 * total,
                  "the counts offered are the counts in the box");
     double landed = 0.0;
-    for (double v : grid.value) landed += v;
+    for (double v : grid.value)
+      landed += v;
     check::close(landed + grid.counts_outside, total, 1e-6 * total,
                  "and what landed plus what fell outside is all of it");
   }
@@ -561,8 +576,9 @@ TEST(a_grid_normalises_to_one) {
   add_to_grid(e, box, s1, phi, &grid, 5);
   grid.normalise();
   double total = 0.0;
-  for (double v : grid.value) total += v;
+  for (double v : grid.value)
+    total += v;
   check::close(total, 1.0, 1e-12, "so grids of different sizes compare");
 }
 
-}  // namespace mxi
+} // namespace mxi

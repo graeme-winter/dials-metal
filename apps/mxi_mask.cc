@@ -15,12 +15,12 @@
 #include <string>
 #include <vector>
 
-#include "args.hh"
 #include "../src/expt.hh"
+#include "../src/refl.hh"
+#include "args.hh"
 #include "mask.hh"
 #include "predict.hh"
 #include "profile_model.hh"
-#include "../src/refl.hh"
 #include "shoebox.hh"
 
 namespace mxi {
@@ -36,27 +36,29 @@ void usage(const char *program) {
       "\n"
       "  -o FILE           where to write (masked.refl)\n"
       "  --n-sigma N       the foreground spans plus and minus N sigma (3)\n"
-      "  --box-scale S     the box is S times wider than the foreground on the\n"
+      "  --box-scale S     the box is S times wider than the foreground on "
+      "the\n"
       "                    detector, to hold background (1.9)\n"
       "  --sigma-b B --sigma-m M   use these instead of estimating from REFL\n"
       "  --d-min D         resolution limit for prediction\n"
       "  --shape box|ellipsoid   the box is Kabsch's mask, each coordinate\n"
       "                    separately within n sigma; the ellipsoid is the\n"
-      "                    surface the Gaussian is actually constant on, and is\n"
+      "                    surface the Gaussian is actually constant on, and "
+      "is\n"
       "                    pi/6 of the box (box)\n"
       "  --min-zeta Z      skip reflections whose zeta is below Z (0.05)\n"
-      "  --first-image N --last-image N   restrict to part of the scan; a whole\n"
+      "  --first-image N --last-image N   restrict to part of the scan; a "
+      "whole\n"
       "                    sweep of shoeboxes does not fit in memory\n",
       program);
 }
 
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"-o",         "--n-sigma",    "--sigma-b",
-                                       "--sigma-m",  "--d-min",      "--min-zeta",  "--box-scale",
-                                       "--first-image", "--last-image",
-                                       "--shape"};
+  const std::set<std::string> known = {
+      "-o",         "--n-sigma",   "--sigma-b",     "--sigma-m",    "--d-min",
+      "--min-zeta", "--box-scale", "--first-image", "--last-image", "--shape"};
   const Arguments args = parse_arguments(argc, argv, known, known);
   if (args.help) {
     usage(argv[0]);
@@ -67,7 +69,8 @@ int run_program(int argc, char **argv) {
     return 2;
   }
   if (args.positional.empty() || args.positional.size() > 2) {
-    std::fprintf(stderr, "mxi_mask: expected an .expt and optionally a .refl\n");
+    std::fprintf(stderr,
+                 "mxi_mask: expected an .expt and optionally a .refl\n");
     usage(argv[0]);
     return 2;
   }
@@ -123,8 +126,10 @@ int run_program(int argc, char **argv) {
         }
         const Vec3 beam{s.real(i, 0), s.real(i, 1), s.real(i, 2)};
         const double zeta = compute_zeta(e, beam);
-        if (std::fabs(zeta) < options.min_zeta) continue;
-        if (!has_prediction(strong, i)) continue;
+        if (std::fabs(zeta) < options.min_zeta)
+          continue;
+        if (!has_prediction(strong, i))
+          continue;
         selected.push_back(boxes[i]);
         beams.push_back(beam);
         for (const RangeSample &sample :
@@ -187,7 +192,8 @@ int run_program(int argc, char **argv) {
       // encoding at once doubles the peak for no reason.
       blob += encode_shoeboxes({box});
       std::array<std::int32_t, 6> b;
-      for (int k = 0; k < 6; ++k) b[k] = box.bbox[k];
+      for (int k = 0; k < 6; ++k)
+        b[k] = box.bbox[k];
       bboxes.push_back(b);
       kept.push_back(&p);
     }
@@ -201,7 +207,8 @@ int run_program(int argc, char **argv) {
     }
 
     out.nrows = kept.size();
-    Column &miller = out.int_column("miller_index", "cctbx::miller::index<>", 3);
+    Column &miller =
+        out.int_column("miller_index", "cctbx::miller::index<>", 3);
     Column &panel = out.int_column("panel", "std::size_t", 1);
     Column &id = out.int_column("id", "int", 1);
     Column &imageset = out.int_column("imageset_id", "int", 1);
@@ -225,7 +232,8 @@ int run_program(int argc, char **argv) {
       // Predicted, not observed: nothing here has seen an image.
       flags.ints[i] = flag::kPredicted | flag::kIndexed;
       entering.ints[i] = p.s1.dot(axis.cross(s0)) > 0.0 ? 1 : 0;
-      for (int k = 0; k < 6; ++k) bbox.ints[i * 6 + k] = bboxes[i][k];
+      for (int k = 0; k < 6; ++k)
+        bbox.ints[i * 6 + k] = bboxes[i][k];
       cal_px.reals[i * 3 + 0] = p.px_fast;
       cal_px.reals[i * 3 + 1] = p.px_slow;
       cal_px.reals[i * 3 + 2] = p.z;
@@ -234,7 +242,8 @@ int run_program(int argc, char **argv) {
       cal_mm.reals[i * 3 + 0] = mm.first;
       cal_mm.reals[i * 3 + 1] = mm.second;
       cal_mm.reals[i * 3 + 2] = p.phi;
-      for (int k = 0; k < 3; ++k) s1.reals[i * 3 + k] = p.s1[k];
+      for (int k = 0; k < 3; ++k)
+        s1.reals[i * 3 + k] = p.s1[k];
     }
 
     Table::Opaque column;
@@ -244,7 +253,8 @@ int run_program(int argc, char **argv) {
     out.set_opaque("shoebox", std::move(column));
     // The identifier ties the table to the experiment; without it dials
     // refuses the pair rather than drawing anything.
-    if (!e.identifier.empty()) out.identifiers[0] = e.identifier;
+    if (!e.identifier.empty())
+      out.identifiers[0] = e.identifier;
 
     const std::string path = args.value("-o", "masked.refl");
     write_reflections(path, out);
@@ -257,7 +267,8 @@ int run_program(int argc, char **argv) {
       for (const Shoebox &b : written) {
         voxels += b.size();
         for (std::uint8_t m : b.mask) {
-          if (m & shoebox_mask::kForeground) ++foreground;
+          if (m & shoebox_mask::kForeground)
+            ++foreground;
         }
       }
     }
@@ -278,6 +289,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

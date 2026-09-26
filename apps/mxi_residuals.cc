@@ -24,10 +24,10 @@
 
 #include <set>
 
-#include "args.hh"
 #include "../src/expt.hh"
-#include "linalg.hh"
 #include "../src/refl.hh"
+#include "args.hh"
+#include "linalg.hh"
 
 namespace mxi {
 
@@ -35,17 +35,18 @@ namespace {
 
 struct Point {
   double radius = 0.0, radial = 0.0, tangential = 0.0, dx = 0.0, dy = 0.0;
-  double x = 0.0, y = 0.0;     // relative to the beam centre
-  double fast = 0.0, slow = 0.0;  // observed, for module assignment
+  double x = 0.0, y = 0.0;       // relative to the beam centre
+  double fast = 0.0, slow = 0.0; // observed, for module assignment
 };
 
 double median(std::vector<double> v) {
-  if (v.empty()) return 0.0;
+  if (v.empty())
+    return 0.0;
   std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
   return v[v.size() / 2];
 }
 
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"--bins", "--clip", "--modules"};
@@ -92,29 +93,36 @@ int run_program(int argc, char **argv) {
 
     std::vector<Point> points;
     for (std::size_t i = 0; i < t.nrows; ++i) {
-      if (!miller.integer(i, 0) && !miller.integer(i, 1) && !miller.integer(i, 2)) {
+      if (!miller.integer(i, 0) && !miller.integer(i, 1) &&
+          !miller.integer(i, 2)) {
         continue;
       }
-      if (cal.real(i, 0) == 0.0 && cal.real(i, 1) == 0.0) continue;
+      if (cal.real(i, 0) == 0.0 && cal.real(i, 1) == 0.0)
+        continue;
       const std::size_t id =
-          has_id ? static_cast<std::size_t>(std::max<std::int64_t>(0, t.at("id").integer(i)))
+          has_id ? static_cast<std::size_t>(
+                       std::max<std::int64_t>(0, t.at("id").integer(i)))
                  : 0;
-      if (id >= experiments.size()) continue;
+      if (id >= experiments.size())
+        continue;
       const Experiment &e = experiments[id];
       const Panel &p = e.detector[0];
 
       // Beam centre: where the incident beam meets the panel.
       const auto centre = p.intersect(e.beam.s0());
-      if (!centre) continue;
+      if (!centre)
+        continue;
 
       const double dx = obs.real(i, 0) - cal.real(i, 0);
       const double dy = obs.real(i, 1) - cal.real(i, 1);
-      if (std::abs(dx) > clip || std::abs(dy) > clip) continue;
+      if (std::abs(dx) > clip || std::abs(dy) > clip)
+        continue;
 
       const double rx = cal.real(i, 0) - centre->first;
       const double ry = cal.real(i, 1) - centre->second;
       const double r = std::hypot(rx, ry);
-      if (r < 1.0) continue;
+      if (r < 1.0)
+        continue;
       Point q;
       q.radius = r;
       q.radial = (dx * rx + dy * ry) / r;
@@ -133,16 +141,17 @@ int run_program(int argc, char **argv) {
       return 1;
     }
 
-    std::sort(points.begin(), points.end(),
-              [](const Point &a, const Point &b) { return a.radius < b.radius; });
+    std::sort(points.begin(), points.end(), [](const Point &a, const Point &b) {
+      return a.radius < b.radius;
+    });
     std::printf("%zu reflections, clipped at %.2f px\n\n", points.size(), clip);
-    std::printf("  radius (px)        n     radial   tangential        dx        dy\n");
+    std::printf(
+        "  radius (px)        n     radial   tangential        dx        dy\n");
 
     const std::size_t per = points.size() / static_cast<std::size_t>(bins);
     for (int b = 0; b < bins; ++b) {
       const std::size_t from = static_cast<std::size_t>(b) * per;
-      const std::size_t to =
-          (b + 1 == bins) ? points.size() : from + per;
+      const std::size_t to = (b + 1 == bins) ? points.size() : from + per;
       std::vector<double> radial, tangential, dx, dy;
       for (std::size_t i = from; i < to; ++i) {
         radial.push_back(points[i].radial);
@@ -181,15 +190,18 @@ int run_program(int argc, char **argv) {
       double bx[3] = {tx, txx, txy};
       double by[3] = {ty, tyx, tyy};
       double a2[9];
-      for (int i = 0; i < 9; ++i) a2[i] = a[i];
+      for (int i = 0; i < 9; ++i)
+        a2[i] = a[i];
       if (solve_spd(a, bx, 3) && solve_spd(a2, by, 3)) {
         const double scale_fast = bx[1], scale_slow = by[2];
         const double turn = 0.5 * (bx[2] - by[1]);
         const double shear = 0.5 * (bx[2] + by[1]);
-        std::printf("\n  affine part, all of which the detector model can express:\n");
+        std::printf(
+            "\n  affine part, all of which the detector model can express:\n");
         std::printf("    scale fast   %+8.4f %%\n", 100 * scale_fast);
         std::printf("    scale slow   %+8.4f %%\n", 100 * scale_slow);
-        std::printf("    rotation     %+8.4f mrad about the beam\n", 1000 * turn);
+        std::printf("    rotation     %+8.4f mrad about the beam\n",
+                    1000 * turn);
         std::printf("    shear        %+8.4f mrad\n", 1000 * shear);
         std::printf("\n  radial residual AFTER removing the affine part:\n");
         for (int b = 0; b < bins; ++b) {
@@ -224,17 +236,22 @@ int run_program(int argc, char **argv) {
           for (const Point &q : points) {
             const double c = axis == 0 ? q.fast : q.slow;
             const double v = axis == 0 ? q.dx : q.dy;
-            if (c > edge - band && c < edge) before.push_back(v);
-            if (c > edge + gap && c < edge + gap + band) after.push_back(v);
+            if (c > edge - band && c < edge)
+              before.push_back(v);
+            if (c > edge + gap && c < edge + gap + band)
+              after.push_back(v);
           }
-          if (before.size() < 40 || after.size() < 40) continue;
+          if (before.size() < 40 || after.size() < 40)
+            continue;
           const double step = median(after) - median(before);
-          std::printf("    %s at %4ld:  %+7.3f -> %+7.3f   step %+7.3f  (n %zu, %zu)\n",
-                      axis == 0 ? "fast" : "slow", edge, median(before),
-                      median(after), step, before.size(), after.size());
+          std::printf(
+              "    %s at %4ld:  %+7.3f -> %+7.3f   step %+7.3f  (n %zu, %zu)\n",
+              axis == 0 ? "fast" : "slow", edge, median(before), median(after),
+              step, before.size(), after.size());
         }
       }
-      std::printf("    A consistent sign across every boundary on an axis is a\n");
+      std::printf(
+          "    A consistent sign across every boundary on an axis is a\n");
       std::printf("    tiling error, not noise.\n");
     }
 
@@ -261,6 +278,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

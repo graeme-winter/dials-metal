@@ -12,12 +12,12 @@
 
 #include <set>
 
-#include "args.hh"
 #include "../src/expt.hh"
+#include "../src/refl.hh"
+#include "args.hh"
 #include "fft.hh"
 #include "index.hh"
 #include "refine.hh"
-#include "../src/refl.hh"
 
 namespace mxi {
 
@@ -32,7 +32,8 @@ void usage() {
       "  --jacobian-threads N  threads for the analytical Jacobian; 0 is one\n"
       "                   per core (0)\n"
       "  --max-cell A     longest cell edge (default: from spot spacing)\n"
-      "  --grid N         FFT grid size, power of two (default: from d_min)\n"      "  --timing         where the time went, by phase\n"
+      "  --grid N         FFT grid size, power of two (default: from d_min)\n"
+      "  --timing         where the time went, by phase\n"
       "  --tolerance T    how far an index may fall from an integer (0.3)\n"
       "  --candidates N   basis vectors taken from the peak list (30)\n"
       "  --output-expt P  (default indexed.expt)\n"
@@ -42,16 +43,20 @@ void usage() {
       "  --quiet\n");
 }
 
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
-      "--d-min",       "--max-cell",    "--grid",          "--tolerance",
-      "--candidates",  "--output-expt", "--output-refl",   "--quiet",
-      "--macrocycles", "--all-reflections", "--timing", "--jacobian-threads", "--fft-threads"};
+      "--d-min",           "--max-cell",   "--grid",
+      "--tolerance",       "--candidates", "--output-expt",
+      "--output-refl",     "--quiet",      "--macrocycles",
+      "--all-reflections", "--timing",     "--jacobian-threads",
+      "--fft-threads"};
   const std::set<std::string> takes_value = {
-      "--d-min",      "--max-cell",    "--grid",        "--tolerance",
-      "--candidates", "--output-expt", "--output-refl", "--macrocycles", "--jacobian-threads", "--fft-threads"};
+      "--d-min",       "--max-cell",    "--grid",
+      "--tolerance",   "--candidates",  "--output-expt",
+      "--output-refl", "--macrocycles", "--jacobian-threads",
+      "--fft-threads"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   // 0 means one per core, 1 means none. Exposed because a threading change
   // that cannot be switched off cannot be measured against its absence.
@@ -81,7 +86,8 @@ int run_program(int argc, char **argv) {
   options.max_cell = args.number("--max-cell", 0.0);
   options.grid = static_cast<std::size_t>(args.number("--grid", 0));
   options.tolerance = args.number("--tolerance", 0.3);
-  options.n_candidates = static_cast<std::size_t>(args.number("--candidates", 30));
+  options.n_candidates =
+      static_cast<std::size_t>(args.number("--candidates", 30));
   options.macrocycles = static_cast<int>(args.number("--macrocycles", 3));
   options.refine_on_strong = !args.has("--all-reflections");
   const std::string out_expt = args.value("--output-expt", "indexed.expt");
@@ -119,7 +125,8 @@ int run_program(int argc, char **argv) {
                 result.n_total, 100.0 * result.fraction_indexed(),
                 result.rmsd_index);
     std::printf("cell %.4f %.4f %.4f  %.3f %.3f %.3f   volume %.1f\n", cell.a,
-                cell.b, cell.c, cell.alpha, cell.beta, cell.gamma, cell.volume());
+                cell.b, cell.c, cell.alpha, cell.beta, cell.gamma,
+                cell.volume());
 
     set_indexed_flags(reflections);
     add_reciprocal_columns(experiments, reflections);
@@ -140,8 +147,7 @@ int run_program(int argc, char **argv) {
       line("candidate vectors", t.candidate_vectors);
       line("  the transform", t.fft);
       line("  the peak search", t.peak_search);
-      line("  the rest of it",
-           t.candidate_vectors - t.fft - t.peak_search);
+      line("  the rest of it", t.candidate_vectors - t.fft - t.peak_search);
       line("choose basis", t.choose_basis);
       std::printf("    %zu triples scored, %zu skipped as degenerate\n",
                   t.triples_scored, t.triples_skipped);
@@ -161,6 +167,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

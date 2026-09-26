@@ -81,19 +81,17 @@ constexpr std::int64_t kIntegratedPrf = 1 << 9;
 constexpr std::int64_t kForegroundIncludesBadPixels = 1 << 14;
 constexpr std::int64_t kBackgroundIncludesBadPixels = 1 << 15;
 constexpr std::int64_t kFailedDuringSummation = 1 << 19;
-}  // namespace flag
-
-
+} // namespace flag
 
 class ReflError : public std::runtime_error {
- public:
+public:
   using std::runtime_error::runtime_error;
 };
 
 struct Column {
-  std::string type;       // the C++ type name as it appears in the file
-  std::size_t width = 1;  // components per row
-  bool integral = false;  // which of the two stores below is in use
+  std::string type;      // the C++ type name as it appears in the file
+  std::size_t width = 1; // components per row
+  bool integral = false; // which of the two stores below is in use
   std::vector<double> reals;
   std::vector<std::int64_t> ints;
 
@@ -109,7 +107,7 @@ struct Column {
 };
 
 class Table {
- public:
+public:
   std::size_t nrows = 0;
   std::map<std::size_t, std::string> identifiers;
   int version = 2;
@@ -152,7 +150,7 @@ class Table {
 
   void validate() const;
 
- private:
+private:
   std::map<std::string, Column> columns_;
   std::vector<std::string> dropped_;
   std::map<std::string, Opaque> opaque_;
@@ -178,4 +176,4 @@ void write_reflections(const std::string &path, const Table &table);
 //: four.
 bool has_prediction(const Table &table, std::size_t row);
 
-}  // namespace mxi
+} // namespace mxi

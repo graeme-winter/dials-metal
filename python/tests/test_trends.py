@@ -254,7 +254,7 @@ def test_an_observation_with_no_partner_is_left_out_rather_than_mispaired():
     hkl = np.array([[1, 2, 3]] * 3, dtype=np.int64)
     entering = np.zeros(3, dtype=np.int64)
     a_z = np.array([10.0, 3610.0, 7210.0])
-    b_z = np.array([10.0, 7210.0])          # the middle turn is missing
+    b_z = np.array([10.0, 7210.0])  # the middle turn is missing
     ia, ib, unpartnered = match.match_observations(
         hkl, entering, a_z, hkl[:2], entering[:2], b_z
     )
@@ -279,8 +279,9 @@ def test_the_radius_is_a_sanity_check_and_not_a_discriminator():
     # and well outside half a frame.
     offset = z + 1.4
 
-    tight = match.match_observations(hkl, entering, z, hkl, entering, offset,
-                                     radius=0.5)
+    tight = match.match_observations(
+        hkl, entering, z, hkl, entering, offset, radius=0.5
+    )
     assert len(tight[0]) == 0, "a tight radius loses every one of them"
 
     loose = match.match_observations(hkl, entering, z, hkl, entering, offset)
@@ -299,8 +300,9 @@ def test_a_radius_wider_than_a_turn_still_pairs_correctly():
     hkl = np.tile(np.array([[2, 0, 1]], dtype=np.int64), (turns, 1))
     entering = np.zeros(turns, dtype=np.int64)
     z = np.arange(turns) * 100.0
-    ia, ib, _ = match.match_observations(hkl, entering, z, hkl, entering,
-                                         z + 0.2, radius=10000.0)
+    ia, ib, _ = match.match_observations(
+        hkl, entering, z, hkl, entering, z + 0.2, radius=10000.0
+    )
     assert len(ia) == turns
     assert np.allclose(z[ia] + 0.2, (z + 0.2)[ib])
 
@@ -310,8 +312,9 @@ def test_unpartnered_observations_are_explained_by_cause():
 
     # Each cause planted once, so the explanation has to tell them apart.
     turn = 3600.0
-    a_hkl = np.array([[1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0], [5, 0, 0]],
-                     dtype=np.int64)
+    a_hkl = np.array(
+        [[1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0], [5, 0, 0]], dtype=np.int64
+    )
     a_ent = np.zeros(5, dtype=np.int64)
     a_z = np.array([100.0, 100.0, 100.0, 100.0, 100.0])
 
@@ -321,11 +324,11 @@ def test_unpartnered_observations_are_explained_by_cause():
     b_ent = np.array([1, 0, 0, 0], dtype=np.int64)
     b_z = np.array([100.5, 100.0 + turn, 130.0, 100.2])
 
-    ia, ib, _ = match.match_observations(a_hkl, a_ent, a_z, b_hkl, b_ent, b_z,
-                                         radius=5.0)
+    ia, ib, _ = match.match_observations(
+        a_hkl, a_ent, a_z, b_hkl, b_ent, b_z, radius=5.0
+    )
     assert len(ia) == 1
-    why = match.explain_unpartnered(a_hkl, a_ent, a_z, b_hkl, b_ent, b_z,
-                                    ia, 5.0, turn)
+    why = match.explain_unpartnered(a_hkl, a_ent, a_z, b_hkl, b_ent, b_z, ia, 5.0, turn)
     assert why["not predicted by the other"] == 1
     assert why["entering flag disagrees"] == 1
     assert why["a whole number of turns apart"] == 1
@@ -337,8 +340,9 @@ def test_the_turn_is_measured_from_the_repeats():
     from mxeq import match
 
     turns = 8
-    hkl = np.tile(np.array([[1, 2, 3], [3, 2, 1], [0, 1, 4]], dtype=np.int64),
-                  (turns, 1))
+    hkl = np.tile(
+        np.array([[1, 2, 3], [3, 2, 1], [0, 1, 4]], dtype=np.int64), (turns, 1)
+    )
     entering = np.zeros(len(hkl), dtype=np.int64)
     z = np.repeat(np.arange(turns) * 3600.0, 3) + np.tile([5.0, 50.0, 500.0], turns)
     assert match.estimate_turn(hkl, entering, z) == pytest.approx(3600.0)

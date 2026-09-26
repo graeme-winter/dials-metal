@@ -45,4 +45,4 @@ void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign);
 void fft3d_builtin(std::vector<std::complex<double>> &grid, std::size_t n,
                    int sign);
 
-}  // namespace mxi
+} // namespace mxi

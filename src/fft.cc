@@ -11,7 +11,8 @@ std::size_t g_fft_threads = 0;
 
 std::size_t next_power_of_two(std::size_t n) {
   std::size_t p = 1;
-  while (p < n) p <<= 1;
+  while (p < n)
+    p <<= 1;
   return p;
 }
 
@@ -24,9 +25,11 @@ void transform_line(std::complex<double> *data, std::size_t n,
   // Bit reversal.
   for (std::size_t i = 1, j = 0; i < n; ++i) {
     std::size_t bit = n >> 1;
-    for (; j & bit; bit >>= 1) j ^= bit;
+    for (; j & bit; bit >>= 1)
+      j ^= bit;
     j ^= bit;
-    if (i < j) std::swap(data[i * stride], data[j * stride]);
+    if (i < j)
+      std::swap(data[i * stride], data[j * stride]);
   }
   for (std::size_t len = 2; len <= n; len <<= 1) {
     const double angle = sign * 2.0 * M_PI / static_cast<double>(len);
@@ -45,7 +48,7 @@ void transform_line(std::complex<double> *data, std::size_t n,
   }
 }
 
-}  // namespace
+} // namespace
 
 void fft3d_builtin(std::vector<std::complex<double>> &grid, std::size_t n,
                    int sign) {
@@ -76,7 +79,7 @@ void fft3d_builtin(std::vector<std::complex<double>> &grid, std::size_t n,
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 #ifndef MXI_USE_FFTW
 namespace mxi {
@@ -84,5 +87,5 @@ namespace mxi {
 void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
   fft3d_builtin(grid, n, sign);
 }
-}  // namespace mxi
+} // namespace mxi
 #endif

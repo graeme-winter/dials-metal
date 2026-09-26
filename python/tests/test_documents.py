@@ -21,11 +21,18 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DOCUMENTS = [
-    "README.md", "CLAUDE.md", "python/README.md", "python/CLAUDE.md",
-    "docs/integration.md", "docs/integration_history.md", "docs/gpu.md",
+    "README.md",
+    "CLAUDE.md",
+    "python/README.md",
+    "python/CLAUDE.md",
+    "docs/integration.md",
+    "docs/integration_history.md",
+    "docs/gpu.md",
     "docs/spotfinder.md",
 ]
-PATH = re.compile(r"`([A-Za-z0-9_./-]+/[A-Za-z0-9_.-]+\.(?:md|cc|h|hh|py|cmake|txt|json))`")
+PATH = re.compile(
+    r"`([A-Za-z0-9_./-]+/[A-Za-z0-9_.-]+\.(?:md|cc|h|hh|py|cmake|txt|json))`"
+)
 PROGRAM = re.compile(r"`(mxi_[a-z]+)`")
 
 

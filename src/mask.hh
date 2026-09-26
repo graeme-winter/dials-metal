@@ -64,8 +64,8 @@ struct MaskOptions {
   //: density, 0.9919 against 0.9707, but it buys that with volume that holds
   //: essentially nothing.
   RegionShape shape = RegionShape::kBox;
-  double sigma_d = 0.0;  //: degrees
-  double sigma_m = 0.0;  //: degrees
+  double sigma_d = 0.0; //: degrees
+  double sigma_m = 0.0; //: degrees
   //: Reflections whose zeta is smaller than this are skipped: their region in
   //: rotation is sigma_M / |zeta|, which diverges, and the box would swallow
   //: the whole scan.
@@ -104,4 +104,4 @@ bool build_shoebox(const Experiment &e, const Prediction &p,
                    const MaskOptions &options, Shoebox *box,
                    BoxRejection *why = nullptr);
 
-}  // namespace mxi
+} // namespace mxi

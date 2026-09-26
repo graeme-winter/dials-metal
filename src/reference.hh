@@ -47,11 +47,11 @@
 namespace mxi {
 
 struct GridSpec {
-  int n = 4;                //: so the side is 2n + 1
-  double sigma_d = 0.0;     //: degrees
-  double sigma_m = 0.0;     //: degrees
-  double half_width = 3.0;  //: in sigmas
-  int subdivisions = 5;     //: per detector axis, as Kabsch uses
+  int n = 4;               //: so the side is 2n + 1
+  double sigma_d = 0.0;    //: degrees
+  double sigma_m = 0.0;    //: degrees
+  double half_width = 3.0; //: in sigmas
+  int subdivisions = 5;    //: per detector axis, as Kabsch uses
 
   int side() const { return 2 * n + 1; }
   std::size_t size() const {
@@ -60,7 +60,8 @@ struct GridSpec {
   }
   std::size_t at(int i1, int i2, int i3) const {
     const std::size_t s = static_cast<std::size_t>(side());
-    return (static_cast<std::size_t>(i3) * s + static_cast<std::size_t>(i2)) * s +
+    return (static_cast<std::size_t>(i3) * s + static_cast<std::size_t>(i2)) *
+               s +
            static_cast<std::size_t>(i1);
   }
 };
@@ -72,8 +73,8 @@ struct GridSpec {
 //: and a grid point's background depends on how many pixels landed in it.
 struct Transformed {
   bool valid = false;
-  std::vector<double> data;        //: counts
-  std::vector<double> background;  //: the fitted background, same mapping
+  std::vector<double> data;       //: counts
+  std::vector<double> background; //: the fitted background, same mapping
   //: How much of each pixel's area reached the grid, per point. A grid point
   //: no pixel reached is not a zero measurement, it is no measurement.
   std::vector<double> coverage;
@@ -108,8 +109,8 @@ Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
 //: their positions warrant.
 struct ReferenceProfiles {
   GridSpec spec;
-  int divisions = 3;  //: `divisions * divisions` regions across a panel
-  int blocks = 1;     //: divisions along the scan
+  int divisions = 3; //: `divisions * divisions` regions across a panel
+  int blocks = 1;    //: divisions along the scan
   std::size_t panels = 1;
   //: The range of images the blocks divide, which is the range being
   //: INTEGRATED and not the whole scan.
@@ -152,17 +153,18 @@ struct Neighbour {
 //: the weights fall back onto the cells that exist rather than reaching for
 //: ones that do not.
 std::vector<Neighbour> neighbours_of(const ReferenceProfiles &reference,
-                                     const Panel &panel, std::size_t which_panel,
-                                     double px_fast, double px_slow, double z);
+                                     const Panel &panel,
+                                     std::size_t which_panel, double px_fast,
+                                     double px_slow, double z);
 
 //: The interpolated profile at a reflection, normalised to unit sum.
 std::vector<double> profile_at(const ReferenceProfiles &reference,
                                const Panel &panel, std::size_t which_panel,
                                double px_fast, double px_slow, double z);
 
-ReferenceProfiles make_reference(const GridSpec &spec, int divisions, int blocks,
-                                 std::size_t panels, double first_image,
-                                 double last_image);
+ReferenceProfiles make_reference(const GridSpec &spec, int divisions,
+                                 int blocks, std::size_t panels,
+                                 double first_image, double last_image);
 
 //: Add one reflection's transformed shoebox to its region's profile.
 //:
@@ -198,11 +200,11 @@ std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
 //: through epsilon_of, every voxel through every subdivision and plane.
 //: profile_on_pixels is tested against this, which is its specification, and
 //: is about an order of magnitude faster.
-std::vector<double> profile_on_pixels_direct(const Experiment &e,
-                                             const Shoebox &box, const Vec3 &s1,
-                                             double phi_calculated,
-                                             const GridSpec &spec,
-                                             const std::vector<double> &reference);
+std::vector<double>
+profile_on_pixels_direct(const Experiment &e, const Shoebox &box,
+                         const Vec3 &s1, double phi_calculated,
+                         const GridSpec &spec,
+                         const std::vector<double> &reference);
 
 struct ProfileFit {
   bool valid = false;
@@ -226,8 +228,9 @@ struct ProfileFit {
 //: background held at what the GLM found. The weights are Poisson,
 //: w_j = 1 / v_j, and v_j depends on K through v = B + K P -- so it is
 //: iterated, as Kabsch does. Two or three rounds is plenty.
-ProfileFit fit_profile(const std::vector<double> &reference, const Transformed &t,
-                       double gain = 1.0, int iterations = 3);
+ProfileFit fit_profile(const std::vector<double> &reference,
+                       const Transformed &t, double gain = 1.0,
+                       int iterations = 3);
 
 //: Fit `pixel_profile` to the shoebox's own pixels.
 //:
@@ -237,4 +240,4 @@ ProfileFit fit_on_pixels(const Shoebox &box,
                          const std::vector<double> &pixel_profile,
                          double gain = 1.0, int iterations = 3);
 
-}  // namespace mxi
+} // namespace mxi

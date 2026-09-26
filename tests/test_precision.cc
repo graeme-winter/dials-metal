@@ -21,12 +21,12 @@
 #include <vector>
 
 #include "../src/derivatives.hh"
+#include "../src/derivatives_t.hh"
 #include "../src/predict.hh"
 #include "../src/refine.hh"
 #include "../src/target.hh"
 #include "check.hh"
 #include "real_data.hh"
-#include "../src/derivatives_t.hh"
 
 namespace mxi {
 
@@ -55,24 +55,25 @@ Experiment insulin_experiment() {
     axes.push_back(vec(real::kGonioAxes[i]));
     angles.push_back(real::kGonioAngles[i]);
   }
-  e.goniometer = Goniometer::from_axes(axes, angles,
-                                       static_cast<std::size_t>(real::kScanAxis));
+  e.goniometer = Goniometer::from_axes(
+      axes, angles, static_cast<std::size_t>(real::kScanAxis));
   e.scan.first_image = real::kImageRange[0];
   e.scan.last_image = real::kImageRange[1];
   e.scan.osc_start = real::kOscStart;
   e.scan.osc_width = real::kOscWidth;
-  e.crystal = Crystal::from_real_space(vec(real::kRealSpaceA), vec(real::kRealSpaceB),
-                                       vec(real::kRealSpaceC));
+  e.crystal = Crystal::from_real_space(
+      vec(real::kRealSpaceA), vec(real::kRealSpaceB), vec(real::kRealSpaceC));
   return e;
 }
 
 double percentile(std::vector<double> v, double p) {
-  if (v.empty()) return -1.0;
+  if (v.empty())
+    return -1.0;
   std::sort(v.begin(), v.end());
   return v[static_cast<std::size_t>(p * static_cast<double>(v.size() - 1))];
 }
 
-}  // namespace
+} // namespace
 
 TEST(the_templated_target_reproduces_the_real_one_in_double) {
   // Until this holds, nothing measured with the float version means anything:
@@ -83,12 +84,14 @@ TEST(the_templated_target_reproduces_the_real_one_in_double) {
   for (const real::Row &r : real::rows()) {
     const Residual reference =
         centroid_residual(e, 0, r.h, r.k, r.l, r.px_fast, r.px_slow, r.px_z);
-    if (!reference.valid) continue;
+    if (!reference.valid)
+      continue;
     const auto model = narrow<double>(e, 0, e.setting_at(r.px_z));
     const auto got = evaluate_target<double>(model, r.h, r.k, r.l, r.px_fast,
                                              r.px_slow, r.px_z);
     check::is_true(got.valid, "the templated version must predict too");
-    difference.push_back(std::hypot(got.dx - reference.dx, got.dy - reference.dy));
+    difference.push_back(
+        std::hypot(got.dx - reference.dx, got.dy - reference.dy));
   }
   check::is_true(difference.size() > 30, "enough reflections");
   // Measured at 5e-13 px: the same arithmetic in a different order.
@@ -110,7 +113,8 @@ TEST(the_residual_itself_survives_single_precision) {
     const auto b = evaluate_target<float>(
         narrowed, r.h, r.k, r.l, static_cast<float>(r.px_fast),
         static_cast<float>(r.px_slow), static_cast<float>(r.px_z));
-    if (!a.valid || !b.valid) continue;
+    if (!a.valid || !b.valid)
+      continue;
     difference.push_back(std::hypot(static_cast<double>(b.dx) - a.dx,
                                     static_cast<double>(b.dy) - a.dy));
   }
@@ -132,12 +136,14 @@ TEST(a_finite_difference_derivative_does_not_survive_single_precision) {
   // five, meaning some entries have the wrong sign.
   const Experiment e = insulin_experiment();
   double scale = 0.0;
-  for (double m : e.crystal->A.m) scale = std::fmax(scale, std::abs(m));
+  for (double m : e.crystal->A.m)
+    scale = std::fmax(scale, std::abs(m));
 
   std::vector<double> in_double, in_float, in_float_big;
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid || std::abs(s.volume) < 0.05) continue;
+    if (!s.valid || std::abs(s.volume) < 0.05)
+      continue;
     const auto exact = crystal_derivatives(s, r.h, r.k, r.l);
     double J[4];
     e.detector[0].mm_to_px_jacobian(s.v.x / s.v.z, s.v.y / s.v.z, J);
@@ -146,7 +152,8 @@ TEST(a_finite_difference_derivative_does_not_survive_single_precision) {
     for (std::size_t p = 0; p < 9; ++p) {
       // d(residual_x)/dp, which is minus the derivative of the prediction.
       const double reference = -(J[0] * exact[p].dX + J[1] * exact[p].dY);
-      if (std::abs(reference) < 1.0) continue;
+      if (std::abs(reference) < 1.0)
+        continue;
 
       const auto difference = [&](auto tag, double step) -> double {
         using T = decltype(tag);
@@ -154,25 +161,28 @@ TEST(a_finite_difference_derivative_does_not_survive_single_precision) {
         moved.m[p] += step;
         const auto m0 = narrow<T>(e, 0, A);
         const auto m1 = narrow<T>(e, 0, moved);
-        const auto a = evaluate_target<T>(m0, r.h, r.k, r.l,
-                                          static_cast<T>(r.px_fast),
-                                          static_cast<T>(r.px_slow),
-                                          static_cast<T>(r.px_z));
-        const auto b = evaluate_target<T>(m1, r.h, r.k, r.l,
-                                          static_cast<T>(r.px_fast),
-                                          static_cast<T>(r.px_slow),
-                                          static_cast<T>(r.px_z));
-        if (!a.valid || !b.valid) return -1.0;
-        const double fd = (static_cast<double>(b.dx) - static_cast<double>(a.dx)) / step;
+        const auto a = evaluate_target<T>(
+            m0, r.h, r.k, r.l, static_cast<T>(r.px_fast),
+            static_cast<T>(r.px_slow), static_cast<T>(r.px_z));
+        const auto b = evaluate_target<T>(
+            m1, r.h, r.k, r.l, static_cast<T>(r.px_fast),
+            static_cast<T>(r.px_slow), static_cast<T>(r.px_z));
+        if (!a.valid || !b.valid)
+          return -1.0;
+        const double fd =
+            (static_cast<double>(b.dx) - static_cast<double>(a.dx)) / step;
         return std::abs(fd - reference) / std::abs(reference);
       };
 
       const double d0 = difference(double(), 1e-6 * scale);
       const double f0 = difference(float(), 1e-6 * scale);
       const double f1 = difference(float(), 3e-4 * scale);
-      if (d0 >= 0) in_double.push_back(d0);
-      if (f0 >= 0) in_float.push_back(f0);
-      if (f1 >= 0) in_float_big.push_back(f1);
+      if (d0 >= 0)
+        in_double.push_back(d0);
+      if (f0 >= 0)
+        in_float.push_back(f0);
+      if (f1 >= 0)
+        in_float_big.push_back(f1);
     }
   }
   check::is_true(in_double.size() > 100, "enough comparisons");
@@ -181,8 +191,9 @@ TEST(a_finite_difference_derivative_does_not_survive_single_precision) {
   // than a sign that the analytical reference is wrong.
   check::is_true(percentile(in_double, 0.5) < 1e-5, "double is accurate");
   // Float at the current step is worthless.
-  check::is_true(percentile(in_float, 0.5) > 0.1,
-                 "float at this step must be shown to fail, not assumed to work");
+  check::is_true(
+      percentile(in_float, 0.5) > 0.1,
+      "float at this step must be shown to fail, not assumed to work");
   // And even at its best step it does not reach three digits.
   check::is_true(percentile(in_float_big, 0.5) > 1e-3,
                  "float at sqrt(eps) is still not good enough");
@@ -191,7 +202,6 @@ TEST(a_finite_difference_derivative_does_not_survive_single_precision) {
 // --------------------------------------------------------------------------
 // the analytical derivative in single precision
 // --------------------------------------------------------------------------
-
 
 namespace {
 
@@ -202,7 +212,8 @@ std::vector<double> templated_derivatives(const Experiment &e, int h, int k,
   std::vector<double> out;
   const auto model = narrow<T>(e, 0, e.setting_at(z));
   const auto state = target_state<T>(model, h, k, l, static_cast<T>(z));
-  if (!state.valid) return out;
+  if (!state.valid)
+    return out;
   Derivative3<T> crystal[9], detector[6], beam[2];
   crystal_derivatives_t<T>(model, state, h, k, l, crystal);
   detector_derivatives_t<T>(model, state, detector);
@@ -212,9 +223,12 @@ std::vector<double> templated_derivatives(const Experiment &e, int h, int k,
     out.push_back(static_cast<double>(d.dY));
     out.push_back(static_cast<double>(d.dphi));
   };
-  for (const auto &d : crystal) push(d);
-  for (const auto &d : detector) push(d);
-  for (const auto &d : beam) push(d);
+  for (const auto &d : crystal)
+    push(d);
+  for (const auto &d : detector)
+    push(d);
+  for (const auto &d : beam)
+    push(d);
   return out;
 }
 
@@ -230,13 +244,16 @@ std::vector<double> reference_derivatives(const Experiment &e,
     out.push_back(d.dY);
     out.push_back(d.dphi);
   };
-  for (const auto &d : crystal) push(d);
-  for (const auto &d : detector) push(d);
-  for (const auto &d : beam) push(d);
+  for (const auto &d : crystal)
+    push(d);
+  for (const auto &d : detector)
+    push(d);
+  for (const auto &d : beam)
+    push(d);
   return out;
 }
 
-}  // namespace
+} // namespace
 
 TEST(the_templated_derivatives_reproduce_the_real_ones_in_double) {
   // Bit for bit, measured: the same operations in the same order. Anything
@@ -247,14 +264,19 @@ TEST(the_templated_derivatives_reproduce_the_real_ones_in_double) {
   std::size_t compared = 0;
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid || std::abs(s.volume) < 0.05) continue;
-    const std::vector<double> reference = reference_derivatives(e, s, r.h, r.k, r.l);
+    if (!s.valid || std::abs(s.volume) < 0.05)
+      continue;
+    const std::vector<double> reference =
+        reference_derivatives(e, s, r.h, r.k, r.l);
     const std::vector<double> got =
         templated_derivatives<double>(e, r.h, r.k, r.l, r.px_z);
-    if (got.size() != reference.size()) continue;
+    if (got.size() != reference.size())
+      continue;
     for (std::size_t i = 0; i < got.size(); ++i) {
-      if (std::abs(reference[i]) < 1e-8) continue;
-      worst = std::fmax(worst, std::abs(got[i] - reference[i]) / std::abs(reference[i]));
+      if (std::abs(reference[i]) < 1e-8)
+        continue;
+      worst = std::fmax(worst, std::abs(got[i] - reference[i]) /
+                                   std::abs(reference[i]));
       ++compared;
     }
   }
@@ -276,21 +298,25 @@ TEST(the_analytical_derivative_does_survive_single_precision) {
   std::vector<double> relative;
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid || std::abs(s.volume) < 0.05) continue;
+    if (!s.valid || std::abs(s.volume) < 0.05)
+      continue;
     const std::vector<double> wide =
         templated_derivatives<double>(e, r.h, r.k, r.l, r.px_z);
     const std::vector<double> narrowed =
         templated_derivatives<float>(e, r.h, r.k, r.l, r.px_z);
-    if (wide.size() != narrowed.size() || wide.empty()) continue;
+    if (wide.size() != narrowed.size() || wide.empty())
+      continue;
     for (std::size_t i = 0; i < wide.size(); ++i) {
-      if (std::abs(wide[i]) < 1e-8) continue;
+      if (std::abs(wide[i]) < 1e-8)
+        continue;
       relative.push_back(std::abs(narrowed[i] - wide[i]) / std::abs(wide[i]));
     }
   }
   check::is_true(relative.size() > 1000, "enough components compared");
   // Measured: median 1.3e-7, ninety-ninth percentile 1.2e-5.
-  check::is_true(percentile(relative, 0.5) < 1e-6, "median, about seven digits");
+  check::is_true(percentile(relative, 0.5) < 1e-6,
+                 "median, about seven digits");
   check::is_true(percentile(relative, 0.99) < 1e-3, "and the tail holds up");
 }
 
-}  // namespace mxi
+} // namespace mxi

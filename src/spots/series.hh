@@ -88,7 +88,8 @@ public:
   // It exists because a scan of 1800 images of a 36000 image file was spot
   // found on all 36000: the tool warned that z would be wrong outside the scan
   // and then went and found spots there anyway, at twenty times the cost.
-  virtual bool restrict_frames(std::uint64_t /*first*/, std::uint64_t /*last*/) {
+  virtual bool restrict_frames(std::uint64_t /*first*/,
+                               std::uint64_t /*last*/) {
     return false;
   }
 };

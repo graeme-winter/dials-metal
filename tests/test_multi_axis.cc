@@ -51,7 +51,8 @@ Experiment build(const Sweep &s, const double (&a)[3], const double (&b)[3],
   e.detector.panels.push_back(p);
 
   std::vector<Vec3> axes;
-  for (const std::array<double, 3> &axis : s.axes) axes.push_back(v(axis));
+  for (const std::array<double, 3> &axis : s.axes)
+    axes.push_back(v(axis));
   e.goniometer = Goniometer::from_axes(axes, s.angles,
                                        static_cast<std::size_t>(s.scan_axis));
 
@@ -87,7 +88,8 @@ double difference(const Mat3 &a, const Mat3 &b) {
 template <typename Sweep>
 double disagreement(const Sweep &s, const Goniometer *replacement) {
   Experiment e = build(s);
-  if (replacement) e.goniometer = *replacement;
+  if (replacement)
+    e.goniometer = *replacement;
   std::vector<double> residual;
   for (const auto &r : s.rows) {
     const Vec3 got =
@@ -98,7 +100,7 @@ double disagreement(const Sweep &s, const Goniometer *replacement) {
   return residual[residual.size() / 2];
 }
 
-}  // namespace
+} // namespace
 
 TEST(cysteine_has_the_four_sweeps_that_make_it_useful) {
   const std::vector<cysteine::Sweep> &all = cysteine::sweeps();
@@ -107,8 +109,10 @@ TEST(cysteine_has_the_four_sweeps_that_make_it_useful) {
   // what exercises the fixed rotation at all.
   int with_setting = 0, scan_axis_zero = 0;
   for (const cysteine::Sweep &s : all) {
-    if (s.scan_axis == 1 && s.angles[0] != 0.0) ++with_setting;
-    if (s.scan_axis == 0) ++scan_axis_zero;
+    if (s.scan_axis == 1 && s.angles[0] != 0.0)
+      ++with_setting;
+    if (s.scan_axis == 0)
+      ++scan_axis_zero;
   }
   check::equal(with_setting, 2, "sweeps with a non-identity fixed rotation");
   // And one that scans a different axis, so nothing may assume the scan axis
@@ -170,7 +174,8 @@ TEST(cysteine_swapping_fixed_and_setting_is_caught) {
   for (const cysteine::Sweep &s : cysteine::sweeps()) {
     Goniometer g = build(s).goniometer;
     std::swap(g.fixed, g.setting);
-    if (disagreement(s, &g) > 0.01) ++broken;
+    if (disagreement(s, &g) > 0.01)
+      ++broken;
   }
   check::equal(broken, 2, "two sweeps must detect the swap");
 }
@@ -180,7 +185,8 @@ TEST(cysteine_dropping_the_fixed_rotation_is_caught) {
   for (const cysteine::Sweep &s : cysteine::sweeps()) {
     Goniometer g = build(s).goniometer;
     g.fixed = Mat3::identity();
-    if (disagreement(s, &g) > 0.01) ++broken;
+    if (disagreement(s, &g) > 0.01)
+      ++broken;
   }
   check::equal(broken, 2, "two sweeps must detect the missing fixed rotation");
 }
@@ -203,7 +209,8 @@ TEST(cysteine_folding_in_the_scan_axis_angle_is_caught) {
                                  Scan::radians(s.angles[s.scan_axis]));
     if (disagreement(s, &g) > 0.01) {
       ++broken;
-      if (i == 0) sweep_zero_caught = true;
+      if (i == 0)
+        sweep_zero_caught = true;
     }
   }
   check::equal(broken, 3, "the three omega sweeps must detect this");
@@ -235,7 +242,6 @@ TEST(cysteine_parallax_uses_each_sweeps_own_sensor) {
   check::is_true((a - b).norm() > 10.0, "the two detectors differ");
 }
 
-
 // --------------------------------------------------------------------------
 // Composition order, which no data to hand can settle
 // --------------------------------------------------------------------------
@@ -255,12 +261,12 @@ const Vec3 kInner{1.0, 0.0, 0.0};
 const Vec3 kMiddle{0.0, 1.0, 0.0};
 const Vec3 kOuter = Vec3{0.3, 0.4, 0.866}.normalized();
 
-}  // namespace
+} // namespace
 
 TEST(axes_further_from_the_sample_apply_later) {
   // Sample on kInner, which sits on kMiddle, which sits on the scanned axis.
-  const Goniometer g = Goniometer::from_axes({kInner, kMiddle, kOuter},
-                                             {30.0, 50.0, 0.0}, 2);
+  const Goniometer g =
+      Goniometer::from_axes({kInner, kMiddle, kOuter}, {30.0, 50.0, 0.0}, 2);
   const Mat3 inner = rotation(kInner, Scan::radians(30.0));
   const Mat3 middle = rotation(kMiddle, Scan::radians(50.0));
 
@@ -278,8 +284,8 @@ TEST(the_inner_axis_is_itself_carried_by_the_outer_one) {
   // So the fixed rotation applied to the inner axis direction must equal the
   // outer rotation applied to it, the inner axis being invariant under its own
   // rotation.
-  const Goniometer g = Goniometer::from_axes({kInner, kMiddle, kOuter},
-                                             {30.0, 50.0, 0.0}, 2);
+  const Goniometer g =
+      Goniometer::from_axes({kInner, kMiddle, kOuter}, {30.0, 50.0, 0.0}, 2);
   const Vec3 carried = g.fixed * kInner;
   const Vec3 expected = rotation(kMiddle, Scan::radians(50.0)) * kInner;
   check::close((carried - expected).norm(), 0.0, 1e-12,
@@ -288,8 +294,8 @@ TEST(the_inner_axis_is_itself_carried_by_the_outer_one) {
 
 TEST(setting_rotation_composes_in_the_same_direction) {
   // Scanning the innermost axis, with two axes above it.
-  const Goniometer g = Goniometer::from_axes({kInner, kMiddle, kOuter},
-                                             {0.0, 50.0, 20.0}, 0);
+  const Goniometer g =
+      Goniometer::from_axes({kInner, kMiddle, kOuter}, {0.0, 50.0, 20.0}, 0);
   const Mat3 middle = rotation(kMiddle, Scan::radians(50.0));
   const Mat3 outer = rotation(kOuter, Scan::radians(20.0));
   check::close(difference(g.setting, outer * middle), 0.0, 1e-12,
@@ -353,7 +359,8 @@ TEST(threeaxis_dropping_the_fixed_rotation_is_caught_by_three_sweeps) {
   for (const threeaxis::Sweep &s : threeaxis::sweeps()) {
     Goniometer g = build(s).goniometer;
     g.fixed = Mat3::identity();
-    if (disagreement(s, &g) > 0.001) ++broken;
+    if (disagreement(s, &g) > 0.001)
+      ++broken;
   }
   // All but the chi = 0 sweep, whose fixed rotation is the identity anyway.
   check::equal(broken, 3, "three sweeps must detect the missing rotation");
@@ -371,7 +378,8 @@ TEST(threeaxis_cannot_distinguish_the_composition_order) {
 
     Mat3 inside_out = Mat3::identity();
     for (std::size_t i = 0; i < static_cast<std::size_t>(s.scan_axis); ++i) {
-      inside_out = inside_out * rotation(v(s.axes[i]), Scan::radians(s.angles[i]));
+      inside_out =
+          inside_out * rotation(v(s.axes[i]), Scan::radians(s.angles[i]));
     }
     check::close(difference(outward.fixed, inside_out), 0.0, 1e-15,
                  "the two orders coincide here, so this data cannot decide");
@@ -382,4 +390,4 @@ TEST(threeaxis_cannot_distinguish_the_composition_order) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi

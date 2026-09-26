@@ -2,9 +2,9 @@
 
 #include <algorithm>
 #include <chrono>
-#include <thread>
 #include <cmath>
 #include <cstdio>
+#include <thread>
 
 #include "derivatives.hh"
 #include "predict.hh"
@@ -34,14 +34,15 @@ double now_seconds() {
              std::chrono::steady_clock::now().time_since_epoch())
       .count();
 }
-}  // namespace
-
+} // namespace
 
 Residual centroid_residual(const Experiment &e, std::size_t panel, int h, int k,
                            int l, double px_fast, double px_slow, double z) {
   Residual out;
-  if (!e.crystal) return out;
-  if (panel >= e.detector.size()) return out;
+  if (!e.crystal)
+    return out;
+  if (panel >= e.detector.size())
+    return out;
 
   // The setting matrix at the observation's own scan position. DIALS predicts
   // scan-varying reflections iteratively, solving for the frame and then
@@ -49,11 +50,12 @@ Residual centroid_residual(const Experiment &e, std::size_t panel, int h, int k,
   // whose error is dA/dz times the residual in z, which is a third of an image
   // out of hundreds. It is second order and it is not free -- it means this
   // residual is not exactly DIALS' residual for a scan-varying model.
-  const Vec3 r0 = e.setting_at(z) * Vec3{static_cast<double>(h),
-                                         static_cast<double>(k),
-                                         static_cast<double>(l)};
+  const Vec3 r0 =
+      e.setting_at(z) * Vec3{static_cast<double>(h), static_cast<double>(k),
+                             static_cast<double>(l)};
   const Intersections cross = ewald_intersections(e, r0);
-  if (!cross.any) return out;
+  if (!cross.any)
+    return out;
 
   // Which of the two roots. Taking the nearer to the observed angle is what
   // makes this robust to a model that is still far out: the alternative, using
@@ -65,8 +67,10 @@ Residual centroid_residual(const Experiment &e, std::size_t panel, int h, int k,
   double best_gap = 1e30;
   for (int i = 0; i < 2; ++i) {
     double gap = std::fmod(cross.phi[i] - phi_obs, two_pi);
-    if (gap > 0.5 * two_pi) gap -= two_pi;
-    if (gap < -0.5 * two_pi) gap += two_pi;
+    if (gap > 0.5 * two_pi)
+      gap -= two_pi;
+    if (gap < -0.5 * two_pi)
+      gap += two_pi;
     if (std::abs(gap) < best_gap) {
       best_gap = std::abs(gap);
       best = phi_obs + gap;
@@ -75,7 +79,8 @@ Residual centroid_residual(const Experiment &e, std::size_t panel, int h, int k,
 
   const Vec3 s1 = e.beam.s0() + e.goniometer.rotation_at(best) * r0;
   const auto hit = e.detector[panel].intersect(s1);
-  if (!hit) return out;
+  if (!hit)
+    return out;
 
   out.valid = true;
   out.dx = px_fast - hit->first;
@@ -102,11 +107,12 @@ struct TargetRow {
 };
 
 std::vector<TargetRow> gather(const ExperimentList &experiments,
-                                const Table &reflections,
-                                const RefineOptions &options,
-                                std::size_t *ill_conditioned = nullptr) {
+                              const Table &reflections,
+                              const RefineOptions &options,
+                              std::size_t *ill_conditioned = nullptr) {
   std::vector<TargetRow> out;
-  if (!reflections.has("miller_index")) return out;
+  if (!reflections.has("miller_index"))
+    return out;
   const Column &miller = reflections.at("miller_index");
   const Column &xyz = reflections.at("xyzobs.px.value");
   const bool has_id = reflections.has("id");
@@ -124,7 +130,8 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
     const Column &v = reflections.at(strength);
     std::vector<double> values;
     for (std::size_t i = 0; i < reflections.nrows; ++i) {
-      values.push_back(v.integral ? static_cast<double>(v.integer(i)) : v.real(i));
+      values.push_back(v.integral ? static_cast<double>(v.integer(i))
+                                  : v.real(i));
     }
     std::nth_element(values.begin(), values.begin() + values.size() / 2,
                      values.end());
@@ -136,19 +143,24 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
       const Column &v = reflections.at(strength);
       const double value =
           v.integral ? static_cast<double>(v.integer(i)) : v.real(i);
-      if (value < threshold) continue;
+      if (value < threshold)
+        continue;
     }
     TargetRow o;
     o.row = i;
     o.h = static_cast<int>(miller.integer(i, 0));
     o.k = static_cast<int>(miller.integer(i, 1));
     o.l = static_cast<int>(miller.integer(i, 2));
-    if (!o.h && !o.k && !o.l) continue;
-    o.experiment = has_id ? static_cast<std::size_t>(
-                                std::max<std::int64_t>(0, reflections.at("id").integer(i)))
+    if (!o.h && !o.k && !o.l)
+      continue;
+    o.experiment = has_id ? static_cast<std::size_t>(std::max<std::int64_t>(
+                                0, reflections.at("id").integer(i)))
                           : 0;
-    if (o.experiment >= experiments.size()) continue;
-    o.panel = has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i)) : 0;
+    if (o.experiment >= experiments.size())
+      continue;
+    o.panel = has_panel
+                  ? static_cast<std::size_t>(reflections.at("panel").integer(i))
+                  : 0;
     o.px_fast = xyz.real(i, 0);
     o.px_slow = xyz.real(i, 1);
     o.z = xyz.real(i, 2);
@@ -168,10 +180,11 @@ std::vector<TargetRow> gather(const ExperimentList &experiments,
     // the volume moves very little under refinement, and recomputing it each
     // macrocycle would let the set of reflections churn.
     if (options.min_volume > 0.0 && o.experiment < experiments.size()) {
-      const PredictionState state =
-          prediction_state(experiments[o.experiment], o.panel, o.h, o.k, o.l, o.z);
+      const PredictionState state = prediction_state(
+          experiments[o.experiment], o.panel, o.h, o.k, o.l, o.z);
       if (!state.valid || std::abs(state.volume) < options.min_volume) {
-        if (ill_conditioned != nullptr) ++*ill_conditioned;
+        if (ill_conditioned != nullptr)
+          ++*ill_conditioned;
         continue;
       }
     }
@@ -196,7 +209,7 @@ struct Layout {
   bool shared_crystal = true;
   std::size_t n_experiments = 0;
   std::size_t crystal_blocks = 0;
-  std::size_t points = 1;  // control points per crystal
+  std::size_t points = 1; // control points per crystal
 
   std::size_t block() const { return 9 * points; }
   std::size_t size() const {
@@ -224,8 +237,10 @@ struct Layout {
       return shared_crystal ? -1 : static_cast<long>(p / block());
     }
     std::size_t q = p - crystal_blocks * block();
-    if (detector && q < 6 * n_experiments) return static_cast<long>(q / 6);
-    if (detector) q -= 6 * n_experiments;
+    if (detector && q < 6 * n_experiments)
+      return static_cast<long>(q / 6);
+    if (detector)
+      q -= 6 * n_experiments;
     return static_cast<long>(q / 2);
   }
 };
@@ -241,7 +256,8 @@ void apply(const ExperimentList &base, const Layout &layout,
     if (layout.crystal && e.crystal) {
       const std::size_t at = layout.crystal_at(i);
       if (layout.points < 2) {
-        for (std::size_t k = 0; k < 9; ++k) e.crystal->A.m[k] += shift[at + k];
+        for (std::size_t k = 0; k < 9; ++k)
+          e.crystal->A.m[k] += shift[at + k];
       } else {
         for (std::size_t c = 0; c < layout.points; ++c) {
           for (std::size_t k = 0; k < 9; ++k) {
@@ -259,7 +275,8 @@ void apply(const ExperimentList &base, const Layout &layout,
       // drift apart. A derivative that does not match how the model actually
       // moves is a silent failure: the refinement takes confident steps in a
       // direction that means nothing.
-      for (Panel &p : e.detector.panels) p = perturb_panel(p, panel_shift);
+      for (Panel &p : e.detector.panels)
+        p = perturb_panel(p, panel_shift);
     }
     if (layout.beam) {
       const std::size_t at = layout.beam_at(i);
@@ -275,15 +292,20 @@ void apply(const ExperimentList &base, const Layout &layout,
 double residuals_of(const ExperimentList &experiments,
                     const std::vector<TargetRow> &observations,
                     std::vector<double> *out, long only = -1) {
-  if (only < 0) out->assign(observations.size() * 3, 0.0);
+  if (only < 0)
+    out->assign(observations.size() * 3, 0.0);
   double total = 0.0;
   for (std::size_t i = 0; i < observations.size(); ++i) {
     const TargetRow &o = observations[i];
-    if (!o.active) continue;
-    if (only >= 0 && o.experiment != static_cast<std::size_t>(only)) continue;
-    const Residual r = centroid_residual(experiments[o.experiment], o.panel, o.h,
-                                         o.k, o.l, o.px_fast, o.px_slow, o.z);
-    if (!r.valid) continue;
+    if (!o.active)
+      continue;
+    if (only >= 0 && o.experiment != static_cast<std::size_t>(only))
+      continue;
+    const Residual r =
+        centroid_residual(experiments[o.experiment], o.panel, o.h, o.k, o.l,
+                          o.px_fast, o.px_slow, o.z);
+    if (!r.valid)
+      continue;
     (*out)[i * 3 + 0] = r.dx;
     (*out)[i * 3 + 1] = r.dy;
     (*out)[i * 3 + 2] = r.dz;
@@ -303,26 +325,31 @@ double residuals_of(const ExperimentList &experiments,
 //: count is capped by what that costs: at a hundred and seventy parameters it
 //: is 231 kB apiece, at a thousand it would be 8 MB and not worth it.
 std::size_t normal_thread_count(std::size_t observations, std::size_t n) {
-  if (g_normal_threads == 1) return 1;
+  if (g_normal_threads == 1)
+    return 1;
   std::size_t wanted = g_normal_threads;
   if (wanted == 0) {
     wanted = std::thread::hardware_concurrency();
-    if (wanted == 0) wanted = 1;
+    if (wanted == 0)
+      wanted = 1;
   }
   const std::size_t by_work = observations / 2000;
   // Keep the partial matrices under about 16 MB in total.
   const std::size_t by_memory =
-      n * n > 0 ? std::max<std::size_t>(1, (16u << 20) / (n * n * sizeof(double)))
-                : 1;
+      n * n > 0
+          ? std::max<std::size_t>(1, (16u << 20) / (n * n * sizeof(double)))
+          : 1;
   return std::max<std::size_t>(1, std::min({wanted, by_work, by_memory}));
 }
 
 std::size_t jacobian_thread_count(std::size_t observations) {
-  if (g_jacobian_threads == 1) return 1;
+  if (g_jacobian_threads == 1)
+    return 1;
   std::size_t wanted = g_jacobian_threads;
   if (wanted == 0) {
     wanted = std::thread::hardware_concurrency();
-    if (wanted == 0) wanted = 1;
+    if (wanted == 0)
+      wanted = 1;
   }
   // Below a few thousand reflections the threads cost more than they save.
   const std::size_t by_work = observations / 2000;
@@ -344,7 +371,8 @@ void build_analytic_jacobian(const ExperimentList &experiments,
   // what the arithmetic does -- and each probe lands in a different heap
   // block. On ten rotations of a real crystal that search was 267 of the 291
   // seconds a refinement took.
-  if (span != nullptr) span->assign(observations.size(), ParameterSpan{});
+  if (span != nullptr)
+    span->assign(observations.size(), ParameterSpan{});
 
   // One reflection per unit of work. Every thread writes only the three
   // entries belonging to its own reflection, in every parameter's row, so no
@@ -357,95 +385,103 @@ void build_analytic_jacobian(const ExperimentList &experiments,
   // a different order would change the last bits of the answer for nothing.
   const std::size_t threads = jacobian_thread_count(observations.size());
   const auto chunk = [&](std::size_t from, std::size_t to) {
-  for (std::size_t i = from; i < to; ++i) {
-    const TargetRow &o = observations[i];
-    if (!o.active) continue;
-    const Experiment &e = experiments[o.experiment];
-    const PredictionState s =
-        prediction_state(e, o.panel, o.h, o.k, o.l, o.z);
-    if (!s.valid || s.volume == 0.0) continue;
+    for (std::size_t i = from; i < to; ++i) {
+      const TargetRow &o = observations[i];
+      if (!o.active)
+        continue;
+      const Experiment &e = experiments[o.experiment];
+      const PredictionState s =
+          prediction_state(e, o.panel, o.h, o.k, o.l, o.z);
+      if (!s.valid || s.volume == 0.0)
+        continue;
 
-    // The residual is in pixels and images; the derivatives are in millimetres
-    // and radians. The parallax correction sits between the two, so the
-    // conversion is a 2x2 Jacobian rather than a division by the pixel size.
-    const Panel &p = e.detector[o.panel];
-    double J[4];
-    p.mm_to_px_jacobian(s.v.x / s.v.z, s.v.y / s.v.z, J);
-    const double per_image =
-        e.scan.osc_width != 0.0 ? 1.0 / Scan::radians(e.scan.osc_width) : 0.0;
+      // The residual is in pixels and images; the derivatives are in
+      // millimetres and radians. The parallax correction sits between the two,
+      // so the conversion is a 2x2 Jacobian rather than a division by the pixel
+      // size.
+      const Panel &p = e.detector[o.panel];
+      double J[4];
+      p.mm_to_px_jacobian(s.v.x / s.v.z, s.v.y / s.v.z, J);
+      const double per_image =
+          e.scan.osc_width != 0.0 ? 1.0 / Scan::radians(e.scan.osc_width) : 0.0;
 
-    const auto place = [&](std::size_t parameter, const CentroidDerivative &d,
-                           double weight) {
-      const double dpx_fast = weight * (J[0] * d.dX + J[1] * d.dY);
-      const double dpx_slow = weight * (J[2] * d.dX + J[3] * d.dY);
-      const double dz = weight * d.dphi * per_image;
-      (*jacobian)[parameter][i * 3 + 0] = -dpx_fast;
-      (*jacobian)[parameter][i * 3 + 1] = -dpx_slow;
-      (*jacobian)[parameter][i * 3 + 2] = -dz;
-    };
+      const auto place = [&](std::size_t parameter, const CentroidDerivative &d,
+                             double weight) {
+        const double dpx_fast = weight * (J[0] * d.dX + J[1] * d.dY);
+        const double dpx_slow = weight * (J[2] * d.dX + J[3] * d.dY);
+        const double dz = weight * d.dphi * per_image;
+        (*jacobian)[parameter][i * 3 + 0] = -dpx_fast;
+        (*jacobian)[parameter][i * 3 + 1] = -dpx_slow;
+        (*jacobian)[parameter][i * 3 + 2] = -dz;
+      };
 
-    if (layout.crystal && e.crystal) {
-      const auto d = crystal_derivatives(s, o.h, o.k, o.l);
-      const std::size_t at = layout.crystal_at(o.experiment);
-      if (layout.points < 2) {
+      if (layout.crystal && e.crystal) {
+        const auto d = crystal_derivatives(s, o.h, o.k, o.l);
+        const std::size_t at = layout.crystal_at(o.experiment);
+        if (layout.points < 2) {
+          if (span != nullptr) {
+            (*span)[i].crystal_low = static_cast<std::uint32_t>(at);
+            (*span)[i].crystal_high = static_cast<std::uint32_t>(at + 9);
+          }
+          for (std::size_t k = 0; k < 9; ++k)
+            place(at + k, d[k], 1.0);
+        } else {
+          // Only four control points are touched. This is the banding, and it
+          // is the reason the B-spline was chosen over an interpolating spline.
+          const SplineWeights w = spline_weights(e, o.z);
+          if (span != nullptr && w.count > 0) {
+            std::size_t low = at + w.index[0] * 9;
+            std::size_t high = low + 9;
+            for (std::size_t c = 1; c < w.count; ++c) {
+              low = std::min(low, at + w.index[c] * 9);
+              high = std::max(high, at + w.index[c] * 9 + 9);
+            }
+            // A span rather than a list: the support of a cubic B-spline is
+            // four consecutive control points, so the span is thirty-six
+            // parameters and iterating it costs the same as iterating a list
+            // would. If the support were ever not consecutive this stays
+            // correct and only iterates a little wider.
+            (*span)[i].crystal_low = static_cast<std::uint32_t>(low);
+            (*span)[i].crystal_high = static_cast<std::uint32_t>(high);
+          }
+          for (std::size_t c = 0; c < w.count; ++c) {
+            for (std::size_t k = 0; k < 9; ++k) {
+              const std::size_t parameter = at + w.index[c] * 9 + k;
+              const double dpx_fast =
+                  w.weight[c] * (J[0] * d[k].dX + J[1] * d[k].dY);
+              const double dpx_slow =
+                  w.weight[c] * (J[2] * d[k].dX + J[3] * d[k].dY);
+              const double dz = w.weight[c] * d[k].dphi * per_image;
+              // Accumulated, not assigned: the padding repeats a control point
+              // at the ends of the scan and both contributions are real.
+              (*jacobian)[parameter][i * 3 + 0] -= dpx_fast;
+              (*jacobian)[parameter][i * 3 + 1] -= dpx_slow;
+              (*jacobian)[parameter][i * 3 + 2] -= dz;
+            }
+          }
+        }
+      }
+      if (layout.detector) {
+        const auto d = detector_derivatives(s, p);
+        const std::size_t at = layout.detector_at(o.experiment);
         if (span != nullptr) {
-          (*span)[i].crystal_low = static_cast<std::uint32_t>(at);
-          (*span)[i].crystal_high = static_cast<std::uint32_t>(at + 9);
+          (*span)[i].detector_low = static_cast<std::uint32_t>(at);
+          (*span)[i].detector_high = static_cast<std::uint32_t>(at + 6);
         }
-        for (std::size_t k = 0; k < 9; ++k) place(at + k, d[k], 1.0);
-      } else {
-        // Only four control points are touched. This is the banding, and it
-        // is the reason the B-spline was chosen over an interpolating spline.
-        const SplineWeights w = spline_weights(e, o.z);
-        if (span != nullptr && w.count > 0) {
-          std::size_t low = at + w.index[0] * 9;
-          std::size_t high = low + 9;
-          for (std::size_t c = 1; c < w.count; ++c) {
-            low = std::min(low, at + w.index[c] * 9);
-            high = std::max(high, at + w.index[c] * 9 + 9);
-          }
-          // A span rather than a list: the support of a cubic B-spline is four
-          // consecutive control points, so the span is thirty-six parameters
-          // and iterating it costs the same as iterating a list would. If the
-          // support were ever not consecutive this stays correct and only
-          // iterates a little wider.
-          (*span)[i].crystal_low = static_cast<std::uint32_t>(low);
-          (*span)[i].crystal_high = static_cast<std::uint32_t>(high);
+        for (std::size_t k = 0; k < 6; ++k)
+          place(at + k, d[k], 1.0);
+      }
+      if (layout.beam) {
+        const auto d = beam_derivatives(s, e.beam);
+        const std::size_t at = layout.beam_at(o.experiment);
+        if (span != nullptr) {
+          (*span)[i].beam_low = static_cast<std::uint32_t>(at);
+          (*span)[i].beam_high = static_cast<std::uint32_t>(at + 2);
         }
-        for (std::size_t c = 0; c < w.count; ++c) {
-          for (std::size_t k = 0; k < 9; ++k) {
-            const std::size_t parameter = at + w.index[c] * 9 + k;
-            const double dpx_fast = w.weight[c] * (J[0] * d[k].dX + J[1] * d[k].dY);
-            const double dpx_slow = w.weight[c] * (J[2] * d[k].dX + J[3] * d[k].dY);
-            const double dz = w.weight[c] * d[k].dphi * per_image;
-            // Accumulated, not assigned: the padding repeats a control point
-            // at the ends of the scan and both contributions are real.
-            (*jacobian)[parameter][i * 3 + 0] -= dpx_fast;
-            (*jacobian)[parameter][i * 3 + 1] -= dpx_slow;
-            (*jacobian)[parameter][i * 3 + 2] -= dz;
-          }
-        }
+        for (std::size_t k = 0; k < 2; ++k)
+          place(at + k, d[k], 1.0);
       }
     }
-    if (layout.detector) {
-      const auto d = detector_derivatives(s, p);
-      const std::size_t at = layout.detector_at(o.experiment);
-      if (span != nullptr) {
-        (*span)[i].detector_low = static_cast<std::uint32_t>(at);
-        (*span)[i].detector_high = static_cast<std::uint32_t>(at + 6);
-      }
-      for (std::size_t k = 0; k < 6; ++k) place(at + k, d[k], 1.0);
-    }
-    if (layout.beam) {
-      const auto d = beam_derivatives(s, e.beam);
-      const std::size_t at = layout.beam_at(o.experiment);
-      if (span != nullptr) {
-        (*span)[i].beam_low = static_cast<std::uint32_t>(at);
-        (*span)[i].beam_high = static_cast<std::uint32_t>(at + 2);
-      }
-      for (std::size_t k = 0; k < 2; ++k) place(at + k, d[k], 1.0);
-    }
-  }
   };
 
   if (threads <= 1) {
@@ -458,11 +494,13 @@ void build_analytic_jacobian(const ExperimentList &experiments,
   for (std::size_t t = 1; t < threads; ++t) {
     const std::size_t from = std::min(t * each, observations.size());
     const std::size_t to = std::min(from + each, observations.size());
-    if (from < to) pool.emplace_back(chunk, from, to);
+    if (from < to)
+      pool.emplace_back(chunk, from, to);
   }
   // This thread takes the first chunk rather than waiting for the others.
   chunk(0, std::min(each, observations.size()));
-  for (std::thread &t : pool) t.join();
+  for (std::thread &t : pool)
+    t.join();
 }
 
 std::vector<double> step_sizes(const ExperimentList &experiments,
@@ -476,13 +514,17 @@ std::vector<double> step_sizes(const ExperimentList &experiments,
       // protein and 1/5 for a small molecule, and one absolute step cannot
       // suit both.
       double scale = 0.0;
-      for (double v : experiments[i].crystal->A.m) scale = std::fmax(scale, std::abs(v));
-      for (std::size_t k = 0; k < n; ++k) step[at + k] = 1e-6 * std::fmax(scale, 1e-6);
+      for (double v : experiments[i].crystal->A.m)
+        scale = std::fmax(scale, std::abs(v));
+      for (std::size_t k = 0; k < n; ++k)
+        step[at + k] = 1e-6 * std::fmax(scale, 1e-6);
     }
     if (layout.detector) {
       const std::size_t at = layout.detector_at(i);
-      for (std::size_t k = 0; k < 3; ++k) step[at + k] = 1e-4;      // mm
-      for (std::size_t k = 3; k < 6; ++k) step[at + k] = 1e-6;      // radians
+      for (std::size_t k = 0; k < 3; ++k)
+        step[at + k] = 1e-4; // mm
+      for (std::size_t k = 3; k < 6; ++k)
+        step[at + k] = 1e-6; // radians
     }
     if (layout.beam) {
       const std::size_t at = layout.beam_at(i);
@@ -493,19 +535,22 @@ std::vector<double> step_sizes(const ExperimentList &experiments,
 }
 
 double robust_spread(std::vector<double> values) {
-  if (values.empty()) return 0.0;
-  std::nth_element(values.begin(), values.begin() + values.size() / 2, values.end());
+  if (values.empty())
+    return 0.0;
+  std::nth_element(values.begin(), values.begin() + values.size() / 2,
+                   values.end());
   const double median = values[values.size() / 2];
   std::vector<double> deviation;
   deviation.reserve(values.size());
-  for (double v : values) deviation.push_back(std::abs(v - median));
+  for (double v : values)
+    deviation.push_back(std::abs(v - median));
   std::nth_element(deviation.begin(), deviation.begin() + deviation.size() / 2,
                    deviation.end());
   // Scaled so it is comparable with a standard deviation for normal data.
   return 1.4826 * deviation[deviation.size() / 2];
 }
 
-}  // namespace
+} // namespace
 
 RefineResult refine(ExperimentList &experiments, const Table &reflections,
                     const RefineOptions &options) {
@@ -515,7 +560,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
   std::vector<TargetRow> observations =
       gather(experiments, reflections, options, &ill_conditioned);
   g_observations_seconds += now_seconds() - t_observations;
-  if (observations.size() < 20) return result;
+  if (observations.size() < 20)
+    return result;
 
   Layout layout;
   layout.crystal = options.crystal;
@@ -531,7 +577,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
   // starts exactly where a static one would and can only improve on it.
   if (layout.points > 1) {
     for (Experiment &e : experiments) {
-      if (!e.crystal) continue;
+      if (!e.crystal)
+        continue;
       if (e.crystal->A_points.size() != layout.points) {
         e.crystal->A_points.assign(layout.points, e.crystal->A);
       }
@@ -539,13 +586,15 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
   }
 
   const std::size_t n = layout.size();
-  if (n == 0) return result;
+  if (n == 0)
+    return result;
 
   // A shared crystal must start from one crystal, or the first shift would be
   // applied to several different starting matrices and mean different things
   // for each.
   if (options.crystal && options.shared_crystal && experiments[0].crystal) {
-    for (Experiment &e : experiments) e.crystal = experiments[0].crystal;
+    for (Experiment &e : experiments)
+      e.crystal = experiments[0].crystal;
   }
 
   std::vector<double> residual;
@@ -574,19 +623,19 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         std::vector<double> shift(n, 0.0);
         std::vector<double> moved(residual.size());
         for (std::size_t p = 0; p < n; ++p) {
-        std::fill(shift.begin(), shift.end(), 0.0);
-        shift[p] = step[p];
-        apply(experiments, layout, shift, &trial);
-        const long only = layout.owner(p);
-        moved = residual;
-        residuals_of(trial, observations, &moved, only);
-        jacobian[p].resize(moved.size());
-        for (std::size_t i = 0; i < moved.size(); ++i) {
-          // d(residual)/d(parameter); residual is observed minus calculated,
-          // so this is the negative of the derivative of the prediction.
-          jacobian[p][i] = (moved[i] - residual[i]) / step[p];
+          std::fill(shift.begin(), shift.end(), 0.0);
+          shift[p] = step[p];
+          apply(experiments, layout, shift, &trial);
+          const long only = layout.owner(p);
+          moved = residual;
+          residuals_of(trial, observations, &moved, only);
+          jacobian[p].resize(moved.size());
+          for (std::size_t i = 0; i < moved.size(); ++i) {
+            // d(residual)/d(parameter); residual is observed minus calculated,
+            // so this is the negative of the derivative of the prediction.
+            jacobian[p][i] = (moved[i] - residual[i]) / step[p];
+          }
         }
-      }
       }
 
       g_jacobian_seconds += now_seconds() - t_jacobian;
@@ -618,7 +667,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         nonzero.reserve(n);
         value.reserve(n);
         for (std::size_t i = from; i < to; ++i) {
-          if (!observations[i].active) continue;
+          if (!observations[i].active)
+            continue;
           for (std::size_t k = 0; k < 3; ++k) {
             const std::size_t row = i * 3 + k;
             const double w = observations[i].weight[k];
@@ -627,7 +677,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
             const auto take = [&](std::size_t from, std::size_t to) {
               for (std::size_t a = from; a < to; ++a) {
                 const double ja = jacobian[a][row];
-                if (ja == 0.0) continue;
+                if (ja == 0.0)
+                  continue;
                 nonzero.push_back(a);
                 value.push_back(ja);
               }
@@ -690,14 +741,18 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
           }
         }
         accumulate(0, std::min(each, observations.size()), &normal, &rhs);
-        for (std::thread &t : pool) t.join();
+        for (std::thread &t : pool)
+          t.join();
         for (std::size_t t = 0; t < partial_normal.size(); ++t) {
-          for (std::size_t a = 0; a < n * n; ++a) normal[a] += partial_normal[t][a];
-          for (std::size_t a = 0; a < n; ++a) rhs[a] += partial_rhs[t][a];
+          for (std::size_t a = 0; a < n * n; ++a)
+            normal[a] += partial_normal[t][a];
+          for (std::size_t a = 0; a < n; ++a)
+            rhs[a] += partial_rhs[t][a];
         }
       }
       for (std::size_t a = 0; a < n; ++a) {
-        for (std::size_t b = a + 1; b < n; ++b) normal[a * n + b] = normal[b * n + a];
+        for (std::size_t b = a + 1; b < n; ++b)
+          normal[a * n + b] = normal[b * n + a];
       }
 
       g_normal_seconds += now_seconds() - t_normal;
@@ -706,7 +761,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       for (int attempt = 0; attempt < 8; ++attempt) {
         const double t_solve = now_seconds();
         std::vector<double> damped = normal;
-        for (std::size_t a = 0; a < n; ++a) damped[a * n + a] *= (1.0 + lambda);
+        for (std::size_t a = 0; a < n; ++a)
+          damped[a * n + a] *= (1.0 + lambda);
         std::vector<double> solution = rhs;
         const bool solved = solve_spd(damped.data(), solution.data(), n);
         g_solve_seconds += now_seconds() - t_solve;
@@ -729,7 +785,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
           experiments = trial;
           residual = trial_residual;
           lambda = std::fmax(lambda * 0.3, 1e-9);
-          const double improvement = (previous - value) / std::fmax(previous, 1e-30);
+          const double improvement =
+              (previous - value) / std::fmax(previous, 1e-30);
           previous = value;
           stepped = true;
           ++result.iterations;
@@ -740,7 +797,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
         }
         lambda *= 10.0;
       }
-      if (!stepped || result.converged) break;
+      if (!stepped || result.converged)
+        break;
     }
     result.converged = false;
 
@@ -751,19 +809,24 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
     if (options.outlier_sigma > 0.0 && macro + 1 < options.macrocycles) {
       std::vector<double> dx, dy, dz;
       for (std::size_t i = 0; i < observations.size(); ++i) {
-        if (!observations[i].active) continue;
+        if (!observations[i].active)
+          continue;
         dx.push_back(residual[i * 3 + 0]);
         dy.push_back(residual[i * 3 + 1]);
         dz.push_back(residual[i * 3 + 2]);
       }
-      const double sx = robust_spread(dx), sy = robust_spread(dy), sz = robust_spread(dz);
+      const double sx = robust_spread(dx), sy = robust_spread(dy),
+                   sz = robust_spread(dz);
       std::size_t rejected = 0;
       for (std::size_t i = 0; i < observations.size(); ++i) {
-        if (!observations[i].active) continue;
-        const bool bad =
-            (sx > 0 && std::abs(residual[i * 3 + 0]) > options.outlier_sigma * sx) ||
-            (sy > 0 && std::abs(residual[i * 3 + 1]) > options.outlier_sigma * sy) ||
-            (sz > 0 && std::abs(residual[i * 3 + 2]) > options.outlier_sigma * sz);
+        if (!observations[i].active)
+          continue;
+        const bool bad = (sx > 0 && std::abs(residual[i * 3 + 0]) >
+                                        options.outlier_sigma * sx) ||
+                         (sy > 0 && std::abs(residual[i * 3 + 1]) >
+                                        options.outlier_sigma * sy) ||
+                         (sz > 0 && std::abs(residual[i * 3 + 2]) >
+                                        options.outlier_sigma * sz);
         if (bad) {
           observations[i].active = false;
           ++rejected;
@@ -771,7 +834,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       }
       result.n_rejected += rejected;
       if (options.verbose) {
-        std::printf("  macrocycle %d: rejected %zu outliers\n", macro + 1, rejected);
+        std::printf("  macrocycle %d: rejected %zu outliers\n", macro + 1,
+                    rejected);
       }
     }
     g_outlier_seconds += now_seconds() - t_outlier;
@@ -780,17 +844,19 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
       double sx = 0, sy = 0, sz = 0;
       std::size_t count = 0;
       for (std::size_t i = 0; i < observations.size(); ++i) {
-        if (!observations[i].active) continue;
+        if (!observations[i].active)
+          continue;
         sx += residual[i * 3 + 0] * residual[i * 3 + 0];
         sy += residual[i * 3 + 1] * residual[i * 3 + 1];
         sz += residual[i * 3 + 2] * residual[i * 3 + 2];
         ++count;
       }
       if (count) {
-        std::printf("  macrocycle %d: %zu refl, rmsd %.4f %.4f %.4f px,px,images\n",
-                    macro + 1, count, std::sqrt(sx / static_cast<double>(count)),
-                    std::sqrt(sy / static_cast<double>(count)),
-                    std::sqrt(sz / static_cast<double>(count)));
+        std::printf(
+            "  macrocycle %d: %zu refl, rmsd %.4f %.4f %.4f px,px,images\n",
+            macro + 1, count, std::sqrt(sx / static_cast<double>(count)),
+            std::sqrt(sy / static_cast<double>(count)),
+            std::sqrt(sz / static_cast<double>(count)));
       }
     }
   }
@@ -800,7 +866,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
   // points moved, and every cell reported from it is stale -- which is how a
   // refinement comes to print a cell it does not believe.
   for (Experiment &e : experiments) {
-    if (e.crystal && e.crystal->scan_varying()) e.crystal->A = e.crystal->A_at(0.5);
+    if (e.crystal && e.crystal->scan_varying())
+      e.crystal->A = e.crystal->A_at(0.5);
   }
 
   result.n_ill_conditioned = ill_conditioned;
@@ -817,7 +884,8 @@ RefineResult refine(ExperimentList &experiments, const Table &reflections,
   double sx = 0, sy = 0, sz = 0;
   std::size_t count = 0;
   for (std::size_t i = 0; i < observations.size(); ++i) {
-    if (!observations[i].active) continue;
+    if (!observations[i].active)
+      continue;
     sx += residual[i * 3 + 0] * residual[i * 3 + 0];
     sy += residual[i * 3 + 1] * residual[i * 3 + 1];
     sz += residual[i * 3 + 2] * residual[i * 3 + 2];
@@ -839,7 +907,8 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
   std::size_t ill_conditioned = 0;
   std::vector<TargetRow> observations =
       gather(experiments, reflections, options, &ill_conditioned);
-  if (observations.empty()) return out;
+  if (observations.empty())
+    return out;
 
   Layout layout;
   layout.crystal = options.crystal;
@@ -851,7 +920,8 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
       options.crystal ? (options.shared_crystal ? 1 : experiments.size()) : 0;
   layout.points = std::max<std::size_t>(1, options.scan_points);
   const std::size_t n = layout.size();
-  if (n == 0) return out;
+  if (n == 0)
+    return out;
 
   ExperimentList base = experiments;
   if (layout.points > 1) {
@@ -889,11 +959,13 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
       const double exact = analytic[p][i];
       const double size = std::fmax(std::abs(numeric), std::abs(exact));
       // Entries where both are essentially zero say nothing about agreement.
-      if (size < 1e-3) continue;
+      if (size < 1e-3)
+        continue;
       relative.push_back(std::abs(numeric - exact) / size);
     }
   }
-  if (relative.empty()) return out;
+  if (relative.empty())
+    return out;
   std::sort(relative.begin(), relative.end());
   out.compared = relative.size();
   out.median_relative = relative[relative.size() / 2];
@@ -901,19 +973,21 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
   out.percentile_999 = relative[relative.size() * 999 / 1000];
   out.worst_relative = relative.back();
   for (double v : relative) {
-    if (v > 0.5) ++out.grossly_different;
+    if (v > 0.5)
+      ++out.grossly_different;
   }
   return out;
 }
 
 void set_indexed_flags(Table &reflections) {
-  if (!reflections.has("miller_index")) return;
+  if (!reflections.has("miller_index"))
+    return;
   const Column &miller = reflections.at("miller_index");
   // Modified, not replaced: the strong bit dials.find_spots set has to survive.
   Column &flags = reflections.modify_int_column("flags", "std::size_t", 1);
   for (std::size_t i = 0; i < reflections.nrows; ++i) {
-    const bool indexed = miller.integer(i, 0) != 0 || miller.integer(i, 1) != 0 ||
-                         miller.integer(i, 2) != 0;
+    const bool indexed = miller.integer(i, 0) != 0 ||
+                         miller.integer(i, 1) != 0 || miller.integer(i, 2) != 0;
     // Cleared as well as set: a reflection that was indexed on an earlier pass
     // and is not any more must stop claiming to be.
     if (indexed) {
@@ -933,15 +1007,19 @@ void set_refinement_flags(const RefineResult &result, Table &reflections) {
     flags.ints[i] &= ~flag::kCentroidOutlier;
   }
   for (std::size_t row : result.rows_used) {
-    if (row < reflections.nrows) flags.ints[row] |= flag::kUsedInRefinement;
+    if (row < reflections.nrows)
+      flags.ints[row] |= flag::kUsedInRefinement;
   }
   for (std::size_t row : result.rows_rejected) {
-    if (row < reflections.nrows) flags.ints[row] |= flag::kCentroidOutlier;
+    if (row < reflections.nrows)
+      flags.ints[row] |= flag::kCentroidOutlier;
   }
 }
 
-void add_observed_columns(const ExperimentList &experiments, Table &reflections) {
-  if (!reflections.has("xyzobs.px.value")) return;
+void add_observed_columns(const ExperimentList &experiments,
+                          Table &reflections) {
+  if (!reflections.has("xyzobs.px.value"))
+    return;
   const Column &xyz = reflections.at("xyzobs.px.value");
   const bool has_variance = reflections.has("xyzobs.px.variance");
   const bool has_id = reflections.has("id");
@@ -955,11 +1033,14 @@ void add_observed_columns(const ExperimentList &experiments, Table &reflections)
         has_id ? static_cast<std::size_t>(
                      std::max<std::int64_t>(0, reflections.at("id").integer(i)))
                : 0;
-    if (id >= experiments.size()) continue;
+    if (id >= experiments.size())
+      continue;
     const Experiment &e = experiments[id];
     const std::size_t panel =
-        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i)) : 0;
-    if (panel >= e.detector.size()) continue;
+        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i))
+                  : 0;
+    if (panel >= e.detector.size())
+      continue;
     const Panel &p = e.detector[panel];
 
     const double px_fast = xyz.real(i, 0);
@@ -980,17 +1061,19 @@ void add_observed_columns(const ExperimentList &experiments, Table &reflections)
       // millimetres and a variance in images becomes one in radians.
       const Column &v = reflections.at("xyzobs.px.variance");
       const double width = Scan::radians(e.scan.osc_width);
-      mm_variance.reals[i * 3 + 0] = v.real(i, 0) * p.pixel_size[0] * p.pixel_size[0];
-      mm_variance.reals[i * 3 + 1] = v.real(i, 1) * p.pixel_size[1] * p.pixel_size[1];
+      mm_variance.reals[i * 3 + 0] =
+          v.real(i, 0) * p.pixel_size[0] * p.pixel_size[0];
+      mm_variance.reals[i * 3 + 1] =
+          v.real(i, 1) * p.pixel_size[1] * p.pixel_size[1];
       mm_variance.reals[i * 3 + 2] = v.real(i, 2) * width * width;
     }
-
   }
 }
 
 void add_reciprocal_columns(const ExperimentList &experiments,
                             Table &reflections) {
-  if (!reflections.has("xyzobs.px.value")) return;
+  if (!reflections.has("xyzobs.px.value"))
+    return;
   const Column &xyz = reflections.at("xyzobs.px.value");
   const bool has_id = reflections.has("id");
   const bool has_panel = reflections.has("panel");
@@ -1005,11 +1088,14 @@ void add_reciprocal_columns(const ExperimentList &experiments,
         has_id ? static_cast<std::size_t>(
                      std::max<std::int64_t>(0, reflections.at("id").integer(i)))
                : 0;
-    if (id >= experiments.size()) continue;
+    if (id >= experiments.size())
+      continue;
     const Experiment &e = experiments[id];
     const std::size_t panel =
-        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i)) : 0;
-    if (panel >= e.detector.size()) continue;
+        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i))
+                  : 0;
+    if (panel >= e.detector.size())
+      continue;
     const Panel &p = e.detector[panel];
 
     const double px_fast = xyz.real(i, 0);
@@ -1021,15 +1107,18 @@ void add_reciprocal_columns(const ExperimentList &experiments,
     // incident beam because the scattering is elastic.
     const Vec3 lab = p.lab_coord_mm(position.first, position.second);
     const double length = lab.norm();
-    if (!(length > 0.0)) continue;
+    if (!(length > 0.0))
+      continue;
     const Vec3 s0 = e.beam.s0();
     const Vec3 s1 = lab * (s0.norm() / length);
-    for (std::size_t k = 0; k < 3; ++k) s1_column.reals[i * 3 + k] = s1[k];
+    for (std::size_t k = 0; k < 3; ++k)
+      s1_column.reals[i * 3 + k] = s1[k];
 
     // And the reciprocal lattice point it came from, rotated back into the
     // crystal's frame at the start of the scan.
     const Vec3 rlp = reciprocal_lattice_point(e, panel, px_fast, px_slow, z);
-    for (std::size_t k = 0; k < 3; ++k) rlp_column.reals[i * 3 + k] = rlp[k];
+    for (std::size_t k = 0; k < 3; ++k)
+      rlp_column.reals[i * 3 + k] = rlp[k];
 
     // Entering or exiting the Ewald sphere. Part of a reflection's identity,
     // not a detail: the same Miller index can be recorded both ways in one
@@ -1047,7 +1136,8 @@ void add_reciprocal_columns(const ExperimentList &experiments,
 }
 
 void update_predictions(const ExperimentList &experiments, Table &reflections) {
-  if (!reflections.has("miller_index")) return;
+  if (!reflections.has("miller_index"))
+    return;
   const Column &miller = reflections.at("miller_index");
   const Column &xyz = reflections.at("xyzobs.px.value");
   const bool has_id = reflections.has("id");
@@ -1059,18 +1149,22 @@ void update_predictions(const ExperimentList &experiments, Table &reflections) {
     const int h = static_cast<int>(miller.integer(i, 0));
     const int k = static_cast<int>(miller.integer(i, 1));
     const int l = static_cast<int>(miller.integer(i, 2));
-    if (!h && !k && !l) continue;
+    if (!h && !k && !l)
+      continue;
     const std::size_t id =
         has_id ? static_cast<std::size_t>(
                      std::max<std::int64_t>(0, reflections.at("id").integer(i)))
                : 0;
-    if (id >= experiments.size()) continue;
+    if (id >= experiments.size())
+      continue;
     const std::size_t panel =
-        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i)) : 0;
+        has_panel ? static_cast<std::size_t>(reflections.at("panel").integer(i))
+                  : 0;
     const Residual r =
         centroid_residual(experiments[id], panel, h, k, l, xyz.real(i, 0),
                           xyz.real(i, 1), xyz.real(i, 2));
-    if (!r.valid) continue;
+    if (!r.valid)
+      continue;
     cal.reals[i * 3 + 0] = xyz.real(i, 0) - r.dx;
     cal.reals[i * 3 + 1] = xyz.real(i, 1) - r.dy;
     cal.reals[i * 3 + 2] = xyz.real(i, 2) - r.dz;
@@ -1084,4 +1178,4 @@ void update_predictions(const ExperimentList &experiments, Table &reflections) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi

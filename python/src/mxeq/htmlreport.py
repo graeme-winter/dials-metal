@@ -88,9 +88,11 @@ def _figures(a, ia, b, ib, values, n_bins):
             {
                 "value": value,
                 "correlation": None if not np.isfinite(overall) else float(overall),
-                "median_ratio": float(np.median(va[finite] / vb[finite]))
-                if finite.any()
-                else float("nan"),
+                "median_ratio": (
+                    float(np.median(va[finite] / vb[finite]))
+                    if finite.any()
+                    else float("nan")
+                ),
                 "n": int(finite.sum()),
                 "blocks": blocks,
                 "scatter": {

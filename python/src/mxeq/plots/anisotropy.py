@@ -29,8 +29,7 @@ def read(path):
     data = np.loadtxt(path)
     if data.shape[1] != len(header):
         raise ValueError(
-            f"{path} has {data.shape[1]} columns and a header naming "
-            f"{len(header)}"
+            f"{path} has {data.shape[1]} columns and a header naming " f"{len(header)}"
         )
     return {name: data[:, i] for i, name in enumerate(header)}
 
@@ -61,8 +60,7 @@ def main(path, out, pixel_degrees):
 
     ax[0].plot(mid, m1 / pixel_degrees, "o-", label="width1, tangential")
     ax[0].plot(mid, m2 / pixel_degrees, "s-", label="width2, radial")
-    ax[0].axhline(1 / np.sqrt(12), color="k", ls=":",
-                  label="one lit pixel, 1/sqrt(12)")
+    ax[0].axhline(1 / np.sqrt(12), color="k", ls=":", label="one lit pixel, 1/sqrt(12)")
     ax[0].set_xlabel("obliquity (degrees)")
     ax[0].set_ylabel("width (pixels)")
     ax[0].set_title("the spots are about one pixel wide")
@@ -70,7 +68,7 @@ def main(path, out, pixel_degrees):
     ax[0].set_ylim(0, None)
 
     ax[1].plot(mid, excess, "o-", label=r"measured $w_2^2 - w_1^2$")
-    ax[1].plot(mid, mp ** 2, "s--", label="predicted sensor smear$^2$")
+    ax[1].plot(mid, mp**2, "s--", label="predicted sensor smear$^2$")
     ax[1].set_xlabel("obliquity (degrees)")
     ax[1].set_ylabel("degrees squared")
     ax[1].set_title("the excess does not grow as absorption predicts")
@@ -88,16 +86,22 @@ def main(path, out, pixel_degrees):
             s = (x >= xi[i]) & (x < xi[i + 1]) & (y >= yi[j]) & (y < yi[j + 1])
             if s.sum() >= 20:
                 image[i, j] = np.median(ratio[s])
-    im = ax[2].imshow(image.T, origin="lower", cmap="coolwarm",
-                      extent=(x.min(), x.max(), y.min(), y.max()),
-                      vmin=1.0, vmax=1.5)
+    im = ax[2].imshow(
+        image.T,
+        origin="lower",
+        cmap="coolwarm",
+        extent=(x.min(), x.max(), y.min(), y.max()),
+        vmin=1.0,
+        vmax=1.5,
+    )
     fig.colorbar(im, ax=ax[2], label="width2 / width1")
     ax[2].set_xlabel("fast (mm)")
     ax[2].set_ylabel("slow (mm)")
     ax[2].set_title("and it is not radial on the face")
 
     fig.suptitle(
-        "spot width against obliquity: is the anisotropy the sensor?", fontsize=12)
+        "spot width against obliquity: is the anisotropy the sensor?", fontsize=12
+    )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(out, dpi=110)
     print("wrote", out)

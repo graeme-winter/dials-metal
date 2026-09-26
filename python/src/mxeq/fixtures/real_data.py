@@ -78,7 +78,8 @@ def main(imported_path, indexed_path, refl_path, n_rows=40):
         % ", ".join(vec(a) for a in g["axes"]),
         f"inline constexpr double kGonioAngles[3] = {vec(g['angles'])};",
         "inline constexpr int kScanAxis = %d;" % g["scan_axis"],
-        "inline constexpr long kImageRange[2] = {%d, %d};" % tuple(d["scan"][0]["image_range"]),
+        "inline constexpr long kImageRange[2] = {%d, %d};"
+        % tuple(d["scan"][0]["image_range"]),
         "inline constexpr double kOscStart = %.17g;" % osc[0],
         "inline constexpr double kOscWidth = %.17g;" % (osc[1] - osc[0]),
         f"inline constexpr double kRealSpaceA[3] = {vec(c['real_space_a'])};",
@@ -109,12 +110,22 @@ def main(imported_path, indexed_path, refl_path, n_rows=40):
             "      {%d, %d, %d, %.17g, %.17g, %.17g, %.17g, %.17g, %.17g, "
             "%.17g, %.17g, %.17g, %.17g, {%.17g, %.17g, %.17g}, %s},"
             % (
-                hkl[i][0], hkl[i][1], hkl[i][2],
-                px[i][0], px[i][1], px[i][2],
-                mm[i][0], mm[i][1], mm[i][2],
-                cal_mm[i][0], cal_mm[i][1],
-                cal_px[i][0], cal_px[i][1],
-                rlp[i][0], rlp[i][1], rlp[i][2],
+                hkl[i][0],
+                hkl[i][1],
+                hkl[i][2],
+                px[i][0],
+                px[i][1],
+                px[i][2],
+                mm[i][0],
+                mm[i][1],
+                mm[i][2],
+                cal_mm[i][0],
+                cal_mm[i][1],
+                cal_px[i][0],
+                cal_px[i][1],
+                rlp[i][0],
+                rlp[i][1],
+                rlp[i][2],
                 "true" if entering[i] else "false",
             )
         )

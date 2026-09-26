@@ -63,8 +63,8 @@ struct ProfileModel {
 //: Returns false if the box carries too little signal to have a variance --
 //: one count cannot have a spread, and dividing by zero to say so would put a
 //: NaN into the mean and lose every other reflection with it.
-bool spot_angular_variance(const Experiment &e, const Shoebox &box, const Vec3 &s1,
-                           double *variance);
+bool spot_angular_variance(const Experiment &e, const Shoebox &box,
+                           const Vec3 &s1, double *variance);
 
 //: One contribution to the reflecting-range estimate: a reflection seen on one
 //: image, the angular gap between its Bragg maximum and that image's centre,
@@ -108,8 +108,8 @@ double compute_zeta(const Experiment &e, const Vec3 &s1);
 //: Samples with |zeta| below `min_zeta` are dropped: their reflecting range is
 //: sigma_M / |zeta|, which diverges, and they carry no information about
 //: sigma_M while dominating the likelihood.
-double reflecting_range(const std::vector<RangeSample> &samples, double oscillation,
-                        double min_zeta = 0.05);
+double reflecting_range(const std::vector<RangeSample> &samples,
+                        double oscillation, double min_zeta = 0.05);
 
 // --------------------------------------------------------------------------
 // The per-reflection frame, and what fraction of a spot it captures
@@ -138,9 +138,9 @@ KabschFrame kabsch_frame(const Experiment &e, const Vec3 &s1);
 struct Epsilon {
   double e1 = 0.0, e2 = 0.0, e3 = 0.0;
 };
-Epsilon epsilon_of(const Experiment &e, const KabschFrame &frame, const Panel &p,
-                   double px_fast, double px_slow, double phi_image,
-                   double phi_calculated);
+Epsilon epsilon_of(const Experiment &e, const KabschFrame &frame,
+                   const Panel &p, double px_fast, double px_slow,
+                   double phi_image, double phi_calculated);
 
 //: What fraction of a spot's counts lie within `n` sigma, for n = 1 .. 4.
 //:
@@ -164,7 +164,8 @@ struct Capture {
   double counts = 0.0;
   std::size_t n_spots = 0;
 };
-Capture capture_fractions(const Experiment &e, const std::vector<Shoebox> &boxes,
+Capture capture_fractions(const Experiment &e,
+                          const std::vector<Shoebox> &boxes,
                           const std::vector<Vec3> &s1,
                           const std::vector<double> &phi_calculated,
                           double sigma_d, double sigma_m);
@@ -177,4 +178,4 @@ Capture capture_fractions(const Experiment &e, const std::vector<Shoebox> &boxes
 double beam_divergence(const Experiment &e, const std::vector<Shoebox> &boxes,
                        const std::vector<Vec3> &s1, std::size_t *n_used);
 
-}  // namespace mxi
+} // namespace mxi

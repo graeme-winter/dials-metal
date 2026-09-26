@@ -9,9 +9,9 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../src/derivatives.hh"
 #include "../src/expt.hh"
 #include "../src/predict.hh"
-#include "../src/derivatives.hh"
 #include "../src/refine.hh"
 #include "../src/refl.hh"
 #include "check.hh"
@@ -80,7 +80,7 @@ double cell_difference(const UnitCell &a, const UnitCell &b) {
                    std::abs(a.c - b.c));
 }
 
-}  // namespace
+} // namespace
 
 TEST(residual_is_zero_for_an_exact_model) {
   const Experiment truth = base_experiment();
@@ -91,11 +91,11 @@ TEST(residual_is_zero_for_an_exact_model) {
 
   double worst = 0.0;
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    const Residual r = centroid_residual(
-        truth, 0, static_cast<int>(miller.integer(i, 0)),
-        static_cast<int>(miller.integer(i, 1)),
-        static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
-        xyz.real(i, 2));
+    const Residual r =
+        centroid_residual(truth, 0, static_cast<int>(miller.integer(i, 0)),
+                          static_cast<int>(miller.integer(i, 1)),
+                          static_cast<int>(miller.integer(i, 2)),
+                          xyz.real(i, 0), xyz.real(i, 1), xyz.real(i, 2));
     check::is_true(r.valid, "every prediction must be reproducible");
     worst = std::fmax(worst, std::abs(r.dx));
     worst = std::fmax(worst, std::abs(r.dy));
@@ -115,16 +115,18 @@ TEST(residual_picks_the_root_nearer_the_observation) {
   const Column &miller = t.at("miller_index");
   std::size_t large = 0;
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    const Residual r = centroid_residual(
-        truth, 0, static_cast<int>(miller.integer(i, 0)),
-        static_cast<int>(miller.integer(i, 1)),
-        static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
-        xyz.real(i, 2));
-    if (r.valid && std::abs(r.dz) > 1.0) ++large;
+    const Residual r =
+        centroid_residual(truth, 0, static_cast<int>(miller.integer(i, 0)),
+                          static_cast<int>(miller.integer(i, 1)),
+                          static_cast<int>(miller.integer(i, 2)),
+                          xyz.real(i, 0), xyz.real(i, 1), xyz.real(i, 2));
+    if (r.valid && std::abs(r.dz) > 1.0)
+      ++large;
   }
   // Picking the wrong root puts a reflection tens or hundreds of images away,
   // so any such failure would show here immediately.
-  check::equal(static_cast<long long>(large), 0, "no reflection on the wrong root");
+  check::equal(static_cast<long long>(large), 0,
+               "no reflection on the wrong root");
 }
 
 TEST(refinement_recovers_a_perturbed_detector) {
@@ -137,7 +139,7 @@ TEST(refinement_recovers_a_perturbed_detector) {
   list.experiments.push_back(moved);
 
   RefineOptions options;
-  options.crystal = false;  // only the detector was moved
+  options.crystal = false; // only the detector was moved
   options.outlier_sigma = 0.0;
   const RefineResult result = refine(list, t, options);
 
@@ -161,14 +163,14 @@ TEST(refinement_recovers_a_perturbed_cell) {
   list.experiments.push_back(stretched);
 
   RefineOptions options;
-  options.detector = false;  // only the cell was changed
+  options.detector = false; // only the cell was changed
   options.outlier_sigma = 0.0;
   const RefineResult result = refine(list, t, options);
 
   check::is_true(result.rmsd_x < 0.01, "residual in x");
-  check::is_true(cell_difference(list[0].crystal->cell(), truth.crystal->cell()) <
-                     0.01,
-                 "cell recovered to better than 0.01 Angstrom");
+  check::is_true(
+      cell_difference(list[0].crystal->cell(), truth.crystal->cell()) < 0.01,
+      "cell recovered to better than 0.01 Angstrom");
 }
 
 TEST(refinement_improves_a_model_wrong_in_both) {
@@ -239,8 +241,8 @@ TEST(separate_crystals_fit_sweeps_that_one_crystal_cannot) {
   // The second sweep really has a slightly different orientation, as a
   // goniometer that does not return to the same place would produce.
   Experiment drifted = second;
-  drifted.crystal->A = rotation({0.1, 0.2, 0.97}, Scan::radians(0.15)) *
-                       drifted.crystal->A;
+  drifted.crystal->A =
+      rotation({0.1, 0.2, 0.97}, Scan::radians(0.15)) * drifted.crystal->A;
   Table b = observations_from(drifted, 3.5);
 
   Table both;
@@ -249,11 +251,13 @@ TEST(separate_crystals_fit_sweeps_that_one_crystal_cannot) {
   Column &miller = both.int_column("miller_index", "cctbx::miller::index<>", 3);
   Column &panel = both.int_column("panel", "std::size_t", 1);
   Column &id = both.int_column("id", "int", 1);
-  const auto copy = [&](const Table &from, std::size_t offset, std::int64_t which) {
+  const auto copy = [&](const Table &from, std::size_t offset,
+                        std::int64_t which) {
     for (std::size_t i = 0; i < from.nrows; ++i) {
       for (std::size_t k = 0; k < 3; ++k) {
         xyz.reals[(offset + i) * 3 + k] = from.at("xyzobs.px.value").real(i, k);
-        miller.ints[(offset + i) * 3 + k] = from.at("miller_index").integer(i, k);
+        miller.ints[(offset + i) * 3 + k] =
+            from.at("miller_index").integer(i, k);
       }
       panel.ints[offset + i] = 0;
       id.ints[offset + i] = which;
@@ -349,14 +353,15 @@ TEST(scan_varying_refinement_recovers_a_drifting_crystal) {
   for (std::size_t i = 0; i < points; ++i) {
     const double t = static_cast<double>(i) / static_cast<double>(points - 1);
     truth.crystal->A_points.push_back(
-        rotation({0.2, 0.9, -0.39}, Scan::radians(0.10 * t)) * truth.crystal->A);
+        rotation({0.2, 0.9, -0.39}, Scan::radians(0.10 * t)) *
+        truth.crystal->A);
   }
   const Table observations = observations_from(truth, 3.0);
   check::is_true(observations.nrows > 1000, "enough predictions");
 
   ExperimentList list;
   Experiment start = truth;
-  start.crystal->A_points.clear();  // begin from the static matrix
+  start.crystal->A_points.clear(); // begin from the static matrix
   list.experiments.push_back(start);
 
   // Outlier rejection is REQUIRED here, not incidental. About four per cent of
@@ -400,7 +405,8 @@ TEST(scan_varying_refinement_recovers_a_drifting_crystal) {
 TEST(scan_varying_models_survive_a_file_round_trip) {
   Experiment e = base_experiment();
   e.crystal->A_points.assign(4, e.crystal->A);
-  e.crystal->A_points[3] = rotation({0, 0, 1}, Scan::radians(0.2)) * e.crystal->A;
+  e.crystal->A_points[3] =
+      rotation({0, 0, 1}, Scan::radians(0.2)) * e.crystal->A;
   ExperimentList list;
   list.experiments.push_back(e);
 
@@ -435,12 +441,13 @@ TEST(prediction_and_the_refinement_target_agree_exactly) {
   const Column &miller = t.at("miller_index");
   double worst = 0.0;
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    const Residual r = centroid_residual(
-        truth, 0, static_cast<int>(miller.integer(i, 0)),
-        static_cast<int>(miller.integer(i, 1)),
-        static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
-        xyz.real(i, 2));
-    if (!r.valid) continue;
+    const Residual r =
+        centroid_residual(truth, 0, static_cast<int>(miller.integer(i, 0)),
+                          static_cast<int>(miller.integer(i, 1)),
+                          static_cast<int>(miller.integer(i, 2)),
+                          xyz.real(i, 0), xyz.real(i, 1), xyz.real(i, 2));
+    if (!r.valid)
+      continue;
     worst = std::fmax(worst, std::hypot(r.dx, r.dy));
   }
   check::close(worst, 0.0, 1e-9, "static: every reflection must agree exactly");
@@ -458,7 +465,8 @@ TEST(a_scan_varying_model_agrees_except_where_the_angle_is_ill_conditioned) {
   for (std::size_t i = 0; i < 5; ++i) {
     const double t = static_cast<double>(i) / 4.0;
     truth.crystal->A_points.push_back(
-        rotation({0.2, 0.9, -0.39}, Scan::radians(0.10 * t)) * truth.crystal->A);
+        rotation({0.2, 0.9, -0.39}, Scan::radians(0.10 * t)) *
+        truth.crystal->A);
   }
   const Table t = observations_from(truth, 4.0);
   const Column &xyz = t.at("xyzobs.px.value");
@@ -466,16 +474,18 @@ TEST(a_scan_varying_model_agrees_except_where_the_angle_is_ill_conditioned) {
 
   std::vector<double> offsets;
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    const Residual r = centroid_residual(
-        truth, 0, static_cast<int>(miller.integer(i, 0)),
-        static_cast<int>(miller.integer(i, 1)),
-        static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
-        xyz.real(i, 2));
-    if (r.valid) offsets.push_back(std::hypot(r.dx, r.dy));
+    const Residual r =
+        centroid_residual(truth, 0, static_cast<int>(miller.integer(i, 0)),
+                          static_cast<int>(miller.integer(i, 1)),
+                          static_cast<int>(miller.integer(i, 2)),
+                          xyz.real(i, 0), xyz.real(i, 1), xyz.real(i, 2));
+    if (r.valid)
+      offsets.push_back(std::hypot(r.dx, r.dy));
   }
   std::sort(offsets.begin(), offsets.end());
   check::is_true(offsets.size() > 1000, "enough reflections");
-  check::close(offsets[offsets.size() / 2], 0.0, 1e-9, "the median must be exact");
+  check::close(offsets[offsets.size() / 2], 0.0, 1e-9,
+               "the median must be exact");
   // The ninetieth percentile is 1.9e-9 px rather than zero: the iteration in
   // the forward map stops after three passes, and for reflections whose angle
   // is moderately sensitive that leaves a couple of nanopixels. A fourth pass
@@ -541,7 +551,8 @@ TEST(the_cutoff_keeps_the_reflections_far_from_the_rotation_axis) {
         truth, 0, static_cast<int>(miller.integer(i, 0)),
         static_cast<int>(miller.integer(i, 1)),
         static_cast<int>(miller.integer(i, 2)), xyz.real(i, 2));
-    if (!s.valid) continue;
+    if (!s.valid)
+      continue;
     if (std::abs(s.volume) < 0.05) {
       ++below;
     } else {
@@ -599,12 +610,13 @@ TEST(the_cell_and_the_detector_distance_are_degenerate_in_position) {
     double sx = 0.0, sz = 0.0;
     std::size_t n = 0;
     for (std::size_t i = 0; i < t.nrows; ++i) {
-      const Residual r = centroid_residual(
-          scaled, 0, static_cast<int>(miller.integer(i, 0)),
-          static_cast<int>(miller.integer(i, 1)),
-          static_cast<int>(miller.integer(i, 2)), xyz.real(i, 0), xyz.real(i, 1),
-          xyz.real(i, 2));
-      if (!r.valid) continue;
+      const Residual r =
+          centroid_residual(scaled, 0, static_cast<int>(miller.integer(i, 0)),
+                            static_cast<int>(miller.integer(i, 1)),
+                            static_cast<int>(miller.integer(i, 2)),
+                            xyz.real(i, 0), xyz.real(i, 1), xyz.real(i, 2));
+      if (!r.valid)
+        continue;
       sx += r.dx * r.dx;
       sz += r.dz * r.dz;
       ++n;
@@ -665,7 +677,7 @@ TEST(the_threaded_jacobian_is_identical_to_the_serial_one) {
 
   const std::vector<double> serial = refined_with(1);
   const std::vector<double> threaded = refined_with(4);
-  g_jacobian_threads = 0;  // back to the default for every test after this
+  g_jacobian_threads = 0; // back to the default for every test after this
 
   check::is_true(t.nrows > 1000, "enough reflections to be worth threading");
   for (std::size_t i = 0; i < serial.size(); ++i) {
@@ -696,7 +708,7 @@ TEST(the_normal_equations_use_the_sparsity_and_change_nothing) {
   options.crystal = true;
   options.analytic = true;
   options.outlier_sigma = 0.0;
-  options.scan_points = 6;  // enough control points for the band to matter
+  options.scan_points = 6; // enough control points for the band to matter
   const RefineResult result = refine(list, t, options);
   check::is_true(result.n_used > 500, "enough reflections");
 
@@ -746,7 +758,8 @@ TEST(threading_the_normal_equations_costs_only_the_last_bits) {
     if (list[0].crystal) {
       const Mat3 &A = list[0].crystal->A;
       for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) out.push_back(A(i, j));
+        for (int j = 0; j < 3; ++j)
+          out.push_back(A(i, j));
       }
     }
     return out;
@@ -790,9 +803,9 @@ TEST(a_scan_varying_refinement_does_not_slow_down_with_control_points) {
     options.analytic = true;
     options.outlier_sigma = 0.0;
     options.scan_points = points;
-    g_normal_threads = 1;  // a global, not an option
+    g_normal_threads = 1; // a global, not an option
     refine(list, t, options);
-    g_normal_threads = 0;  // put it back, or every later test runs serial
+    g_normal_threads = 0; // put it back, or every later test runs serial
     return list;
   };
 
@@ -810,4 +823,4 @@ TEST(a_scan_varying_refinement_does_not_slow_down_with_control_points) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi

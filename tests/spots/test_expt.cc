@@ -369,8 +369,8 @@ int main() {
     check("ten frames", info.frames, 10);
     check("five images in the scan",
           static_cast<unsigned long long>(info.images()), 5);
-    check("the disagreement is noticed",
-          info.imageset_matches_scan() ? 1 : 0, 0);
+    check("the disagreement is noticed", info.imageset_matches_scan() ? 1 : 0,
+          0);
   }
 
   {
@@ -396,7 +396,6 @@ int main() {
     check("the scan is still read",
           static_cast<unsigned long long>(info.images()), 5);
   }
-
 
   std::remove(kPath);
 

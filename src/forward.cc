@@ -8,13 +8,16 @@ std::vector<double> render_shoebox(const Experiment &e, const Shoebox &box,
                                    const Vec3 &s1, double phi_calculated,
                                    const ForwardOptions &options) {
   std::vector<double> out;
-  if (box.panel < 0 || static_cast<std::size_t>(box.panel) >= e.detector.size()) {
+  if (box.panel < 0 ||
+      static_cast<std::size_t>(box.panel) >= e.detector.size()) {
     return out;
   }
   const Panel &p = e.detector[static_cast<std::size_t>(box.panel)];
   const KabschFrame frame = kabsch_frame(e, s1);
-  if (!frame.valid) return out;
-  if (!(options.sigma_d > 0.0) || !(options.sigma_m > 0.0)) return out;
+  if (!frame.valid)
+    return out;
+  if (!(options.sigma_d > 0.0) || !(options.sigma_m > 0.0))
+    return out;
   const int subdivisions = std::max(1, options.subdivisions);
 
   out.assign(box.size(), 0.0);
@@ -40,7 +43,8 @@ std::vector<double> render_shoebox(const Experiment &e, const Shoebox &box,
       depth_weight.push_back(1.0);
     } else {
       for (int i = 0; i < n; ++i) {
-        const double q = (static_cast<double>(i) + 0.5) / static_cast<double>(n);
+        const double q =
+            (static_cast<double>(i) + 0.5) / static_cast<double>(n);
         depth.push_back(-std::log(1.0 - q * survive) / p.mu);
         depth_weight.push_back(1.0 / static_cast<double>(n));
       }
@@ -53,18 +57,21 @@ std::vector<double> render_shoebox(const Experiment &e, const Shoebox &box,
   for (std::int32_t z = 0; z < box.nz(); ++z) {
     // The angular range this image covers, as an eps3 range.
     const double image = static_cast<double>(box.bbox[4] + z);
-    const double phi_low = Scan::radians(e.scan.osc_start) +
-                           (image - static_cast<double>(e.scan.z_offset)) * width;
+    const double phi_low =
+        Scan::radians(e.scan.osc_start) +
+        (image - static_cast<double>(e.scan.z_offset)) * width;
     double e3_low = Scan::degrees(frame.zeta * (phi_low - phi_calculated));
     double e3_high =
         Scan::degrees(frame.zeta * (phi_low + width - phi_calculated));
-    if (e3_low > e3_high) std::swap(e3_low, e3_high);
+    if (e3_low > e3_high)
+      std::swap(e3_low, e3_high);
     // The Gaussian integrated over the image, which is what the image records.
     const double root_two = std::sqrt(2.0);
     const double along_rotation =
         0.5 * (std::erf(e3_high / (root_two * options.sigma_m)) -
                std::erf(e3_low / (root_two * options.sigma_m)));
-    if (!(along_rotation > 0.0)) continue;
+    if (!(along_rotation > 0.0))
+      continue;
 
     for (std::int32_t y = 0; y < box.ny(); ++y) {
       for (std::int32_t x = 0; x < box.nx(); ++x) {
@@ -87,14 +94,16 @@ std::vector<double> render_shoebox(const Experiment &e, const Shoebox &box,
               // inside a pixel over a depth of half a millimetre.
               const Vec3 lab = p.lab_coord_mm(mm_fast, mm_slow);
               const double lab_length = lab.norm();
-              if (!(lab_length > 0.0)) continue;
+              if (!(lab_length > 0.0))
+                continue;
               const Vec3 unit = lab / lab_length;
               const double entry_fast = mm_fast - depth[d] * unit.dot(p.fast);
               const double entry_slow = mm_slow - depth[d] * unit.dot(p.slow);
 
               const Vec3 entry = p.lab_coord_mm(entry_fast, entry_slow);
               const double entry_length = entry.norm();
-              if (!(entry_length > 0.0)) continue;
+              if (!(entry_length > 0.0))
+                continue;
               const Vec3 s_prime = entry * (length / entry_length);
               const Vec3 difference = s_prime - s1;
               const double eps1 =
@@ -115,11 +124,13 @@ std::vector<double> render_shoebox(const Experiment &e, const Shoebox &box,
 
   double total = 0.0;
   for (std::size_t i = 0; i < out.size(); ++i) {
-    if ((box.mask[i] & shoebox_mask::kValid) == 0) out[i] = 0.0;
+    if ((box.mask[i] & shoebox_mask::kValid) == 0)
+      out[i] = 0.0;
     total += out[i];
   }
   if (total > 0.0) {
-    for (double &v : out) v /= total;
+    for (double &v : out)
+      v /= total;
   }
   return out;
 }
@@ -127,7 +138,8 @@ std::vector<double> render_shoebox(const Experiment &e, const Shoebox &box,
 Moments moments_of(const Shoebox &box, const std::vector<double> &counts,
                    bool subtract_background) {
   Moments out;
-  if (counts.size() != box.size()) return out;
+  if (counts.size() != box.size())
+    return out;
   double sum = 0.0, mf = 0.0, ms = 0.0, mz = 0.0;
   double sf = 0.0, ss = 0.0, sz = 0.0;
   for (int pass = 0; pass < 2; ++pass) {
@@ -135,10 +147,13 @@ Moments moments_of(const Shoebox &box, const std::vector<double> &counts,
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
           const std::size_t at = box.at(x, y, z);
-          if ((box.mask[at] & shoebox_mask::kValid) == 0) continue;
+          if ((box.mask[at] & shoebox_mask::kValid) == 0)
+            continue;
           double value = counts[at];
-          if (subtract_background) value -= static_cast<double>(box.background[at]);
-          if (!(value > 0.0)) continue;
+          if (subtract_background)
+            value -= static_cast<double>(box.background[at]);
+          if (!(value > 0.0))
+            continue;
           // In pixels and images, counting from the corner of the box: the
           // units the detector records in, so neither side is transformed.
           const double fx = static_cast<double>(x) + 0.5;
@@ -158,7 +173,8 @@ Moments moments_of(const Shoebox &box, const std::vector<double> &counts,
       }
     }
     if (pass == 0) {
-      if (!(sum > 0.0)) return out;
+      if (!(sum > 0.0))
+        return out;
       mf /= sum;
       ms /= sum;
       mz /= sum;
@@ -175,4 +191,4 @@ Moments moments_of(const Shoebox &box, const std::vector<double> &counts,
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

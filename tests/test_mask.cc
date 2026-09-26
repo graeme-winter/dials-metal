@@ -39,13 +39,13 @@ Experiment masking_experiment() {
 MaskOptions options_for(double n_sigma = 3.0) {
   MaskOptions o;
   o.n_sigma = n_sigma;
-  o.box_scale = 1.0;  // no rim, so the box is the region
+  o.box_scale = 1.0; // no rim, so the box is the region
   o.sigma_d = 0.031;
   o.sigma_m = 0.098;
   return o;
 }
 
-}  // namespace
+} // namespace
 
 TEST(the_box_encloses_the_region_and_not_much_more) {
   // The bounding box has to contain every voxel the mask will call foreground
@@ -64,8 +64,10 @@ TEST(the_box_encloses_the_region_and_not_much_more) {
   std::size_t checked = 0;
   for (const Prediction &p : predictions) {
     Shoebox box;
-    if (!build_shoebox(e, p, options, &box)) continue;
-    if (++checked > 200) break;
+    if (!build_shoebox(e, p, options, &box))
+      continue;
+    if (++checked > 200)
+      break;
 
     // Every foreground voxel is inside the box by construction; the real
     // question is whether the outermost planes are empty, which would mean the
@@ -74,7 +76,8 @@ TEST(the_box_encloses_the_region_and_not_much_more) {
     for (std::int32_t z = 0; z < box.nz(); ++z) {
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
-          if ((box.mask[box.at(x, y, z)] & shoebox_mask::kForeground) == 0) continue;
+          if ((box.mask[box.at(x, y, z)] & shoebox_mask::kForeground) == 0)
+            continue;
           // Fast and slow only. The rim is on the detector; in the rotation
           // direction the box follows the foreground exactly, because DIALS'
           // image extents already agreed and widening them would break what
@@ -92,7 +95,8 @@ TEST(the_box_encloses_the_region_and_not_much_more) {
     // foreground.
     std::size_t foreground = 0;
     for (std::uint8_t m : box.mask) {
-      if (m & shoebox_mask::kForeground) ++foreground;
+      if (m & shoebox_mask::kForeground)
+        ++foreground;
     }
     check::is_true(foreground > 0, "a box always contains its own reflection");
     // The box is deliberately wider than the foreground, because the
@@ -120,16 +124,20 @@ TEST(every_voxel_is_valid_and_either_foreground_or_background) {
   std::size_t checked = 0;
   for (const Prediction &p : predictions) {
     Shoebox box;
-    if (!build_shoebox(e, p, options, &box)) continue;
-    if (++checked > 50) break;
+    if (!build_shoebox(e, p, options, &box))
+      continue;
+    if (++checked > 50)
+      break;
     for (std::uint8_t m : box.mask) {
       check::is_true((m & shoebox_mask::kValid) != 0, "valid");
       const bool foreground = (m & shoebox_mask::kForeground) != 0;
       const bool background = (m & shoebox_mask::kBackground) != 0;
       check::is_true(foreground != background, "exactly one of the two");
     }
-    for (float v : box.data) check::close(v, 0.0, 0.0, "no invented counts");
-    for (float v : box.background) check::close(v, 0.0, 0.0, "nor background");
+    for (float v : box.data)
+      check::close(v, 0.0, 0.0, "no invented counts");
+    for (float v : box.background)
+      check::close(v, 0.0, 0.0, "nor background");
   }
   check::is_true(checked > 10, "enough boxes");
 }
@@ -145,10 +153,14 @@ TEST(a_wider_region_gives_a_bigger_box) {
   std::size_t compared = 0;
   for (const Prediction &p : predictions) {
     Shoebox narrow, wide;
-    if (!build_shoebox(e, p, options_for(1.0), &narrow)) continue;
-    if (!build_shoebox(e, p, options_for(3.0), &wide)) continue;
-    if (++compared > 50) break;
-    check::is_true(wide.size() > narrow.size(), "three sigma is bigger than one");
+    if (!build_shoebox(e, p, options_for(1.0), &narrow))
+      continue;
+    if (!build_shoebox(e, p, options_for(3.0), &wide))
+      continue;
+    if (++compared > 50)
+      break;
+    check::is_true(wide.size() > narrow.size(),
+                   "three sigma is bigger than one");
     // And the narrow region is contained in the wide one.
     check::is_true(wide.bbox[0] <= narrow.bbox[0], "in fast");
     check::is_true(wide.bbox[1] >= narrow.bbox[1], "both ways");
@@ -165,7 +177,7 @@ TEST(a_reflection_near_the_rotation_axis_is_refused) {
   po.d_min = 2.0;
   const std::vector<Prediction> predictions = predict(e, po);
   MaskOptions options = options_for();
-  options.min_zeta = 0.5;  // a severe cut, so some are certainly refused
+  options.min_zeta = 0.5; // a severe cut, so some are certainly refused
 
   std::size_t built = 0, refused = 0;
   for (const Prediction &p : predictions) {
@@ -204,9 +216,12 @@ TEST(the_ellipsoid_is_inside_the_box_and_is_pi_over_six_of_it) {
   std::size_t in_box = 0, in_ellipsoid = 0, compared = 0;
   for (const Prediction &p : predictions) {
     Shoebox as_box, as_ellipsoid;
-    if (!build_shoebox(e, p, box_options, &as_box)) continue;
-    if (!build_shoebox(e, p, ellipsoid_options, &as_ellipsoid)) continue;
-    if (++compared > 300) break;
+    if (!build_shoebox(e, p, box_options, &as_box))
+      continue;
+    if (!build_shoebox(e, p, ellipsoid_options, &as_ellipsoid))
+      continue;
+    if (++compared > 300)
+      break;
 
     // Same bounding box either way: the ellipsoid is inscribed, so it does not
     // need a smaller one and must not get a different one, or the two pictures
@@ -219,13 +234,15 @@ TEST(the_ellipsoid_is_inside_the_box_and_is_pi_over_six_of_it) {
       const bool b = (as_box.mask[i] & shoebox_mask::kForeground) != 0;
       const bool l = (as_ellipsoid.mask[i] & shoebox_mask::kForeground) != 0;
       check::is_true(!l || b, "every ellipsoid voxel is a box voxel");
-      if (b) ++in_box;
-      if (l) ++in_ellipsoid;
+      if (b)
+        ++in_box;
+      if (l)
+        ++in_ellipsoid;
     }
   }
   check::is_true(compared > 100, "enough compared");
-  const double ratio = static_cast<double>(in_ellipsoid) /
-                       static_cast<double>(in_box);
+  const double ratio =
+      static_cast<double>(in_ellipsoid) / static_cast<double>(in_box);
   // pi/6 = 0.5236. Measured at 0.546 on real insulin, the difference being
   // that a voxel is in or out as a whole and the boxes are only a dozen
   // pixels across.
@@ -246,7 +263,8 @@ TEST(the_region_is_an_ellipsoid_in_sigmas_not_in_degrees) {
 
   for (const Prediction &p : predictions) {
     Shoebox box;
-    if (!build_shoebox(e, p, options, &box)) continue;
+    if (!build_shoebox(e, p, options, &box))
+      continue;
     const KabschFrame frame = kabsch_frame(e, p.s1);
     const Panel &panel = e.detector[p.panel];
     const double width = Scan::radians(e.scan.osc_width);
@@ -257,7 +275,8 @@ TEST(the_region_is_an_ellipsoid_in_sigmas_not_in_degrees) {
                          (image - static_cast<double>(e.scan.z_offset)) * width;
       for (std::int32_t y = 0; y < box.ny(); ++y) {
         for (std::int32_t x = 0; x < box.nx(); ++x) {
-          if ((box.mask[box.at(x, y, z)] & shoebox_mask::kForeground) == 0) continue;
+          if ((box.mask[box.at(x, y, z)] & shoebox_mask::kForeground) == 0)
+            continue;
           const Epsilon eps = epsilon_of(
               e, frame, panel, static_cast<double>(box.bbox[0] + x) + 0.5,
               static_cast<double>(box.bbox[2] + y) + 0.5, phi, p.phi);
@@ -270,7 +289,7 @@ TEST(the_region_is_an_ellipsoid_in_sigmas_not_in_degrees) {
         }
       }
     }
-    return;  // one reflection is enough to pin the arithmetic
+    return; // one reflection is enough to pin the arithmetic
   }
   check::is_true(false, "no reflection was built");
 }
@@ -294,7 +313,8 @@ TEST(a_refused_box_says_which_reason) {
     Shoebox box;
     BoxRejection why = BoxRejection::kNone;
     check::is_true(!build_shoebox(e, p, options, &box, &why), "refused");
-    check::is_true(why == BoxRejection::kNoPanel, "because there is no panel 7");
+    check::is_true(why == BoxRejection::kNoPanel,
+                   "because there is no panel 7");
   }
 
   // Near the rotation axis: zeta small, so the region in rotation diverges.
@@ -303,7 +323,7 @@ TEST(a_refused_box_says_which_reason) {
     po.d_min = 2.0;
     const std::vector<Prediction> predictions = predict(e, po);
     MaskOptions severe = options;
-    severe.min_zeta = 0.99;  // so that almost everything is below it
+    severe.min_zeta = 0.99; // so that almost everything is below it
     std::size_t small_zeta = 0;
     for (const Prediction &p : predictions) {
       Shoebox box;
@@ -351,4 +371,4 @@ TEST(a_refused_box_says_which_reason) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi

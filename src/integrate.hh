@@ -178,4 +178,4 @@ std::int64_t summation_flags(const IntegratedReflection &r);
 IntegratedReflection integrate_shoebox(Shoebox *box,
                                        const IntegrateOptions &options = {});
 
-}  // namespace mxi
+} // namespace mxi

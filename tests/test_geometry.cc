@@ -70,7 +70,7 @@ Crystal tilted_crystal(double cell = 78.0) {
                                   r * Vec3{0.0, 0.0, cell});
 }
 
-}  // namespace
+} // namespace
 
 // --------------------------------------------------------------------------
 // linear algebra
@@ -115,7 +115,8 @@ TEST(rotation_is_right_handed) {
   // A quarter turn about z must take x to y, not to -y. This is the test that
   // fails if the sign convention in Rodrigues' formula is flipped, and every
   // downstream angle would then be negated.
-  const Vec3 turned = rotation({0.0, 0.0, 1.0}, kPi / 2.0) * Vec3{1.0, 0.0, 0.0};
+  const Vec3 turned =
+      rotation({0.0, 0.0, 1.0}, kPi / 2.0) * Vec3{1.0, 0.0, 0.0};
   check::close(turned.x, 0.0, 1e-12, "x component");
   check::close(turned.y, 1.0, 1e-12, "y component");
 }
@@ -129,11 +130,12 @@ TEST(spd_solver_recovers_a_known_solution) {
                  a[3] * x[0] + a[4] * x[1] + a[5] * x[2],
                  a[6] * x[0] + a[7] * x[1] + a[8] * x[2]};
   check::is_true(solve_spd(a, b, 3), "factorisation should succeed");
-  for (int i = 0; i < 3; ++i) check::close(b[i], x[i], 1e-12, "solution");
+  for (int i = 0; i < 3; ++i)
+    check::close(b[i], x[i], 1e-12, "solution");
 }
 
 TEST(spd_solver_refuses_an_indefinite_matrix) {
-  double a[4] = {1, 2, 2, 1};  // eigenvalues 3 and -1
+  double a[4] = {1, 2, 2, 1}; // eigenvalues 3 and -1
   double b[2] = {1, 1};
   check::is_true(!solve_spd(a, b, 2), "indefinite matrix must be refused");
 }
@@ -147,8 +149,8 @@ TEST(setting_matrix_is_the_inverse_not_the_inverse_transpose) {
   // and the wrong one passes, which is why this cell is deliberately nasty.
   const Crystal c = Crystal::from_real_space({10.0, 0.0, 0.0}, {3.0, 20.0, 0.0},
                                              {1.0, 2.0, 30.0});
-  const Mat3 real = Mat3::from_rows({10.0, 0.0, 0.0}, {3.0, 20.0, 0.0},
-                                    {1.0, 2.0, 30.0});
+  const Mat3 real =
+      Mat3::from_rows({10.0, 0.0, 0.0}, {3.0, 20.0, 0.0}, {1.0, 2.0, 30.0});
   const Mat3 p = real * c.A;
   for (std::size_t i = 0; i < 3; ++i) {
     for (std::size_t j = 0; j < 3; ++j) {
@@ -222,10 +224,10 @@ TEST(panel_rejects_rays_that_miss_or_go_backwards) {
                  "backward ray must not hit");
   // Just past the far edge, which must still be rejected: the tolerance is a
   // nanopixel, not a licence to widen the panel.
-  check::is_true(!p.intersect(p.lab_coord_mm(4148.5 * 0.075, 100.0 * 0.075)
-                                  .normalized())
-                      .has_value(),
-                 "a ray past the last pixel must not hit");
+  check::is_true(
+      !p.intersect(p.lab_coord_mm(4148.5 * 0.075, 100.0 * 0.075).normalized())
+           .has_value(),
+      "a ray past the last pixel must not hit");
   // A ray that would hit the plane far outside the panel bounds.
   const Vec3 far = p.lab_coord_mm(-500.0 * 0.075, -500.0 * 0.075);
   check::is_true(!p.intersect(far.normalized()).has_value(),
@@ -272,7 +274,8 @@ TEST(scan_z_offset_is_visible_not_hidden) {
 TEST(a_point_beyond_the_ewald_diameter_never_diffracts) {
   const Experiment e = insulin();
   const double limit = 2.0 / e.beam.wavelength;
-  const Intersections none = ewald_intersections(e, Vec3{limit * 1.1, 0.0, 0.0});
+  const Intersections none =
+      ewald_intersections(e, Vec3{limit * 1.1, 0.0, 0.0});
   check::is_true(!none.any, "beyond 2/lambda there is no solution");
 }
 
@@ -286,15 +289,18 @@ TEST(ewald_solutions_actually_lie_on_the_sphere) {
   for (int h = -6; h <= 6; ++h) {
     for (int k = -6; k <= 6; ++k) {
       for (int l = -6; l <= 6; ++l) {
-        if (!h && !k && !l) continue;
-        const Vec3 r0 = e.crystal->A * Vec3{static_cast<double>(h),
-                                            static_cast<double>(k),
-                                            static_cast<double>(l)};
+        if (!h && !k && !l)
+          continue;
+        const Vec3 r0 =
+            e.crystal->A * Vec3{static_cast<double>(h), static_cast<double>(k),
+                                static_cast<double>(l)};
         const Intersections x = ewald_intersections(e, r0);
-        if (!x.any) continue;
+        if (!x.any)
+          continue;
         for (int i = 0; i < 2; ++i) {
           const Vec3 s1 = e.beam.s0() + e.goniometer.rotation_at(x.phi[i]) * r0;
-          check::close(s1.norm(), radius, 1e-12 * radius, "on the Ewald sphere");
+          check::close(s1.norm(), radius, 1e-12 * radius,
+                       "on the Ewald sphere");
           ++tested;
         }
       }
@@ -310,15 +316,18 @@ TEST(the_two_solutions_are_one_entering_and_one_exiting) {
   for (int h = -5; h <= 5; ++h) {
     for (int k = -5; k <= 5; ++k) {
       for (int l = -5; l <= 5; ++l) {
-        if (!h && !k && !l) continue;
-        const Vec3 r0 = e.crystal->A * Vec3{static_cast<double>(h),
-                                            static_cast<double>(k),
-                                            static_cast<double>(l)};
+        if (!h && !k && !l)
+          continue;
+        const Vec3 r0 =
+            e.crystal->A * Vec3{static_cast<double>(h), static_cast<double>(k),
+                                static_cast<double>(l)};
         const Intersections x = ewald_intersections(e, r0);
-        if (!x.any) continue;
+        if (!x.any)
+          continue;
         // A grazing intersection has both roots coincident and is allowed to
         // give the same flag twice; anything else must give one of each.
-        if (std::abs(x.phi[0] - x.phi[1]) < 1e-6) continue;
+        if (std::abs(x.phi[0] - x.phi[1]) < 1e-6)
+          continue;
         check::is_true(x.entering[0] != x.entering[1],
                        "one root entering, one exiting");
         ++checked;
@@ -341,9 +350,9 @@ TEST(prediction_round_trips_through_reciprocal_space) {
 
   double worst = 0.0;
   for (const Prediction &p : predictions) {
-    const Vec3 expected = e.crystal->A * Vec3{static_cast<double>(p.h),
-                                              static_cast<double>(p.k),
-                                              static_cast<double>(p.l)};
+    const Vec3 expected =
+        e.crystal->A * Vec3{static_cast<double>(p.h), static_cast<double>(p.k),
+                            static_cast<double>(p.l)};
     const Vec3 recovered =
         reciprocal_lattice_point(e, p.panel, p.px_fast, p.px_slow, p.z);
     worst = std::fmax(worst, (recovered - expected).norm());
@@ -390,13 +399,16 @@ TEST(index_bounds_cover_the_requested_resolution) {
   const Crystal c = tilted_crystal();
   const std::array<int, 3> bounds = index_bounds(c, 3.0, 500);
   // 78 / 3 = 26, plus the rounding margin.
-  for (int b : bounds) check::is_true(b >= 26 && b <= 30, "bound near 78/d_min");
+  for (int b : bounds)
+    check::is_true(b >= 26 && b <= 30, "bound near 78/d_min");
   // Nothing inside the resolution shell may fall outside the box.
   for (int h = -40; h <= 40; ++h) {
     for (int k = -40; k <= 40; ++k) {
       for (int l = -40; l <= 40; ++l) {
-        if (!h && !k && !l) continue;
-        if (c.d_spacing(h, k, l) < 3.0) continue;
+        if (!h && !k && !l)
+          continue;
+        if (c.d_spacing(h, k, l) < 3.0)
+          continue;
         check::is_true(std::abs(h) <= bounds[0] && std::abs(k) <= bounds[1] &&
                            std::abs(l) <= bounds[2],
                        "a reflection inside d_min fell outside the index box");
@@ -413,7 +425,8 @@ TEST(predict_indices_agrees_with_the_full_enumeration) {
   const std::vector<Prediction> all = predict(e, options);
 
   std::vector<std::array<int, 3>> asked;
-  for (const Prediction &p : all) asked.push_back({p.h, p.k, p.l});
+  for (const Prediction &p : all)
+    asked.push_back({p.h, p.k, p.l});
   const std::vector<Prediction> some = predict_indices(e, asked, options);
   check::is_true(some.size() >= all.size(),
                  "asking for the same indices must find at least as many");
@@ -465,7 +478,7 @@ TEST(the_spline_is_smooth_where_linear_interpolation_was_not) {
   for (int i = 0; i < 6; ++i) {
     const double x = static_cast<double>(i);
     Mat3 m = Mat3::identity();
-    m.m[0] = x * x;  // a curve with genuine curvature
+    m.m[0] = x * x; // a curve with genuine curvature
     c.A_points.push_back(m);
   }
   const auto value = [&](double t) { return c.A_at(t).m[0]; };
@@ -474,8 +487,10 @@ TEST(the_spline_is_smooth_where_linear_interpolation_was_not) {
   // parameterisation; the exact position does not matter, only that the
   // derivative is continuous across it.
   for (double t : {0.25, 0.43, 0.57, 0.75}) {
-    const double left = (value(t - h) - 2 * value(t - 2 * h) + value(t - 3 * h)) / (h * h);
-    const double right = (value(t + 3 * h) - 2 * value(t + 2 * h) + value(t + h)) / (h * h);
+    const double left =
+        (value(t - h) - 2 * value(t - 2 * h) + value(t - 3 * h)) / (h * h);
+    const double right =
+        (value(t + 3 * h) - 2 * value(t + 2 * h) + value(t + h)) / (h * h);
     check::close(left, right, 0.05 * std::fmax(1.0, std::abs(left)),
                  "second derivative continuous");
   }
@@ -514,4 +529,4 @@ TEST(the_spline_stays_within_the_range_of_its_control_points) {
   check::is_true(high <= 1.0 + 1e-12, "no overshoot above them");
 }
 
-}  // namespace mxi
+} // namespace mxi

@@ -41,7 +41,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <vector>
 #include <string>
 #include <vector>
 
@@ -96,8 +95,8 @@ struct Panel {
   // by a smooth function of the scattering angle, which refinement then partly
   // absorbs into the detector distance, leaving a radial residual behind.
   bool parallax = false;
-  double mu = 0.0;         // attenuation coefficient, per mm
-  double thickness = 0.0;  // sensor thickness, mm
+  double mu = 0.0;        // attenuation coefficient, per mm
+  double thickness = 0.0; // sensor thickness, mm
 
   // Use the depth conditional on the photon being absorbed at all, rather than
   // the unconditional first moment of eqn (6).
@@ -168,8 +167,8 @@ struct Detector {
   // The panel a ray hits, and where, searching in order. Multi-panel detectors
   // can overlap in projection, so the first hit wins and that is deliberate:
   // it matches the order panels are serialised in.
-  std::optional<std::tuple<std::size_t, double, double>> intersect(
-      const Vec3 &s1) const;
+  std::optional<std::tuple<std::size_t, double, double>>
+  intersect(const Vec3 &s1) const;
 };
 
 struct Goniometer {
@@ -210,8 +209,8 @@ struct Goniometer {
 struct Scan {
   std::int64_t first_image = 1;
   std::int64_t last_image = 1;
-  double osc_start = 0.0;    // degrees
-  double osc_width = 0.0;    // degrees per image
+  double osc_start = 0.0; // degrees
+  double osc_width = 0.0; // degrees per image
   std::int64_t batch_offset = 0;
   // See the convention note at the top of this file. Zero reproduces DIALS.
   double z_offset = 0.0;
@@ -240,11 +239,14 @@ struct Scan {
     return radians(osc_start + (z - z_offset) * osc_width);
   }
   double z_from_phi(double phi) const {
-    if (osc_width == 0.0) return z_offset;
+    if (osc_width == 0.0)
+      return z_offset;
     return (degrees(phi) - osc_start) / osc_width + z_offset;
   }
   double phi_start() const { return phi_from_z(0.0); }
-  double phi_end() const { return phi_from_z(static_cast<double>(num_images())); }
+  double phi_end() const {
+    return phi_from_z(static_cast<double>(num_images()));
+  }
 
   static double radians(double d) { return d * 3.14159265358979323846 / 180.0; }
   static double degrees(double r) { return r * 180.0 / 3.14159265358979323846; }
@@ -332,8 +334,8 @@ struct Experiment {
 
 // Laboratory scattering vector of an observed spot, before the goniometer
 // rotation is undone.
-Vec3 lab_scattering_vector(const Experiment &e, std::size_t panel, double px_fast,
-                           double px_slow);
+Vec3 lab_scattering_vector(const Experiment &e, std::size_t panel,
+                           double px_fast, double px_slow);
 
 // Reciprocal lattice point in the crystal frame: what indexing consumes.
 // `z` is the observed centroid's scan coordinate in images.
@@ -345,7 +347,8 @@ struct Observation {
   std::size_t panel = 0;
   double px_fast = 0.0, px_slow = 0.0, z = 0.0;
 };
-std::vector<Vec3> reciprocal_lattice_points(const Experiment &e,
-                                            const std::vector<Observation> &obs);
+std::vector<Vec3>
+reciprocal_lattice_points(const Experiment &e,
+                          const std::vector<Observation> &obs);
 
-}  // namespace mxi
+} // namespace mxi

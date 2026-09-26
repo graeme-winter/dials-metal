@@ -33,8 +33,18 @@ struct Vec3 {
   Vec3 operator-() const { return {-x, -y, -z}; }
   Vec3 operator*(double s) const { return {x * s, y * s, z * s}; }
   Vec3 operator/(double s) const { return {x / s, y / s, z / s}; }
-  Vec3 &operator+=(const Vec3 &o) { x += o.x; y += o.y; z += o.z; return *this; }
-  Vec3 &operator-=(const Vec3 &o) { x -= o.x; y -= o.y; z -= o.z; return *this; }
+  Vec3 &operator+=(const Vec3 &o) {
+    x += o.x;
+    y += o.y;
+    z += o.z;
+    return *this;
+  }
+  Vec3 &operator-=(const Vec3 &o) {
+    x -= o.x;
+    y -= o.y;
+    z -= o.z;
+    return *this;
+  }
 
   double dot(const Vec3 &o) const { return x * o.x + y * o.y + z * o.z; }
   Vec3 cross(const Vec3 &o) const {
@@ -64,7 +74,8 @@ struct Mat3 {
   Mat3(std::initializer_list<double> values) {
     std::size_t i = 0;
     for (double v : values) {
-      if (i < 9) m[i++] = v;
+      if (i < 9)
+        m[i++] = v;
     }
   }
 
@@ -83,7 +94,9 @@ struct Mat3 {
   double operator()(std::size_t r, std::size_t c) const { return m[3 * r + c]; }
   double &operator()(std::size_t r, std::size_t c) { return m[3 * r + c]; }
 
-  Vec3 row(std::size_t r) const { return {m[3 * r], m[3 * r + 1], m[3 * r + 2]}; }
+  Vec3 row(std::size_t r) const {
+    return {m[3 * r], m[3 * r + 1], m[3 * r + 2]};
+  }
   Vec3 column(std::size_t c) const { return {m[c], m[3 + c], m[6 + c]}; }
 
   Vec3 operator*(const Vec3 &v) const {
@@ -97,7 +110,8 @@ struct Mat3 {
     for (std::size_t i = 0; i < 3; ++i)
       for (std::size_t j = 0; j < 3; ++j) {
         double s = 0.0;
-        for (std::size_t k = 0; k < 3; ++k) s += (*this)(i, k) * o(k, j);
+        for (std::size_t k = 0; k < 3; ++k)
+          s += (*this)(i, k) * o(k, j);
         r(i, j) = s;
       }
     return r;
@@ -105,12 +119,14 @@ struct Mat3 {
 
   Mat3 operator*(double s) const {
     Mat3 r = *this;
-    for (double &v : r.m) v *= s;
+    for (double &v : r.m)
+      v *= s;
     return r;
   }
   Mat3 operator-(const Mat3 &o) const {
     Mat3 r;
-    for (std::size_t i = 0; i < 9; ++i) r.m[i] = m[i] - o.m[i];
+    for (std::size_t i = 0; i < 9; ++i)
+      r.m[i] = m[i] - o.m[i];
     return r;
   }
 
@@ -129,8 +145,10 @@ struct Mat3 {
   // answer that looks wrong, instead of NaNs that propagate silently.
   Mat3 inverse(bool *ok = nullptr) const {
     const double d = determinant();
-    if (ok) *ok = std::abs(d) > 1e-30;
-    if (std::abs(d) <= 1e-30) return identity();
+    if (ok)
+      *ok = std::abs(d) > 1e-30;
+    if (std::abs(d) <= 1e-30)
+      return identity();
     const double i = 1.0 / d;
     return {(m[4] * m[8] - m[5] * m[7]) * i, (m[2] * m[7] - m[1] * m[8]) * i,
             (m[1] * m[5] - m[2] * m[4]) * i, (m[5] * m[6] - m[3] * m[8]) * i,
@@ -146,9 +164,10 @@ struct Mat3 {
 inline Mat3 rotation(const Vec3 &axis, double angle) {
   const Vec3 u = axis.normalized();
   const double c = std::cos(angle), s = std::sin(angle), t = 1.0 - c;
-  return {t * u.x * u.x + c,       t * u.x * u.y - s * u.z, t * u.x * u.z + s * u.y,
-          t * u.x * u.y + s * u.z, t * u.y * u.y + c,       t * u.y * u.z - s * u.x,
-          t * u.x * u.z - s * u.y, t * u.y * u.z + s * u.x, t * u.z * u.z + c};
+  return {
+      t * u.x * u.x + c,       t * u.x * u.y - s * u.z, t * u.x * u.z + s * u.y,
+      t * u.x * u.y + s * u.z, t * u.y * u.y + c,       t * u.y * u.z - s * u.x,
+      t * u.x * u.z - s * u.y, t * u.y * u.z + s * u.x, t * u.z * u.z + c};
 }
 
 // Angle of a rotation matrix, in radians, in [0, pi]. Clamped before acos
@@ -164,4 +183,4 @@ inline double rotation_angle(const Mat3 &r) {
 // matrix means the problem is rank deficient and the caller must not proceed.
 bool solve_spd(double *a, double *b, std::size_t n);
 
-}  // namespace mxi
+} // namespace mxi

@@ -14,7 +14,7 @@ namespace {
 
 GridSpec small_spec() {
   GridSpec spec;
-  spec.n = 3;  // side 7
+  spec.n = 3; // side 7
   spec.sigma_d = 0.02;
   spec.sigma_m = 0.07;
   spec.half_width = 3.0;
@@ -61,11 +61,12 @@ std::vector<double> unit_profile(const GridSpec &spec) {
     p[i] = t.data[i];
     sum += p[i];
   }
-  for (double &v : p) v /= sum;
+  for (double &v : p)
+    v /= sum;
   return p;
 }
 
-}  // namespace
+} // namespace
 
 TEST(fitting_a_profile_to_itself_returns_the_intensity) {
   // The profile is exactly the shape of the data, so the scale is the answer
@@ -96,7 +97,8 @@ TEST(a_fitted_intensity_beats_a_summed_one_on_a_weak_reflection) {
 
   // The summed variance over the same points: every point counted equally.
   double summed_variance = 0.0;
-  for (std::size_t i = 0; i < t.data.size(); ++i) summed_variance += t.data[i];
+  for (std::size_t i = 0; i < t.data.size(); ++i)
+    summed_variance += t.data[i];
   check::is_true(fit.variance < summed_variance,
                  "the fitted variance is smaller than the summed one");
 
@@ -178,11 +180,11 @@ TEST(the_profile_is_the_average_shape_not_the_average_spot) {
   for (std::size_t i = 0; i < weak.size(); ++i) {
     worst = std::max(worst, std::fabs(reference.profile[0][i] - weak[i]));
   }
-  check::is_true(worst < 0.02,
-                 "the loud spot did not take the profile over");
+  check::is_true(worst < 0.02, "the loud spot did not take the profile over");
 
   double sum = 0.0;
-  for (double v : reference.profile[0]) sum += v;
+  for (double v : reference.profile[0])
+    sum += v;
   check::close(sum, 1.0, 1e-9, "and the profile is normalised");
 }
 
@@ -194,7 +196,8 @@ TEST(a_region_with_too_few_spots_borrows_the_whole_detector_average) {
   }
   finalise_reference(&reference, 10);
   double empty_sum = 0.0;
-  for (double v : reference.profile[0]) empty_sum += v;
+  for (double v : reference.profile[0])
+    empty_sum += v;
   check::close(empty_sum, 1.0, 1e-9,
                "an empty region still has a usable profile");
   check::close(reference.profile[0][spec.at(3, 3, 3)],
@@ -220,7 +223,8 @@ TEST(the_profile_varies_smoothly_across_a_cell_boundary) {
     if (region % 3 == 1) {
       std::rotate(t.data.begin(), t.data.begin() + 1, t.data.end());
     }
-    for (int i = 0; i < 20; ++i) add_reference(&reference, region, t);
+    for (int i = 0; i < 20; ++i)
+      add_reference(&reference, region, t);
   }
   finalise_reference(&reference, 5);
 
@@ -235,7 +239,8 @@ TEST(the_profile_varies_smoothly_across_a_cell_boundary) {
   // absolute threshold of 0.01 asks whether the difference is half the peak --
   // which was this test's first version, and it failed on correct code.
   double peak = 0.0;
-  for (double v : before) peak = std::max(peak, v);
+  for (double v : before)
+    peak = std::max(peak, v);
   check::is_true(peak > 0.0, "there is a profile at all");
 
   double jump = 0.0;
@@ -247,13 +252,16 @@ TEST(the_profile_varies_smoothly_across_a_cell_boundary) {
 
   // And it really does change between the cell centres, or the interpolation
   // has simply flattened everything into one profile.
-  const std::vector<double> at_first = profile_at(reference, panel, 0, 150.0, 450.0, 50.0);
-  const std::vector<double> at_second = profile_at(reference, panel, 0, 450.0, 450.0, 50.0);
+  const std::vector<double> at_first =
+      profile_at(reference, panel, 0, 150.0, 450.0, 50.0);
+  const std::vector<double> at_second =
+      profile_at(reference, panel, 0, 450.0, 450.0, 50.0);
   double change = 0.0;
   for (std::size_t i = 0; i < at_first.size(); ++i) {
     change = std::max(change, std::fabs(at_first[i] - at_second[i]));
   }
-  check::is_true(change > 0.2 * peak, "but it does change between cell centres");
+  check::is_true(change > 0.2 * peak,
+                 "but it does change between cell centres");
 }
 
 TEST(the_weights_of_the_nearby_cells_sum_to_one) {
@@ -304,16 +312,20 @@ TEST(the_scan_is_divided_as_well_as_the_detector) {
   }
   finalise_reference(&reference, 5);
 
-  const std::vector<double> early = profile_at(reference, panel, 0, 450.0, 450.0, 10.0);
-  const std::vector<double> late = profile_at(reference, panel, 0, 450.0, 450.0, 390.0);
+  const std::vector<double> early =
+      profile_at(reference, panel, 0, 450.0, 450.0, 10.0);
+  const std::vector<double> late =
+      profile_at(reference, panel, 0, 450.0, 450.0, 390.0);
   double peak = 0.0;
-  for (double v : early) peak = std::max(peak, v);
+  for (double v : early)
+    peak = std::max(peak, v);
   double change = 0.0;
   for (std::size_t i = 0; i < early.size(); ++i) {
     change = std::max(change, std::fabs(early[i] - late[i]));
   }
-  check::is_true(change > 0.2 * peak,
-                 "the profile at the start of the scan is not the one at the end");
+  check::is_true(
+      change > 0.2 * peak,
+      "the profile at the start of the scan is not the one at the end");
 }
 
 TEST(a_grid_point_with_almost_nothing_in_it_does_not_decide_the_fit) {
@@ -348,11 +360,12 @@ TEST(a_grid_point_with_almost_nothing_in_it_does_not_decide_the_fit) {
   for (int i3 = 0; i3 < side; ++i3) {
     for (int i2 = 0; i2 < side; ++i2) {
       for (int i1 = 0; i1 < side; ++i1) {
-        if (i1 != 0 && i2 != 0 && i3 != 0) continue;
+        if (i1 != 0 && i2 != 0 && i3 != 0)
+          continue;
         const std::size_t at = spec.at(i1, i2, i3);
         t.coverage[at] = 1.0e-4;
         t.background[at] = 3.0e-5;
-        t.data[at] = 0.0;  // below its background, as noise allows
+        t.data[at] = 0.0; // below its background, as noise allows
         ++skin;
       }
     }
@@ -376,7 +389,8 @@ TEST(a_weak_reflection_may_still_be_fitted_negative) {
   const GridSpec spec = small_spec();
   const std::vector<double> reference = unit_profile(spec);
   Transformed t = planted_grid(spec, 0.0, 5.0);
-  for (std::size_t i = 0; i < t.data.size(); ++i) t.data[i] = 4.0;
+  for (std::size_t i = 0; i < t.data.size(); ++i)
+    t.data[i] = 4.0;
   const ProfileFit fit = fit_profile(reference, t);
   check::is_true(fit.valid, "fitted");
   check::is_true(fit.intensity < 0.0,
@@ -403,9 +417,12 @@ TEST(the_fitted_variance_carries_the_background_term_as_well) {
   const auto make = [&](std::int32_t rim) {
     Shoebox box;
     box.panel = 0;
-    box.bbox[0] = 0; box.bbox[1] = 5 + 2 * rim;
-    box.bbox[2] = 0; box.bbox[3] = 5 + 2 * rim;
-    box.bbox[4] = 0; box.bbox[5] = 1;
+    box.bbox[0] = 0;
+    box.bbox[1] = 5 + 2 * rim;
+    box.bbox[2] = 0;
+    box.bbox[3] = 5 + 2 * rim;
+    box.bbox[4] = 0;
+    box.bbox[5] = 1;
     const std::size_t n = box.size();
     box.data.assign(n, 4.0f);
     box.background.assign(n, 4.0f);
@@ -430,12 +447,13 @@ TEST(the_fitted_variance_carries_the_background_term_as_well) {
         total += 1.0;
       }
     }
-    for (double &v : p) v /= total;
+    for (double &v : p)
+      v /= total;
     return p;
   };
 
-  const Shoebox thin = make(1);   // few background pixels, so m/n is large
-  const Shoebox thick = make(5);  // many, so m/n is small
+  const Shoebox thin = make(1);  // few background pixels, so m/n is large
+  const Shoebox thick = make(5); // many, so m/n is small
   const ProfileFit a = fit_on_pixels(thin, profile_for(thin));
   const ProfileFit b = fit_on_pixels(thick, profile_for(thick));
   check::is_true(a.valid && b.valid, "both fitted");
@@ -474,9 +492,12 @@ TEST(a_reflection_across_a_module_gap_keeps_its_whole_intensity) {
   const auto build = [](std::size_t masked_columns) {
     Shoebox box;
     box.panel = 0;
-    box.bbox[0] = 0; box.bbox[1] = 9;
-    box.bbox[2] = 0; box.bbox[3] = 9;
-    box.bbox[4] = 0; box.bbox[5] = 1;
+    box.bbox[0] = 0;
+    box.bbox[1] = 9;
+    box.bbox[2] = 0;
+    box.bbox[3] = 9;
+    box.bbox[4] = 0;
+    box.bbox[5] = 1;
     const std::size_t n = box.size();
     box.data.assign(n, 2.0f);
     box.background.assign(n, 2.0f);
@@ -504,9 +525,13 @@ TEST(a_reflection_across_a_module_gap_keeps_its_whole_intensity) {
     std::vector<double> p(box.size(), 0.0);
     double total = 0.0;
     for (std::size_t i = 0; i < box.size(); ++i) {
-      if (box.mask[i] & shoebox_mask::kForeground) { p[i] = 1.0; total += 1.0; }
+      if (box.mask[i] & shoebox_mask::kForeground) {
+        p[i] = 1.0;
+        total += 1.0;
+      }
     }
-    for (double &v : p) v /= total;
+    for (double &v : p)
+      v /= total;
     return p;
   };
 
@@ -524,8 +549,7 @@ TEST(a_reflection_across_a_module_gap_keeps_its_whole_intensity) {
     check::close(fit.measured, 1.0 - columns / 5.0, 1e-9,
                  "and it says how much was measured");
     // The whole intensity, not the visible fraction of it.
-    check::close(fit.intensity, complete.intensity,
-                 1e-6 * complete.intensity,
+    check::close(fit.intensity, complete.intensity, 1e-6 * complete.intensity,
                  "the profile puts back what the gap took out");
   }
 }
@@ -583,25 +607,30 @@ TEST(the_fast_profile_on_pixels_is_the_direct_one) {
   for (int k = 0; k < g.side(); ++k)
     for (int j = 0; j < g.side(); ++j)
       for (int i = 0; i < g.side(); ++i) {
-        const double a = (i - g.n) / 1.3, b = (j - g.n) / 1.1, c = (k - g.n) / 1.7;
-        const double value = std::exp(-0.5 * (a * a + b * b + c * c)) * (1.0 + 0.1 * i);
+        const double a = (i - g.n) / 1.3, b = (j - g.n) / 1.1,
+                     c = (k - g.n) / 1.7;
+        const double value =
+            std::exp(-0.5 * (a * a + b * b + c * c)) * (1.0 + 0.1 * i);
         reference[g.at(i, j, k)] = value;
         total += value;
       }
-  for (double &x : reference) x /= total;
+  for (double &x : reference)
+    x /= total;
 
   std::size_t compared = 0;
   double worst = 0.0;
   for (std::size_t i = 0; i < v.size() && compared < 1500; i += 7) {
     Shoebox box;
     BoxRejection why = BoxRejection::kNone;
-    if (!build_shoebox(e, v[i], mo, &box, &why)) continue;
+    if (!build_shoebox(e, v[i], mo, &box, &why))
+      continue;
     const std::vector<double> fast =
         profile_on_pixels(e, box, v[i].s1, v[i].phi, g, reference);
     const std::vector<double> direct =
         profile_on_pixels_direct(e, box, v[i].s1, v[i].phi, g, reference);
     check::equal(static_cast<long long>(fast.size()),
-                 static_cast<long long>(direct.size()), "the same number of voxels");
+                 static_cast<long long>(direct.size()),
+                 "the same number of voxels");
     for (std::size_t k = 0; k < fast.size(); ++k) {
       worst = std::max(worst, std::fabs(fast[k] - direct[k]));
     }
@@ -613,4 +642,4 @@ TEST(the_fast_profile_on_pixels_is_the_direct_one) {
   check::is_true(worst < 1e-15, "the fast version is the direct version");
 }
 
-}  // namespace mxi
+} // namespace mxi

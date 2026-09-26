@@ -6,13 +6,15 @@ namespace mxi {
 
 double Arguments::number(const std::string &flag, double fallback) const {
   auto it = options.find(flag);
-  if (it == options.end() || it->second.empty()) return fallback;
+  if (it == options.end() || it->second.empty())
+    return fallback;
   char *end = nullptr;
   const double v = std::strtod(it->second.c_str(), &end);
   return end == it->second.c_str() ? fallback : v;
 }
 
-Arguments parse_arguments(int argc, char **argv, const std::set<std::string> &known,
+Arguments parse_arguments(int argc, char **argv,
+                          const std::set<std::string> &known,
                           const std::set<std::string> &takes_value) {
   Arguments out;
   for (int i = 1; i < argc; ++i) {
@@ -45,4 +47,4 @@ Arguments parse_arguments(int argc, char **argv, const std::set<std::string> &kn
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

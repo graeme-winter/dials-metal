@@ -59,11 +59,14 @@ ExperimentList one_experiment(double osc_start) {
 // The text between the first '[' after `key` and its closing ']'.
 std::string array_after(const std::string &text, const std::string &key) {
   const std::size_t at = text.find("\"" + key + "\"");
-  if (at == std::string::npos) return "";
+  if (at == std::string::npos)
+    return "";
   const std::size_t open = text.find('[', at);
-  if (open == std::string::npos) return "";
+  if (open == std::string::npos)
+    return "";
   const std::size_t close = text.find(']', open);
-  if (close == std::string::npos) return "";
+  if (close == std::string::npos)
+    return "";
   return text.substr(open + 1, close - open - 1);
 }
 
@@ -71,23 +74,28 @@ std::string array_after(const std::string &text, const std::string &key) {
 bool all_floating(const std::string &fragment) {
   std::size_t at = 0;
   while (at < fragment.size()) {
-    while (at < fragment.size() && (std::isspace(static_cast<unsigned char>(fragment[at])) ||
-                                    fragment[at] == ',')) {
+    while (at < fragment.size() &&
+           (std::isspace(static_cast<unsigned char>(fragment[at])) ||
+            fragment[at] == ',')) {
       ++at;
     }
     const std::size_t start = at;
-    while (at < fragment.size() && fragment[at] != ',') ++at;
+    while (at < fragment.size() && fragment[at] != ',')
+      ++at;
     std::string token = fragment.substr(start, at - start);
-    while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) {
+    while (!token.empty() &&
+           std::isspace(static_cast<unsigned char>(token.back()))) {
       token.pop_back();
     }
-    if (token.empty()) continue;
-    if (token.find_first_of(".eE") == std::string::npos) return false;
+    if (token.empty())
+      continue;
+    if (token.find_first_of(".eE") == std::string::npos)
+      return false;
   }
   return true;
 }
 
-}  // namespace
+} // namespace
 
 TEST(a_scan_starting_at_zero_writes_its_oscillation_as_floats) {
   // The exact failure. Before the fix the first element was `0`.
@@ -150,10 +158,12 @@ TEST(the_value_still_reads_back_as_the_same_number) {
   // The formatting change must not cost precision. Seventeen significant
   // digits recovers any double, and appending .0 to a whole one does not move
   // it.
-  for (double v : {0.0, 1.0, -1.0, 200.0, 0.1, 1e-17, 1.0 / 3.0, 6.02214076e23}) {
+  for (double v :
+       {0.0, 1.0, -1.0, 200.0, 0.1, 1e-17, 1.0 / 3.0, 6.02214076e23}) {
     json::Object object;
     object["x"] = json::Value(v);
-    const json::Value back = json::parse(json::dump(json::Value(std::move(object))));
+    const json::Value back =
+        json::parse(json::dump(json::Value(std::move(object))));
     check::close(back["x"].as_number(), v, 0.0, "exact round trip");
   }
 }
@@ -194,7 +204,7 @@ const char *kImported = R"({
   "history": {"dials.import": "1.2.3"}
 })";
 
-}  // namespace
+} // namespace
 
 TEST(blocks_we_do_not_model_survive_a_read_and_a_write) {
   // dials.refine failed on an indexed.expt from here with
@@ -209,7 +219,8 @@ TEST(blocks_we_do_not_model_survive_a_read_and_a_write) {
   check::equal(static_cast<long long>(list.size()), 1, "one experiment");
 
   const json::Value written = experiments_to_json(list);
-  for (const char *block : {"imageset", "profile", "scaling_model", "history"}) {
+  for (const char *block :
+       {"imageset", "profile", "scaling_model", "history"}) {
     check::is_true(written.as_object().count(block) > 0,
                    std::string(block) + " must survive");
   }
@@ -232,14 +243,16 @@ TEST(every_model_reference_resolves_in_what_we_write) {
   for (const char *model :
        {"beam", "detector", "goniometer", "scan", "crystal", "imageset"}) {
     const json::Value &reference = experiment[model];
-    if (reference.is_null()) continue;
+    if (reference.is_null())
+      continue;
     check::is_true(reference.is_number(),
                    std::string(model) + " reference is a number or null");
     const double index = reference.as_number();
     check::is_true(index >= 0.0, std::string(model) + " index is not negative");
     check::is_true(written[model].is_array(),
                    std::string(model) + " list is present");
-    check::is_true(index < static_cast<double>(written[model].as_array().size()),
+    check::is_true(index <
+                       static_cast<double>(written[model].as_array().size()),
                    std::string(model) + " index is inside its list");
   }
 }
@@ -271,7 +284,6 @@ TEST(an_experiment_list_built_in_memory_still_writes) {
 // the columns dials.index produces
 // --------------------------------------------------------------------------
 
-
 namespace {
 
 Table observations_of(const ExperimentList &list, std::size_t n) {
@@ -285,7 +297,8 @@ Table observations_of(const ExperimentList &list, std::size_t n) {
     xyz.reals[i * 3 + 0] = 300.0 + 220.0 * static_cast<double>(i);
     xyz.reals[i * 3 + 1] = 250.0 + 180.0 * static_cast<double>(i);
     xyz.reals[i * 3 + 2] = 0.5 + static_cast<double>(i);
-    var.reals[i * 3 + 0] = var.reals[i * 3 + 1] = var.reals[i * 3 + 2] = 1.0 / 12.0;
+    var.reals[i * 3 + 0] = var.reals[i * 3 + 1] = var.reals[i * 3 + 2] =
+        1.0 / 12.0;
     panel.ints[i] = 0;
     id.ints[i] = 0;
   }
@@ -293,7 +306,7 @@ Table observations_of(const ExperimentList &list, std::size_t n) {
   return t;
 }
 
-}  // namespace
+} // namespace
 
 TEST(millimetre_centroids_are_the_corrected_conversion_and_an_angle) {
   // dials.refine will not read a table without xyzobs.mm.value: DIALS measures
@@ -383,7 +396,8 @@ TEST(entering_is_a_property_of_the_geometry_not_a_placeholder) {
   const Column &entering = t.at("entering");
   std::size_t yes = 0;
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    if (entering.integer(i)) ++yes;
+    if (entering.integer(i))
+      ++yes;
   }
   check::is_true(yes > 0 && yes < t.nrows,
                  "both entering and exiting must occur");
@@ -401,10 +415,12 @@ TEST(indexing_sets_the_indexed_bit_and_keeps_the_strong_one) {
   t.nrows = 4;
   Column &miller = t.int_column("miller_index", "cctbx::miller::index<>", 3);
   Column &flags = t.int_column("flags", "std::size_t", 1);
-  for (std::size_t i = 0; i < t.nrows; ++i) flags.ints[i] = flag::kStrong;
+  for (std::size_t i = 0; i < t.nrows; ++i)
+    flags.ints[i] = flag::kStrong;
   const int indices[4][3] = {{1, 2, 3}, {0, 0, 0}, {-4, 5, 0}, {0, 0, 0}};
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    for (std::size_t k = 0; k < 3; ++k) miller.ints[i * 3 + k] = indices[i][k];
+    for (std::size_t k = 0; k < 3; ++k)
+      miller.ints[i * 3 + k] = indices[i][k];
   }
 
   set_indexed_flags(t);
@@ -412,7 +428,8 @@ TEST(indexing_sets_the_indexed_bit_and_keeps_the_strong_one) {
   // 36 is strong | indexed, which is what a real DIALS indexed.refl carries.
   check::equal(after.integer(0), flag::kStrong | flag::kIndexed, "indexed row");
   check::equal(after.integer(1), flag::kStrong, "unindexed row keeps strong");
-  check::equal(after.integer(2), flag::kStrong | flag::kIndexed, "negative indices count");
+  check::equal(after.integer(2), flag::kStrong | flag::kIndexed,
+               "negative indices count");
   check::equal(after.integer(3), flag::kStrong, "and the last one too");
 }
 
@@ -467,7 +484,8 @@ TEST(refinement_records_which_reflections_it_used_and_which_it_threw_out) {
   Table table;
   table.nrows = 5;
   Column &flags = table.int_column("flags", "std::size_t", 1);
-  for (std::size_t i = 0; i < table.nrows; ++i) flags.ints[i] = flag::kStrong | flag::kIndexed;
+  for (std::size_t i = 0; i < table.nrows; ++i)
+    flags.ints[i] = flag::kStrong | flag::kIndexed;
 
   RefineResult result;
   result.rows_used = {0, 2};
@@ -475,13 +493,22 @@ TEST(refinement_records_which_reflections_it_used_and_which_it_threw_out) {
   set_refinement_flags(result, table);
 
   const Column &after = table.at("flags");
-  check::equal(after.integer(0), flag::kStrong | flag::kIndexed | flag::kUsedInRefinement, "used");
-  check::equal(after.integer(1), flag::kStrong | flag::kIndexed | flag::kCentroidOutlier, "rejected");
-  check::equal(after.integer(2), flag::kStrong | flag::kIndexed | flag::kUsedInRefinement, "used");
+  check::equal(after.integer(0),
+               flag::kStrong | flag::kIndexed | flag::kUsedInRefinement,
+               "used");
+  check::equal(after.integer(1),
+               flag::kStrong | flag::kIndexed | flag::kCentroidOutlier,
+               "rejected");
+  check::equal(after.integer(2),
+               flag::kStrong | flag::kIndexed | flag::kUsedInRefinement,
+               "used");
   // Neither used nor rejected: never a candidate, because its rotation angle
   // was not determined. It keeps the indexed bit and gains nothing.
-  check::equal(after.integer(3), flag::kStrong | flag::kIndexed, "never a candidate");
-  check::equal(after.integer(4), flag::kStrong | flag::kIndexed | flag::kCentroidOutlier, "rejected");
+  check::equal(after.integer(3), flag::kStrong | flag::kIndexed,
+               "never a candidate");
+  check::equal(after.integer(4),
+               flag::kStrong | flag::kIndexed | flag::kCentroidOutlier,
+               "rejected");
 
   // And a second pass must not leave the first one's verdict behind.
   RefineResult again;
@@ -489,15 +516,16 @@ TEST(refinement_records_which_reflections_it_used_and_which_it_threw_out) {
   again.rows_rejected = {};
   set_refinement_flags(again, table);
   const Column &twice = table.at("flags");
-  check::equal(twice.integer(0), flag::kStrong | flag::kIndexed, "used bit cleared");
-  check::equal(twice.integer(1), flag::kStrong | flag::kIndexed | flag::kUsedInRefinement,
+  check::equal(twice.integer(0), flag::kStrong | flag::kIndexed,
+               "used bit cleared");
+  check::equal(twice.integer(1),
+               flag::kStrong | flag::kIndexed | flag::kUsedInRefinement,
                "and the outlier bit too, before the new verdict");
 }
 
 // --------------------------------------------------------------------------
 // columns we cannot decode
 // --------------------------------------------------------------------------
-
 
 TEST(a_column_we_cannot_decode_survives_a_read_and_a_write_byte_for_byte) {
   // Shoeboxes were being dropped, on the argument that nothing here can subset
@@ -509,7 +537,8 @@ TEST(a_column_we_cannot_decode_survives_a_read_and_a_write_byte_for_byte) {
   Table t;
   t.nrows = 3;
   Column &value = t.real_column("xyzobs.px.value", "vec3<double>", 3);
-  for (std::size_t i = 0; i < 9; ++i) value.reals[i] = static_cast<double>(i);
+  for (std::size_t i = 0; i < 9; ++i)
+    value.reals[i] = static_cast<double>(i);
 
   Table::Opaque shoebox;
   shoebox.type = "Shoebox<>";
@@ -541,7 +570,7 @@ TEST(writing_an_opaque_column_that_no_longer_fits_is_refused) {
   Table::Opaque shoebox;
   shoebox.type = "Shoebox<>";
   shoebox.bytes = "abcde";
-  shoebox.rows = 5;  // read from a table of five rows
+  shoebox.rows = 5; // read from a table of five rows
   t.set_opaque("shoebox", shoebox);
 
   bool threw = false;
@@ -550,7 +579,8 @@ TEST(writing_an_opaque_column_that_no_longer_fits_is_refused) {
   } catch (const ReflError &e) {
     threw = true;
     const std::string what = e.what();
-    check::is_true(what.find("shoebox") != std::string::npos, "names the column");
+    check::is_true(what.find("shoebox") != std::string::npos,
+                   "names the column");
     check::is_true(what.find("cannot subset") != std::string::npos, "says why");
   }
   std::remove("test_opaque_bad.refl");
@@ -573,7 +603,8 @@ TEST(a_scan_varying_model_is_written_at_every_image_boundary) {
   list[0].crystal->A_points[3] = list[0].crystal->A * 1.0002;
 
   const json::Value written = experiments_to_json(list);
-  const json::Value &points = written["crystal"].as_array()[0]["A_at_scan_points"];
+  const json::Value &points =
+      written["crystal"].as_array()[0]["A_at_scan_points"];
   check::is_true(points.is_array(), "the samples are written");
   const std::int64_t images = list[0].scan.num_images();
   check::equal(static_cast<long long>(points.as_array().size()),
@@ -584,8 +615,10 @@ TEST(a_scan_varying_model_is_written_at_every_image_boundary) {
   // control point range, which is what a clamped spline makes them.
   const Mat3 first = list[0].crystal->A_at(0.0);
   const Mat3 last = list[0].crystal->A_at(1.0);
-  check::close(points.as_array().front().numbers()[0], first.m[0], 1e-12, "starts at t=0");
-  check::close(points.as_array().back().numbers()[0], last.m[0], 1e-12, "ends at t=1");
+  check::close(points.as_array().front().numbers()[0], first.m[0], 1e-12,
+               "starts at t=0");
+  check::close(points.as_array().back().numbers()[0], last.m[0], 1e-12,
+               "ends at t=1");
 }
 
 TEST(samples_read_from_a_file_are_written_back_unchanged) {
@@ -631,14 +664,16 @@ TEST(writing_a_scan_varying_model_keeps_the_experiment) {
   ExperimentList list = one_experiment(0.0);
   list[0].crystal->A_points.assign(4, list[0].crystal->A);
   const ExperimentList back = experiments_from_json(experiments_to_json(list));
-  check::equal(static_cast<long long>(back.size()), 1, "the experiment survives");
+  check::equal(static_cast<long long>(back.size()), 1,
+               "the experiment survives");
   check::is_true(back[0].crystal.has_value(), "and so does its crystal");
   check::is_true(back[0].crystal->scan_varying(), "still scan-varying");
 
   // Twice over, since the second pass takes the other branch.
   const ExperimentList again = experiments_from_json(experiments_to_json(back));
-  check::equal(static_cast<long long>(again.size()), 1, "on the sample path too");
+  check::equal(static_cast<long long>(again.size()), 1,
+               "on the sample path too");
   check::is_true(again[0].crystal.has_value(), "with its crystal");
 }
 
-}  // namespace mxi
+} // namespace mxi

@@ -92,20 +92,42 @@ def main(path, out):
     rows = [("all", "average of all %d spots" % grids["all"]["spots"])]
     for i, name in enumerate(names):
         rows.append((name, name.replace("_", " ")))
-        rows.append(("reference_%d" % i, "average of its %d nearest neighbours"
-                     % grids["reference_%d" % i]["spots"]))
+        rows.append(
+            (
+                "reference_%d" % i,
+                "average of its %d nearest neighbours"
+                % grids["reference_%d" % i]["spots"],
+            )
+        )
 
-    fig, axes = plt.subplots(len(rows), 3, figsize=(11, 3.1 * len(rows)),
-                             squeeze=False)
+    fig, axes = plt.subplots(len(rows), 3, figsize=(11, 3.1 * len(rows)), squeeze=False)
     for r, (key, label) in enumerate(rows):
         cube = grids[key]["cube"]
         # cube is indexed [eps3, eps2, eps1].
-        draw(axes[r][0], cube.sum(axis=0).T, d,
-             "%s\ndetector plane" % label, "eps1 / sigma_b", "eps2 / sigma_b")
-        draw(axes[r][1], cube.sum(axis=1).T, d,
-             "rotation against eps1", "eps1 / sigma_b", "eps3 / sigma_m")
-        draw(axes[r][2], cube.sum(axis=2).T, d,
-             "rotation against eps2", "eps2 / sigma_b", "eps3 / sigma_m")
+        draw(
+            axes[r][0],
+            cube.sum(axis=0).T,
+            d,
+            "%s\ndetector plane" % label,
+            "eps1 / sigma_b",
+            "eps2 / sigma_b",
+        )
+        draw(
+            axes[r][1],
+            cube.sum(axis=1).T,
+            d,
+            "rotation against eps1",
+            "eps1 / sigma_b",
+            "eps3 / sigma_m",
+        )
+        draw(
+            axes[r][2],
+            cube.sum(axis=2).T,
+            d,
+            "rotation against eps2",
+            "eps2 / sigma_b",
+            "eps3 / sigma_m",
+        )
 
     fig.suptitle(
         "spot density in Kabsch space, sigma_b = %.4f deg, sigma_m = %.4f deg\n"

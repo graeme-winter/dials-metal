@@ -28,15 +28,14 @@ namespace mxi {
 
 //: The model a target evaluation needs, at the precision it will be evaluated
 //: in. Built from an Experiment by `narrow`.
-template <typename T>
-struct TargetModel {
-  T A[9];         // setting matrix, row-major
-  T s0[3];        // incident beam, already negated
-  T axis[3];      // rotation axis, laboratory frame
-  T fixed[9];     // goniometer fixed rotation
-  T setting[9];   // goniometer setting rotation
+template <typename T> struct TargetModel {
+  T A[9];       // setting matrix, row-major
+  T s0[3];      // incident beam, already negated
+  T axis[3];    // rotation axis, laboratory frame
+  T fixed[9];   // goniometer fixed rotation
+  T setting[9]; // goniometer setting rotation
   T fast[3], slow[3], origin[3];
-  T centre[3];    // panel centre in the laboratory frame, for detector rotations
+  T centre[3]; // panel centre in the laboratory frame, for detector rotations
   T pixel_size[2];
   T mu = 0, thickness = 0;
   bool parallax = false;
@@ -44,8 +43,7 @@ struct TargetModel {
 };
 
 //: Observed minus calculated, in pixels and images, at precision T.
-template <typename T>
-struct TargetResidual {
+template <typename T> struct TargetResidual {
   bool valid = false;
   T dx = 0, dy = 0, dz = 0;
 };
@@ -74,7 +72,8 @@ TargetModel<T> narrow(const Experiment &e, std::size_t panel, const Mat3 &A) {
   const Vec3 centre = p.lab_coord_mm(
       0.5 * static_cast<double>(p.image_size[0]) * p.pixel_size[0],
       0.5 * static_cast<double>(p.image_size[1]) * p.pixel_size[1]);
-  for (std::size_t i = 0; i < 3; ++i) m.centre[i] = static_cast<T>(centre[i]);
+  for (std::size_t i = 0; i < 3; ++i)
+    m.centre[i] = static_cast<T>(centre[i]);
   m.pixel_size[0] = static_cast<T>(p.pixel_size[0]);
   m.pixel_size[1] = static_cast<T>(p.pixel_size[1]);
   m.mu = static_cast<T>(p.mu);
@@ -95,8 +94,7 @@ inline void mat_vec(const T (&m)[9], const T (&v)[3], T (&out)[3]) {
   out[2] = m[6] * v[0] + m[7] * v[1] + m[8] * v[2];
 }
 
-template <typename T>
-inline T dot(const T (&a)[3], const T (&b)[3]) {
+template <typename T> inline T dot(const T (&a)[3], const T (&b)[3]) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
@@ -126,13 +124,14 @@ inline void mat_mul(const T (&a)[9], const T (&b)[9], T (&out)[9]) {
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
       T sum = T(0);
-      for (int k = 0; k < 3; ++k) sum += a[i * 3 + k] * b[k * 3 + j];
+      for (int k = 0; k < 3; ++k)
+        sum += a[i * 3 + k] * b[k * 3 + j];
       out[i * 3 + j] = sum;
     }
   }
 }
 
-}  // namespace target_detail
+} // namespace target_detail
 
 // The whole chain: reciprocal lattice point, Ewald solution, rotation, panel
 // intersection, parallax, residual. Mirrors `centroid_residual` step for step.
@@ -155,7 +154,8 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
   T u[3];
   mat_vec(m.fixed, r0, u);
   const T r_squared = dot(u, u);
-  if (!(r_squared > T(0))) return out;
+  if (!(r_squared > T(0)))
+    return out;
 
   T s0p[3];
   const T setting_t[9] = {m.setting[0], m.setting[3], m.setting[6],
@@ -173,9 +173,11 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
   const T d = -T(0.5) * r_squared - a0;
 
   const T amplitude = std::sqrt(b * b + c * c);
-  if (!(amplitude > T(0))) return out;
+  if (!(amplitude > T(0)))
+    return out;
   const T cosine = d / amplitude;
-  if (cosine < T(-1) || cosine > T(1)) return out;
+  if (cosine < T(-1) || cosine > T(1))
+    return out;
   const T centre = std::atan2(c, b);
   const T offset = std::acos(cosine);
 
@@ -189,8 +191,10 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
   for (int i = 0; i < 2; ++i) {
     const T root = i == 0 ? centre - offset : centre + offset;
     T gap = std::fmod(root - phi_obs, two_pi);
-    if (gap > T(0.5) * two_pi) gap -= two_pi;
-    if (gap < T(-0.5) * two_pi) gap += two_pi;
+    if (gap > T(0.5) * two_pi)
+      gap -= two_pi;
+    if (gap < T(-0.5) * two_pi)
+      gap += two_pi;
     if (std::abs(gap) < best) {
       best = std::abs(gap);
       phi = phi_obs + gap;
@@ -208,7 +212,8 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
 
   // Panel intersection: solve origin + uu * fast + vv * slow = tt * s1_hat.
   const T s1_length = std::sqrt(dot(s1, s1));
-  if (!(s1_length > T(0))) return out;
+  if (!(s1_length > T(0)))
+    return out;
   const T dir[3] = {s1[0] / s1_length, s1[1] / s1_length, s1[2] / s1_length};
 
   // Columns fast, slow, -dir; solved by Cramer's rule, which is what a device
@@ -217,7 +222,8 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
   T cs[3];
   cross(m.slow, col2, cs);
   const T det = dot(m.fast, cs);
-  if (std::abs(det) <= T(0)) return out;
+  if (std::abs(det) <= T(0))
+    return out;
   const T rhs[3] = {-m.origin[0], -m.origin[1], -m.origin[2]};
   // Cramer: with columns (fast, slow, col2), the solution components are the
   // determinants with each column replaced by the right-hand side. Note the
@@ -225,12 +231,13 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
   // component, and the first version of this had two of them backwards, which
   // showed up as every ray appearing to travel away from the detector.
   T c1[3], c2[3];
-  cross(rhs, col2, c1);     // det(fast, rhs, col2) = fast . (rhs x col2)
-  cross(m.slow, rhs, c2);   // det(fast, slow, rhs) = fast . (slow x rhs)
+  cross(rhs, col2, c1);   // det(fast, rhs, col2) = fast . (rhs x col2)
+  cross(m.slow, rhs, c2); // det(fast, slow, rhs) = fast . (slow x rhs)
   const T mm_fast = dot(rhs, cs) / det;
   const T mm_slow = dot(m.fast, c1) / det;
   const T tt = dot(m.fast, c2) / det;
-  if (!(tt > T(0))) return out;
+  if (!(tt > T(0)))
+    return out;
 
   // Parallax, then millimetres to pixels.
   T off_fast = T(0), off_slow = T(0);
@@ -249,7 +256,8 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
     if (cos_theta > T(0)) {
       const T attenuation = T(1) / m.mu;
       const T path = m.thickness / cos_theta;
-      const T depth = attenuation - (path + attenuation) * std::exp(-m.mu * path);
+      const T depth =
+          attenuation - (path + attenuation) * std::exp(-m.mu * path);
       off_fast = depth * dot(unit, m.fast);
       off_slow = depth * dot(unit, m.slow);
     }
@@ -268,4 +276,4 @@ TargetResidual<T> evaluate_target(const TargetModel<T> &m, int h, int k, int l,
   return out;
 }
 
-}  // namespace mxi
+} // namespace mxi

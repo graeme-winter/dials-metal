@@ -70,12 +70,12 @@ Experiment refined_experiment() {
   e.scan.osc_start = real::kOscStart;
   e.scan.osc_width = real::kOscWidth;
 
-  e.crystal = Crystal::from_real_space(v(real::kRealSpaceA), v(real::kRealSpaceB),
-                                       v(real::kRealSpaceC));
+  e.crystal = Crystal::from_real_space(
+      v(real::kRealSpaceA), v(real::kRealSpaceB), v(real::kRealSpaceC));
   return e;
 }
 
-}  // namespace
+} // namespace
 
 TEST(real_parallax_reproduces_dials_pixel_to_millimetre_exactly) {
   // NOTE ON xyzobs.mm: this test consumes it as *evidence about the formula*,
@@ -214,12 +214,15 @@ TEST(real_entering_flag_matches_dials) {
         e.crystal->A * Vec3{static_cast<double>(r.h), static_cast<double>(r.k),
                             static_cast<double>(r.l)};
     const Intersections x = ewald_intersections(e, r0);
-    if (!x.any) continue;
+    if (!x.any)
+      continue;
     // Take the root nearer the observed angle; the other is the same
     // reflection on its way out.
     const double phi = e.scan.phi_from_z(r.px_z);
-    const int nearer = std::abs(x.phi[0] - phi) <= std::abs(x.phi[1] - phi) ? 0 : 1;
-    if (x.entering[nearer] == r.entering) ++agree;
+    const int nearer =
+        std::abs(x.phi[0] - phi) <= std::abs(x.phi[1] - phi) ? 0 : 1;
+    if (x.entering[nearer] == r.entering)
+      ++agree;
     ++total;
   }
   check::is_true(total > 30, "should have intersections to test");
@@ -265,7 +268,8 @@ TEST(real_prediction_reproduces_dials_xyzcal_exactly) {
         predict_indices(e, {{{r.h, r.k, r.l}}}, options);
     double best = 1e30;
     for (const Prediction &q : p) {
-      if (q.entering != r.entering) continue;
+      if (q.entering != r.entering)
+        continue;
       best = std::fmin(best, std::hypot(q.px_fast - r.cal_px_fast,
                                         q.px_slow - r.cal_px_slow));
     }
@@ -285,25 +289,28 @@ TEST(real_prediction_would_notice_a_missing_parallax_correction) {
   // moves by two thirds of a pixel, so the exact bound is genuinely sensitive
   // to it rather than exact for some unrelated reason.
   Experiment e = refined_experiment();
-  for (Panel &p : e.detector.panels) p.parallax = false;
+  for (Panel &p : e.detector.panels)
+    p.parallax = false;
   PredictOptions options;
   options.allow_outside_scan = true;
 
   std::vector<double> displaced;
   for (const real::Row &r : real::rows()) {
     double best = 1e30;
-    for (const Prediction &q : predict_indices(e, {{{r.h, r.k, r.l}}}, options)) {
+    for (const Prediction &q :
+         predict_indices(e, {{{r.h, r.k, r.l}}}, options)) {
       best = std::fmin(best, std::hypot(q.px_fast - r.cal_px_fast,
                                         q.px_slow - r.cal_px_slow));
     }
-    if (best < 1e29) displaced.push_back(best);
+    if (best < 1e29)
+      displaced.push_back(best);
   }
   std::sort(displaced.begin(), displaced.end());
   check::is_true(displaced.size() > 30, "enough predictions");
-  check::is_true(displaced[displaced.size() / 2] > 0.5,
-                 "without parallax the prediction should move over half a pixel");
+  check::is_true(
+      displaced[displaced.size() / 2] > 0.5,
+      "without parallax the prediction should move over half a pixel");
 }
-
 
 TEST(real_oscillation_array_is_uniform) {
   // dxtbx writes a per-image array of start angles rather than a start and a
@@ -312,7 +319,8 @@ TEST(real_oscillation_array_is_uniform) {
   std::vector<double> oscillation;
   const long n = real::kImageRange[1] - real::kImageRange[0] + 1;
   for (long i = 0; i < n; ++i) {
-    oscillation.push_back(real::kOscStart + static_cast<double>(i) * real::kOscWidth);
+    oscillation.push_back(real::kOscStart +
+                          static_cast<double>(i) * real::kOscWidth);
   }
   const Scan s = Scan::from_oscillation(oscillation, real::kImageRange[0],
                                         real::kImageRange[1]);
@@ -327,7 +335,8 @@ TEST(oscillation_width_comes_from_the_endpoints_not_the_first_pair) {
   // from the first two elements would let one bad value at the start set the
   // width for the entire scan.
   std::vector<double> oscillation;
-  for (int i = 0; i < 300; ++i) oscillation.push_back(0.1 * i);
+  for (int i = 0; i < 300; ++i)
+    oscillation.push_back(0.1 * i);
   oscillation[1] += 0.05;
   const Scan s = Scan::from_oscillation(oscillation, 1, 300);
   check::close(s.osc_width, 0.1, 1e-12, "width barely moves");
@@ -355,4 +364,4 @@ TEST(goniometer_ignores_the_angle_of_its_own_scan_axis) {
                "a chi setting must reach the fixed rotation");
 }
 
-}  // namespace mxi
+} // namespace mxi

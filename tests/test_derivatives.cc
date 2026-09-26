@@ -60,8 +60,8 @@ Experiment real_experiment() {
   e.scan.last_image = real::kImageRange[1];
   e.scan.osc_start = real::kOscStart;
   e.scan.osc_width = real::kOscWidth;
-  e.crystal = Crystal::from_real_space(v3(real::kRealSpaceA), v3(real::kRealSpaceB),
-                                       v3(real::kRealSpaceC));
+  e.crystal = Crystal::from_real_space(
+      v3(real::kRealSpaceA), v3(real::kRealSpaceB), v3(real::kRealSpaceC));
   return e;
 }
 
@@ -75,7 +75,8 @@ struct Centroid {
 Centroid centroid(const Experiment &e, int h, int k, int l, double z) {
   const PredictionState s = prediction_state(e, 0, h, k, l, z);
   Centroid c;
-  if (!s.valid) return c;
+  if (!s.valid)
+    return c;
   c.valid = true;
   c.X = s.v.x / s.v.z;
   c.Y = s.v.y / s.v.z;
@@ -83,7 +84,7 @@ Centroid centroid(const Experiment &e, int h, int k, int l, double z) {
   return c;
 }
 
-}  // namespace
+} // namespace
 
 TEST(the_prediction_state_reproduces_the_predicted_position) {
   // Before differentiating it, the thing being differentiated has to be right.
@@ -94,10 +95,11 @@ TEST(the_prediction_state_reproduces_the_predicted_position) {
   int tested = 0;
   for (const real::Row &r : real::rows()) {
     const Centroid c = centroid(e, r.h, r.k, r.l, r.px_z);
-    if (!c.valid) continue;
+    if (!c.valid)
+      continue;
     const auto px = e.detector[0].mm_to_px(c.X, c.Y);
-    worst = std::fmax(worst, std::hypot(px.first - r.cal_px_fast,
-                                        px.second - r.cal_px_slow));
+    worst = std::fmax(
+        worst, std::hypot(px.first - r.cal_px_fast, px.second - r.cal_px_slow));
     ++tested;
   }
   check::is_true(tested > 30, "enough reflections");
@@ -107,16 +109,19 @@ TEST(the_prediction_state_reproduces_the_predicted_position) {
 TEST(analytical_crystal_derivatives_match_finite_differences) {
   const Experiment e = real_experiment();
   double scale = 0.0;
-  for (double m : e.crystal->A.m) scale = std::fmax(scale, std::abs(m));
+  for (double m : e.crystal->A.m)
+    scale = std::fmax(scale, std::abs(m));
 
   std::vector<double> relative;
   int tested = 0;
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid) continue;
+    if (!s.valid)
+      continue;
     // Skip where phi is genuinely ill determined, which is where eqn (40)
     // divides by something near zero. DIALS discards these too.
-    if (std::abs(s.volume) < 0.05) continue;
+    if (std::abs(s.volume) < 0.05)
+      continue;
     const auto analytic = crystal_derivatives(s, r.h, r.k, r.l);
 
     for (std::size_t p = 0; p < 9; ++p) {
@@ -128,15 +133,18 @@ TEST(analytical_crystal_derivatives_match_finite_differences) {
       minus.crystal->A.m[p] -= step;
       const Centroid a = centroid(plus, r.h, r.k, r.l, r.px_z);
       const Centroid b = centroid(minus, r.h, r.k, r.l, r.px_z);
-      if (!a.valid || !b.valid) continue;
+      if (!a.valid || !b.valid)
+        continue;
 
       const double numeric[3] = {(a.X - b.X) / (2 * step),
                                  (a.Y - b.Y) / (2 * step),
                                  (a.phi - b.phi) / (2 * step)};
-      const double exact[3] = {analytic[p].dX, analytic[p].dY, analytic[p].dphi};
+      const double exact[3] = {analytic[p].dX, analytic[p].dY,
+                               analytic[p].dphi};
       for (int c = 0; c < 3; ++c) {
         const double size = std::fmax(std::abs(numeric[c]), std::abs(exact[c]));
-        if (size < 1e-6) continue;  // both essentially zero
+        if (size < 1e-6)
+          continue; // both essentially zero
         relative.push_back(std::abs(numeric[c] - exact[c]) / size);
         ++tested;
       }
@@ -160,26 +168,31 @@ TEST(the_phi_derivative_blows_up_where_the_paper_says_it_does) {
   // the derivative really does grow as the volume shrinks, so that discarding
   // on the volume is discarding the right reflections.
   const Experiment e = real_experiment();
-  std::vector<std::pair<double, double>> pairs;  // volume, |dphi| per unit |h|
+  std::vector<std::pair<double, double>> pairs; // volume, |dphi| per unit |h|
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid) continue;
+    if (!s.valid)
+      continue;
     const auto d = crystal_derivatives(s, r.h, r.k, r.l);
     double biggest = 0.0;
-    for (const CentroidDerivative &c : d) biggest = std::fmax(biggest, std::abs(c.dphi));
+    for (const CentroidDerivative &c : d)
+      biggest = std::fmax(biggest, std::abs(c.dphi));
     // Divided by |h|. The numerator of eqn (40) carries a factor of the Miller
     // index, so without this the two effects are confounded and the
     // measurement comes out at 1.7 rather than 3.9 -- which is how this test
     // failed the first time it was written.
-    const double h = std::sqrt(static_cast<double>(r.h * r.h + r.k * r.k + r.l * r.l));
+    const double h =
+        std::sqrt(static_cast<double>(r.h * r.h + r.k * r.k + r.l * r.l));
     pairs.emplace_back(std::abs(s.volume), biggest / std::fmax(h, 1.0));
   }
   check::is_true(pairs.size() > 30, "enough reflections");
   std::sort(pairs.begin(), pairs.end());
   const std::size_t q = pairs.size() / 4;
   double low = 0.0, high = 0.0;
-  for (std::size_t i = 0; i < q; ++i) low += pairs[i].second;
-  for (std::size_t i = pairs.size() - q; i < pairs.size(); ++i) high += pairs[i].second;
+  for (std::size_t i = 0; i < q; ++i)
+    low += pairs[i].second;
+  for (std::size_t i = pairs.size() - q; i < pairs.size(); ++i)
+    high += pairs[i].second;
   // Measured at 3.9. Note that every reflection in this sample has a volume
   // above DIALS' cutoff of 0.05, so the pathological cases are not even
   // represented here -- the trend is visible well before them.
@@ -204,7 +217,8 @@ TEST(spline_weights_agree_with_the_interpolation_they_describe) {
     const SplineWeights w = spline_weights(e, z);
     double sum = 0.0;
     Mat3 rebuilt;
-    for (std::size_t i = 0; i < 9; ++i) rebuilt.m[i] = 0.0;
+    for (std::size_t i = 0; i < 9; ++i)
+      rebuilt.m[i] = 0.0;
     for (std::size_t i = 0; i < w.count; ++i) {
       sum += w.weight[i];
       for (std::size_t k = 0; k < 9; ++k) {
@@ -232,9 +246,11 @@ TEST(only_four_control_points_are_ever_touched) {
     for (std::size_t i = 0; i < 4; ++i) {
       bool seen = false;
       for (std::size_t j = 0; j < n; ++j) {
-        if (distinct[j] == w.index[i]) seen = true;
+        if (distinct[j] == w.index[i])
+          seen = true;
       }
-      if (!seen) distinct[n++] = w.index[i];
+      if (!seen)
+        distinct[n++] = w.index[i];
     }
     check::is_true(n <= 4, "at most four distinct");
     for (std::size_t i = 0; i < n; ++i) {
@@ -250,7 +266,8 @@ TEST(analytical_detector_derivatives_match_finite_differences) {
 
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid) continue;
+    if (!s.valid)
+      continue;
     const auto analytic = detector_derivatives(s, e.detector[0]);
 
     for (std::size_t p = 0; p < 6; ++p) {
@@ -267,15 +284,18 @@ TEST(analytical_detector_derivatives_match_finite_differences) {
 
       const Centroid a = centroid(plus, r.h, r.k, r.l, r.px_z);
       const Centroid b = centroid(minus, r.h, r.k, r.l, r.px_z);
-      if (!a.valid || !b.valid) continue;
+      if (!a.valid || !b.valid)
+        continue;
 
       const double numeric[3] = {(a.X - b.X) / (2 * step),
                                  (a.Y - b.Y) / (2 * step),
                                  (a.phi - b.phi) / (2 * step)};
-      const double exact[3] = {analytic[p].dX, analytic[p].dY, analytic[p].dphi};
+      const double exact[3] = {analytic[p].dX, analytic[p].dY,
+                               analytic[p].dphi};
       for (int c = 0; c < 3; ++c) {
         const double size = std::fmax(std::abs(numeric[c]), std::abs(exact[c]));
-        if (size < 1e-6) continue;
+        if (size < 1e-6)
+          continue;
         relative.push_back(std::abs(numeric[c] - exact[c]) / size);
         ++tested;
       }
@@ -294,7 +314,8 @@ TEST(the_detector_cannot_move_the_rotation_angle) {
   const Experiment e = real_experiment();
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid) continue;
+    if (!s.valid)
+      continue;
     for (const CentroidDerivative &d : detector_derivatives(s, e.detector[0])) {
       check::close(d.dphi, 0.0, 0.0, "exactly zero, not merely small");
     }
@@ -308,8 +329,10 @@ TEST(analytical_beam_derivatives_match_finite_differences) {
 
   for (const real::Row &r : real::rows()) {
     const PredictionState s = prediction_state(e, 0, r.h, r.k, r.l, r.px_z);
-    if (!s.valid) continue;
-    if (std::abs(s.volume) < 0.05) continue;
+    if (!s.valid)
+      continue;
+    if (std::abs(s.volume) < 0.05)
+      continue;
     const auto analytic = beam_derivatives(s, e.beam);
 
     for (std::size_t p = 0; p < 2; ++p) {
@@ -323,15 +346,18 @@ TEST(analytical_beam_derivatives_match_finite_differences) {
 
       const Centroid a = centroid(plus, r.h, r.k, r.l, r.px_z);
       const Centroid b = centroid(minus, r.h, r.k, r.l, r.px_z);
-      if (!a.valid || !b.valid) continue;
+      if (!a.valid || !b.valid)
+        continue;
 
       const double numeric[3] = {(a.X - b.X) / (2 * step),
                                  (a.Y - b.Y) / (2 * step),
                                  (a.phi - b.phi) / (2 * step)};
-      const double exact[3] = {analytic[p].dX, analytic[p].dY, analytic[p].dphi};
+      const double exact[3] = {analytic[p].dX, analytic[p].dY,
+                               analytic[p].dphi};
       for (int c = 0; c < 3; ++c) {
         const double size = std::fmax(std::abs(numeric[c]), std::abs(exact[c]));
-        if (size < 1e-6) continue;
+        if (size < 1e-6)
+          continue;
         relative.push_back(std::abs(numeric[c] - exact[c]) / size);
         ++tested;
       }
@@ -359,7 +385,8 @@ TEST(the_shared_perturbation_is_what_refinement_applies) {
 
   Panel turned = p;
   const double turn[6] = {0, 0, 0, 1e-3, -5e-4, 2e-4};
-  for (int i = 0; i < 50; ++i) turned = perturb_panel(turned, turn);
+  for (int i = 0; i < 50; ++i)
+    turned = perturb_panel(turned, turn);
   check::close(turned.fast.norm(), 1.0, 1e-12, "fast stays a unit vector");
   check::close(turned.slow.norm(), 1.0, 1e-12, "slow stays a unit vector");
   check::close(turned.fast.dot(turned.slow), 0.0, 1e-12, "and stay orthogonal");
@@ -367,8 +394,9 @@ TEST(the_shared_perturbation_is_what_refinement_applies) {
   // The centre of the panel is the point rotations act about, so it moves only
   // by the translation.
   const auto centre_of = [](const Panel &q) {
-    return q.lab_coord_mm(0.5 * static_cast<double>(q.image_size[0]) * q.pixel_size[0],
-                          0.5 * static_cast<double>(q.image_size[1]) * q.pixel_size[1]);
+    return q.lab_coord_mm(
+        0.5 * static_cast<double>(q.image_size[0]) * q.pixel_size[0],
+        0.5 * static_cast<double>(q.image_size[1]) * q.pixel_size[1]);
   };
   const double turn_only[6] = {0, 0, 0, 2e-3, 1e-3, -1e-3};
   const Panel rotated = perturb_panel(p, turn_only);
@@ -435,7 +463,6 @@ TEST(the_parallax_jacobian_is_not_just_the_pixel_size) {
 // the two Jacobians, whole
 // --------------------------------------------------------------------------
 
-
 namespace {
 
 // A reflection table of predictions from the real geometry, so the comparison
@@ -463,7 +490,7 @@ Table table_from(const Experiment &e, double d_min) {
   return t;
 }
 
-}  // namespace
+} // namespace
 
 TEST(the_two_jacobians_agree_where_a_finite_difference_is_valid) {
   // The whole Jacobian, not one reflection at a time: crystal, detector and
@@ -539,4 +566,4 @@ TEST(analytic_and_numerical_refinement_reach_the_same_model) {
                0.0, 1e-3, "same detector origin");
 }
 
-}  // namespace mxi
+} // namespace mxi

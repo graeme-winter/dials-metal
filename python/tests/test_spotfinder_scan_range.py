@@ -27,9 +27,7 @@ hdf5plugin = pytest.importorskip("hdf5plugin")
 
 from mxeq import refl
 
-BINARY = os.environ.get("MXI_FIND") or shutil.which(
-    "mxi_find"
-)
+BINARY = os.environ.get("MXI_FIND") or shutil.which("mxi_find")
 pytestmark = pytest.mark.skipif(
     not BINARY, reason="mxi_find is not built or not on PATH"
 )
@@ -44,13 +42,16 @@ def series(directory, frames, planted):
     rng = np.random.default_rng(0)
     with h5py.File(data, "w") as f:
         d = f.create_dataset(
-            "data", shape=(frames, 64, 64), dtype="u2", chunks=(1, 64, 64),
+            "data",
+            shape=(frames, 64, 64),
+            dtype="u2",
+            chunks=(1, 64, 64),
             **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"),
         )
         for i in range(frames):
             frame = rng.poisson(0.1, (64, 64)).astype("u2")
             y = planted(i)
-            frame[y:y + 3, 20:23] += 400
+            frame[y : y + 3, 20:23] += 400
             d[i] = frame
     with h5py.File(master, "w") as f:
         layout = h5py.VirtualLayout(shape=(frames, 64, 64), dtype="u2")

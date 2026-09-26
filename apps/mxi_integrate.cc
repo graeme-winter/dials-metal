@@ -1,7 +1,8 @@
 // mxi_integrate: summation integration on real images.
 //
 //   mxi_integrate integrated.expt master.nxs -o mine.refl --d-min 2.0
-//   mxi_integrate ... --save-shoeboxes            # keep the pixels and the mask
+//   mxi_integrate ... --save-shoeboxes            # keep the pixels and the
+//   mask
 //
 // Predicts, builds each reflection's measurement box, fills it from the
 // images, fits the background and sums the foreground. The output is a DIALS
@@ -15,27 +16,27 @@
 
 #include <algorithm>
 #include <array>
-#include <condition_variable>
-#include <mutex>
-#include <thread>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "../src/expt.hh"
+#include "../src/refl.hh"
 #include "args.hh"
 #include "background.hh"
-#include "../src/expt.hh"
 #include "integrate.hh"
 #include "mask.hh"
 #include "predict.hh"
 #include "profile_model.hh"
-#include "../src/refl.hh"
 #include "reference.hh"
 #include "shoebox.hh"
 
@@ -58,7 +59,6 @@ double now_wall() {
       .count();
 }
 
-
 //: Frames decompressed ahead of the loop that consumes them.
 //:
 //: Decompressing is half of a large integration -- 158 of 310 seconds on ten
@@ -78,7 +78,7 @@ double now_wall() {
 //: MB and running ahead without limit would be a way to exhaust memory
 //: instead of time.
 class FrameQueue {
- public:
+public:
   struct Decoded {
     std::int64_t number = -1;
     unsigned bit_depth = 0;
@@ -132,7 +132,8 @@ class FrameQueue {
     arrived_.wait(held, [&] {
       return ready_.count(number) > 0 || missing_.count(number) > 0 || stop_;
     });
-    if (stop_) return false;
+    if (stop_)
+      return false;
     const auto found = ready_.find(number);
     if (found == ready_.end()) {
       missing_.erase(number);
@@ -151,7 +152,7 @@ class FrameQueue {
     room_.notify_all();
   }
 
- private:
+private:
   std::mutex lock_;
   std::condition_variable arrived_;
   std::condition_variable room_;
@@ -173,15 +174,18 @@ void usage(const char *program) {
       "                    if given, else taken from EXPT's profile block\n"
       "  --n-sigma N       foreground spans plus and minus N sigma (3)\n"
       "  --box-scale S     box is S times wider than the foreground (1.9)\n"
-      "  --min-zeta Z      skip reflections nearer the rotation axis than this\n"
-      "                    (0.05). A reflection's extent in phi goes as 1/|zeta|,\n"
+      "  --min-zeta Z      skip reflections nearer the rotation axis than "
+      "this\n"
+      "                    (0.05). A reflection's extent in phi goes as "
+      "1/|zeta|,\n"
       "                    so the smallest are forty images deep\n"
       "  --d-min D         resolution limit\n"
       "  --first-image N --last-image N   restrict to part of the scan\n"
       "  --gain G          detector gain, counts per photon (1)\n"
 
       "  --save-shoeboxes  keep the pixels and the mask in the output\n"
-      "  --threads N       threads fetching and decompressing frames; 0 is one\n"
+      "  --threads N       threads fetching and decompressing frames; 0 is "
+      "one\n"
       "                    per core, 1 is none (0)\n"
       "  --window N        frames read per chunk (64); boxes stay open across\n"
       "                    chunks, so this bounds memory, not re-reading\n"
@@ -194,7 +198,8 @@ void usage(const char *program) {
       "  --scan-blocks N   the scan divided N ways as well (5)\n"
       "  --reference-signal S   learn from reflections above S sigma (10)\n"
       "  --least-measured F  a fit needs this fraction of the reflection to\n"
-      "                    have been recorded (0.6); below it the intensity is\n"
+      "                    have been recorded (0.6); below it the intensity "
+      "is\n"
       "                    written but not flagged as fitted\n"
       "  --save-profiles F the learned reference profiles, as text\n"
       "  --timing          where the time went, by phase\n",
@@ -208,13 +213,33 @@ struct Frame {
   std::size_t slow = 0;
 };
 
-}  // namespace
+} // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {
-      "-o",          "--sigma-b",    "--sigma-m",   "--n-sigma",
-      "--box-scale", "--d-min",      "--first-image", "--last-image",
-      "--gain",      "--save-shoeboxes", "--images", "--timing", "--threads", "--window", "--max-boxes", "--grid-points", "--subdivisions", "--regions", "--scan-blocks", "--reference-signal", "--summation-only", "--save-profiles", "--min-zeta", "--least-measured"};
+  const std::set<std::string> known = {"-o",
+                                       "--sigma-b",
+                                       "--sigma-m",
+                                       "--n-sigma",
+                                       "--box-scale",
+                                       "--d-min",
+                                       "--first-image",
+                                       "--last-image",
+                                       "--gain",
+                                       "--save-shoeboxes",
+                                       "--images",
+                                       "--timing",
+                                       "--threads",
+                                       "--window",
+                                       "--max-boxes",
+                                       "--grid-points",
+                                       "--subdivisions",
+                                       "--regions",
+                                       "--scan-blocks",
+                                       "--reference-signal",
+                                       "--summation-only",
+                                       "--save-profiles",
+                                       "--min-zeta",
+                                       "--least-measured"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
@@ -284,7 +309,8 @@ int run_program(int argc, char **argv) {
       if (strong_boxes.empty()) {
         std::fprintf(stderr,
                      "mxi_integrate: %s has no shoeboxes, so the profile model "
-                     "cannot be estimated from it\n", strong_path.c_str());
+                     "cannot be estimated from it\n",
+                     strong_path.c_str());
         return 1;
       }
       const Column &s1_in = strong.at("s1");
@@ -292,14 +318,17 @@ int run_program(int argc, char **argv) {
       std::vector<Shoebox> selected;
       std::vector<Vec3> beams;
       std::vector<RangeSample> samples;
-      for (std::size_t i = 0; i < strong.nrows && i < strong_boxes.size(); ++i) {
+      for (std::size_t i = 0; i < strong.nrows && i < strong_boxes.size();
+           ++i) {
         if (strong.has("flags") &&
             (strong.at("flags").integer(i) & flag::kUsedInRefinement) == 0) {
           continue;
         }
         const Vec3 beam{s1_in.real(i, 0), s1_in.real(i, 1), s1_in.real(i, 2)};
-        if (std::fabs(compute_zeta(e, beam)) < 0.05) continue;
-        if (!has_prediction(strong, i)) continue;
+        if (std::fabs(compute_zeta(e, beam)) < 0.05)
+          continue;
+        if (!has_prediction(strong, i))
+          continue;
         selected.push_back(strong_boxes[i]);
         beams.push_back(beam);
         for (const RangeSample &sample :
@@ -309,16 +338,21 @@ int run_program(int argc, char **argv) {
         }
       }
       std::size_t used = 0;
-      if (!(sigma_b > 0.0)) sigma_b = beam_divergence(e, selected, beams, &used);
+      if (!(sigma_b > 0.0))
+        sigma_b = beam_divergence(e, selected, beams, &used);
       if (!(sigma_m > 0.0)) {
-        sigma_m = reflecting_range(samples, Scan::radians(e.scan.osc_width), 0.0);
+        sigma_m =
+            reflecting_range(samples, Scan::radians(e.scan.osc_width), 0.0);
       }
       source = "estimated from the strong spots";
     }
     if ((!(sigma_b > 0.0) || !(sigma_m > 0.0)) && experiments.profile.present) {
-      if (!(sigma_b > 0.0)) sigma_b = experiments.profile.sigma_b;
-      if (!(sigma_m > 0.0)) sigma_m = experiments.profile.sigma_m;
-      if (!(n_sigma > 0.0)) n_sigma = experiments.profile.n_sigma;
+      if (!(sigma_b > 0.0))
+        sigma_b = experiments.profile.sigma_b;
+      if (!(sigma_m > 0.0))
+        sigma_m = experiments.profile.sigma_m;
+      if (!(n_sigma > 0.0))
+        n_sigma = experiments.profile.n_sigma;
       source = "the profile block of the .expt";
     }
     if (!(sigma_b > 0.0) || !(sigma_m > 0.0)) {
@@ -377,10 +411,12 @@ int run_program(int argc, char **argv) {
     }
     std::printf("%s\n", images->describe().c_str());
 
-    std::size_t workers = static_cast<std::size_t>(args.number("--threads", 0.0));
+    std::size_t workers =
+        static_cast<std::size_t>(args.number("--threads", 0.0));
     if (workers == 0) {
       workers = std::thread::hardware_concurrency();
-      if (workers == 0) workers = 1;
+      if (workers == 0)
+        workers = 1;
     }
 
     PredictOptions predict_options;
@@ -440,7 +476,8 @@ int run_program(int argc, char **argv) {
     for (const auto &entry : refused) {
       std::printf("  %zu %s\n", entry.second, entry.first.c_str());
     }
-    if (planned.empty()) return 1;
+    if (planned.empty())
+      return 1;
 
     // In order of first image, so a block is a contiguous run of this vector.
     std::sort(planned.begin(), planned.end(),
@@ -463,7 +500,8 @@ int run_program(int argc, char **argv) {
     // what the block size was trying to bound anyway.
     Table out;
     out.nrows = planned.size();
-    Column &miller = out.int_column("miller_index", "cctbx::miller::index<>", 3);
+    Column &miller =
+        out.int_column("miller_index", "cctbx::miller::index<>", 3);
     Column &panel_column = out.int_column("panel", "std::size_t", 1);
     Column &id = out.int_column("id", "int", 1);
     Column &imageset = out.int_column("imageset_id", "int", 1);
@@ -497,7 +535,8 @@ int run_program(int argc, char **argv) {
     // Not a DIALS column. For post-analysis of how well positions were
     // predicted, which is otherwise a join and a subtraction every time.
     Column &res_px = out.real_column("xyzres.px.value", "vec3<double>", 3);
-    Column &res_px_var = out.real_column("xyzres.px.variance", "vec3<double>", 3);
+    Column &res_px_var =
+        out.real_column("xyzres.px.variance", "vec3<double>", 3);
     Column &iprf = out.real_column("intensity.prf.value", "double", 1);
     Column &iprf_var = out.real_column("intensity.prf.variance", "double", 1);
     Column &prf_cc = out.real_column("profile.correlation", "double", 1);
@@ -518,7 +557,8 @@ int run_program(int argc, char **argv) {
     // Saved shoeboxes come out in the order they close, which is not the order
     // of the table, so they are held by row and encoded at the end.
     std::vector<Shoebox> saved;
-    if (save) saved.resize(planned.size());
+    if (save)
+      saved.resize(planned.size());
 
     std::unique_ptr<series::Reader> reader = images->reader();
     // The keys, in the order the series gives them. Reading each one to build
@@ -569,7 +609,8 @@ int run_program(int argc, char **argv) {
       // module edge.
       flags.ints[row] = flag::kPredicted | summation_flags(r);
       entering.ints[row] = p.s1.dot(axis.cross(s0)) > 0.0 ? 1 : 0;
-      for (int k = 0; k < 6; ++k) bbox.ints[row * 6 + k] = box->bbox[k];
+      for (int k = 0; k < 6; ++k)
+        bbox.ints[row * 6 + k] = box->bbox[k];
       n_fg.ints[row] = static_cast<std::int64_t>(r.n_foreground);
       n_bg.ints[row] = static_cast<std::int64_t>(r.n_background);
       n_val.ints[row] = static_cast<std::int64_t>(r.n_valid);
@@ -580,7 +621,8 @@ int run_program(int argc, char **argv) {
       cal_mm.reals[row * 3 + 0] = mm.first;
       cal_mm.reals[row * 3 + 1] = mm.second;
       cal_mm.reals[row * 3 + 2] = p.phi;
-      for (int k = 0; k < 3; ++k) s1_column.reals[row * 3 + k] = p.s1[k];
+      for (int k = 0; k < 3; ++k)
+        s1_column.reals[row * 3 + k] = p.s1[k];
       isum.reals[row] = r.intensity;
       ivar.reals[row] = r.variance;
       bmean.reals[row] = r.background_mean;
@@ -588,12 +630,13 @@ int run_program(int argc, char **argv) {
       bsumvar.reals[row] = r.background_sum_variance;
       qe_column.reals[row] = quantum_efficiency(panel, p.s1);
       lp_column.reals[row] = lorentz_polarization(e.beam, e.goniometer, p.s1);
-      d_column.reals[row] = e.crystal ? resolution(*e.crystal, p.h, p.k, p.l) : 0.0;
+      d_column.reals[row] =
+          e.crystal ? resolution(*e.crystal, p.h, p.k, p.l) : 0.0;
       const double z_of = compute_zeta(e, p.s1);
       zeta_column.reals[row] = z_of;
-      part_column.reals[row] = partiality(e.scan, p.phi, z_of,
-                                         mask_options.sigma_m, box->bbox[4],
-                                         box->bbox[5]);
+      part_column.reals[row] =
+          partiality(e.scan, p.phi, z_of, mask_options.sigma_m, box->bbox[4],
+                     box->bbox[5]);
       // Every reflection here is its own, since nothing splits one across two
       // rows; DIALS uses this to tie the pieces of a split reflection together.
       partial_id.ints[row] = static_cast<std::int64_t>(row);
@@ -606,9 +649,9 @@ int run_program(int argc, char **argv) {
           r.centroid_variance_fast * panel.pixel_size[0] * panel.pixel_size[0];
       obs_mm_var.reals[row * 3 + 1] =
           r.centroid_variance_slow * panel.pixel_size[1] * panel.pixel_size[1];
-      obs_mm_var.reals[row * 3 + 2] =
-          r.centroid_variance_z * Scan::radians(e.scan.osc_width) *
-          Scan::radians(e.scan.osc_width);
+      obs_mm_var.reals[row * 3 + 2] = r.centroid_variance_z *
+                                      Scan::radians(e.scan.osc_width) *
+                                      Scan::radians(e.scan.osc_width);
       const double of = r.centroid_valid ? r.centroid_fast : p.px_fast;
       const double os = r.centroid_valid ? r.centroid_slow : p.px_slow;
       const double oz = r.centroid_valid ? r.centroid_z : p.z;
@@ -674,17 +717,20 @@ int run_program(int argc, char **argv) {
         static_cast<std::size_t>(std::max(1.0, args.number("--window", 64.0)));
     // A cap on the boxes opened in one chunk, which shortens the chunk rather
     // than dropping boxes when it bites.
-    const std::size_t max_boxes =
-        static_cast<std::size_t>(std::max(1.0, args.number("--max-boxes", 20000.0)));
-    std::printf("%zu threads, chunks of %zu frames, at most %zu boxes opened a chunk\n",
-                workers, window, max_boxes);
+    const std::size_t max_boxes = static_cast<std::size_t>(
+        std::max(1.0, args.number("--max-boxes", 20000.0)));
+    std::printf(
+        "%zu threads, chunks of %zu frames, at most %zu boxes opened a chunk\n",
+        workers, window, max_boxes);
 
     //: Run `count` units of work over the pool, by index.
     const auto in_parallel = [&](std::size_t count, auto &&body) {
-      if (count == 0) return;
+      if (count == 0)
+        return;
       const std::size_t n = std::min(workers, count);
       if (n <= 1) {
-        for (std::size_t i = 0; i < count; ++i) body(i);
+        for (std::size_t i = 0; i < count; ++i)
+          body(i);
         return;
       }
       std::atomic<std::size_t> next_unit{0};
@@ -693,13 +739,16 @@ int run_program(int argc, char **argv) {
       const auto run = [&]() {
         for (;;) {
           const std::size_t i = next_unit.fetch_add(1);
-          if (i >= count) break;
+          if (i >= count)
+            break;
           body(i);
         }
       };
-      for (std::size_t t = 1; t < n; ++t) pool.emplace_back(run);
+      for (std::size_t t = 1; t < n; ++t)
+        pool.emplace_back(run);
       run();
-      for (std::thread &t : pool) t.join();
+      for (std::thread &t : pool)
+        t.join();
     };
 
     // TWO PASSES OVER THE IMAGES
@@ -715,7 +764,8 @@ int run_program(int argc, char **argv) {
     grid_spec.sigma_d = sigma_b;
     grid_spec.sigma_m = sigma_m;
     grid_spec.half_width = mask_options.n_sigma;
-    grid_spec.subdivisions = static_cast<int>(args.number("--subdivisions", 5.0));
+    grid_spec.subdivisions =
+        static_cast<int>(args.number("--subdivisions", 5.0));
     ReferenceProfiles reference = make_reference(
         grid_spec, static_cast<int>(args.number("--regions", 3.0)),
         static_cast<int>(args.number("--scan-blocks", 5.0)), e.detector.size(),
@@ -761,7 +811,8 @@ int run_program(int argc, char **argv) {
       // box not yet opened would miss the frames the chunk reads.
       std::size_t stop = at;
       while (stop < planned.size() && planned[stop].bbox[4] < chunk_limit) {
-        if (stop - at >= max_boxes && planned[stop].bbox[4] > chunk_start) break;
+        if (stop - at >= max_boxes && planned[stop].bbox[4] > chunk_start)
+          break;
         ++stop;
       }
       const std::int32_t chunk_end =
@@ -794,11 +845,13 @@ int run_program(int argc, char **argv) {
       for (std::size_t i = 0; i < active.size(); ++i) {
         const std::int32_t lo = std::max(active[i].bbox[4], chunk_start);
         const std::int32_t hi = std::min(active[i].bbox[5], chunk_end);
-        for (std::int32_t z = lo; z < hi; ++z) touching[z].push_back(i);
+        for (std::int32_t z = lo; z < hi; ++z)
+          touching[z].push_back(i);
       }
       std::vector<std::int32_t> frame_numbers;
       frame_numbers.reserve(touching.size());
-      for (const auto &entry : touching) frame_numbers.push_back(entry.first);
+      for (const auto &entry : touching)
+        frame_numbers.push_back(entry.first);
 
       // Fetch, decompress and fill, in parallel over frames. Each frame writes
       // only its own z plane of each box it touches, so two frames of one box
@@ -806,7 +859,8 @@ int run_program(int argc, char **argv) {
       std::atomic<std::size_t> frames_done{0};
       std::atomic<std::size_t> bad_here{0};
       std::atomic<std::size_t> unread{0};
-      std::vector<double> fetch_by_thread(std::max<std::size_t>(workers, 1), 0.0);
+      std::vector<double> fetch_by_thread(std::max<std::size_t>(workers, 1),
+                                          0.0);
       std::vector<double> decompress_by_thread(fetch_by_thread.size(), 0.0);
       std::vector<double> fill_by_thread(fetch_by_thread.size(), 0.0);
       std::atomic<std::size_t> thread_slot{0};
@@ -821,7 +875,8 @@ int run_program(int argc, char **argv) {
           first = false;
         }
         const std::int32_t z = frame_numbers[which];
-        if (z < 0 || static_cast<std::size_t>(z) >= keys.size()) return;
+        if (z < 0 || static_cast<std::size_t>(z) >= keys.size())
+          return;
         series::Frame raw;
         const double t0 = now_wall();
         if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) {
@@ -850,7 +905,8 @@ int run_program(int argc, char **argv) {
           std::size_t bad_count = 0;
           for (std::size_t i : touching[z]) {
             Shoebox &box = active[i];
-            if (box.data.empty()) continue;
+            if (box.data.empty())
+              continue;
             const std::int32_t zi = z - box.bbox[4];
             for (std::int32_t y = 0; y < box.ny(); ++y) {
               const std::size_t row =
@@ -874,8 +930,8 @@ int run_program(int argc, char **argv) {
                   // reflection with a third of its foreground in a gap report
                   // two thirds of its intensity, which is exactly what profile
                   // fitting exists to avoid.
-                  box.mask[into] &= static_cast<std::uint8_t>(
-                      ~shoebox_mask::kValid);
+                  box.mask[into] &=
+                      static_cast<std::uint8_t>(~shoebox_mask::kValid);
                   ++bad_count;
                 } else {
                   box.data[into] = static_cast<float>(v);
@@ -906,7 +962,8 @@ int run_program(int argc, char **argv) {
       // counting frames that cannot be read made a slice of 300 frames read
       // twice report "356 wanted, each read 1.69 times" instead of 2.00.
       for (const auto &entry : touching) {
-        if (entry.first >= 0 && static_cast<std::size_t>(entry.first) < keys.size()) {
+        if (entry.first >= 0 &&
+            static_cast<std::size_t>(entry.first) < keys.size()) {
           wanted.insert(entry.first);
         }
       }
@@ -920,7 +977,8 @@ int run_program(int argc, char **argv) {
       // difference between work and waiting is visible.
       const auto summed = [](const std::vector<double> &v) {
         double all = 0.0;
-        for (double x : v) all += x;
+        for (double x : v)
+          all += x;
         return all;
       };
       t_fetch += summed(fetch_by_thread);
@@ -953,8 +1011,10 @@ int run_program(int argc, char **argv) {
         const double t_close_start = now_wall();
         std::atomic<std::size_t> done{0};
         in_parallel(count, [&](std::size_t i) {
-          if (boxes[i].data.empty()) return;
-          if (close(rows[i], &boxes[i])) done.fetch_add(1);
+          if (boxes[i].data.empty())
+            return;
+          if (close(rows[i], &boxes[i]))
+            done.fetch_add(1);
         });
         integrated += done.load();
         t_integrate += now_wall() - t_close_start;
@@ -973,28 +1033,35 @@ int run_program(int argc, char **argv) {
           const std::size_t lanes = std::max<std::size_t>(workers, 1);
           std::vector<ReferenceProfiles> mine(lanes, reference);
           for (ReferenceProfiles &r : mine) {
-            for (std::vector<double> &p : r.profile) std::fill(p.begin(), p.end(), 0.0);
+            for (std::vector<double> &p : r.profile)
+              std::fill(p.begin(), p.end(), 0.0);
             std::fill(r.spots.begin(), r.spots.end(), 0);
           }
           std::atomic<std::size_t> lane{0};
           std::atomic<std::size_t> learned{0};
           in_parallel(count, [&](std::size_t i) {
             thread_local std::size_t slot = lanes;
-            if (slot == lanes) slot = lane.fetch_add(1) % lanes;
-            if (boxes[i].data.empty()) return;
+            if (slot == lanes)
+              slot = lane.fetch_add(1) % lanes;
+            if (boxes[i].data.empty())
+              return;
             const std::size_t row = rows[i];
             const double signal = isum.reals[row];
             const double sigma = std::sqrt(std::max(ivar.reals[row], 1e-12));
-            if (!(signal > least_signal * sigma)) return;
-            if (part_column.reals[row] < 0.99) return;
+            if (!(signal > least_signal * sigma))
+              return;
+            if (part_column.reals[row] < 0.99)
+              return;
             const Prediction &q = *planned[row].prediction;
             const Transformed t =
                 transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
-            if (!t.valid || t.outside > 0.05) return;
+            if (!t.valid || t.outside > 0.05)
+              return;
             const std::size_t region =
                 reference.region_of(panel, static_cast<std::size_t>(q.panel),
                                     q.px_fast, q.px_slow, q.z);
-            if (add_reference(&mine[slot], region, t)) learned.fetch_add(1);
+            if (add_reference(&mine[slot], region, t))
+              learned.fetch_add(1);
           });
           for (const ReferenceProfiles &r : mine) {
             for (std::size_t g = 0; g < reference.profile.size(); ++g) {
@@ -1012,7 +1079,8 @@ int run_program(int argc, char **argv) {
         const double t0 = now_wall();
         std::atomic<std::size_t> done{0};
         in_parallel(count, [&](std::size_t i) {
-          if (boxes[i].data.empty()) return;
+          if (boxes[i].data.empty())
+            return;
           const std::size_t row = rows[i];
           const Prediction &q = *planned[row].prediction;
           // The background the GLM found in the first pass, put back so the
@@ -1039,19 +1107,22 @@ int run_program(int argc, char **argv) {
           // claimed a variance 0.35 of the summed one at high resolution where
           // DIALS has 0.84 -- errors too small by 1.6, and everything weighted
           // by them wrong.
-          const std::vector<double> on_pixels = profile_on_pixels(
-              e, boxes[i], q.s1, q.phi, grid_spec, local);
-          if (on_pixels.empty()) return;
+          const std::vector<double> on_pixels =
+              profile_on_pixels(e, boxes[i], q.s1, q.phi, grid_spec, local);
+          if (on_pixels.empty())
+            return;
           const ProfileFit fit =
               fit_on_pixels(boxes[i], on_pixels, integrate_options.gain);
-          if (!fit.valid) return;
+          if (!fit.valid)
+            return;
           // A fit is an extrapolation when part of the reflection is missing,
           // and past some point it is guesswork dressed as a measurement. The
           // intensity is still written, so it can be looked at; the flag that
           // says it was profile fitted is not, so nothing downstream merges it
           // by accident.
           measured.reals[row] = fit.measured;
-          if (fit.measured < least_measured) return;
+          if (fit.measured < least_measured)
+            return;
           iprf.reals[row] = fit.intensity;
           iprf_var.reals[row] = fit.variance;
           prf_cc.reals[row] = fit.correlation;
@@ -1103,7 +1174,8 @@ int run_program(int argc, char **argv) {
             std::fprintf(f, "panels %zu\n", reference.panels);
             for (std::size_t r = 0; r < reference.profile.size(); ++r) {
               std::fprintf(f, "profile %zu spots %zu\n", r, reference.spots[r]);
-              for (double v : reference.profile[r]) std::fprintf(f, "%.9g\n", v);
+              for (double v : reference.profile[r])
+                std::fprintf(f, "%.9g\n", v);
             }
             std::fclose(f);
             std::printf("wrote %s\n", profile_path.c_str());
@@ -1111,7 +1183,8 @@ int run_program(int argc, char **argv) {
         }
         std::size_t empty = 0;
         for (std::size_t r = 0; r < reference.spots.size(); ++r) {
-          if (reference.spots[r] < 10) ++empty;
+          if (reference.spots[r] < 10)
+            ++empty;
         }
         std::printf(
             "learned %zu reference profiles from %zu reflections (%zu of %zu "
@@ -1119,9 +1192,8 @@ int run_program(int argc, char **argv) {
             reference.region_count() - empty, references_used, empty,
             reference.region_count());
         if (references_used == 0) {
-          std::printf(
-              "  nothing to learn from, so no profile fitting: raise "
-              "--reference-signal or check the summation\n");
+          std::printf("  nothing to learn from, so no profile fitting: raise "
+                      "--reference-signal or check the summation\n");
         } else {
           pass = 1;
           at = 0;
@@ -1130,9 +1202,11 @@ int run_program(int argc, char **argv) {
         }
       }
     }
-    if (save) shoebox_bytes = encode_shoeboxes(saved);
+    if (save)
+      shoebox_bytes = encode_shoeboxes(saved);
     std::printf("at most %zu shoeboxes open at once\n", most_open);
-    if (fitting) std::printf("%zu of %zu profile fitted\n", fitted, planned.size());
+    if (fitting)
+      std::printf("%zu of %zu profile fitted\n", fitted, planned.size());
 
     std::printf("%zu frames read (%zu wanted by a shoebox, each read %.2f "
                 "times), %zu bad pixels masked\n",
@@ -1158,7 +1232,8 @@ int run_program(int argc, char **argv) {
       column.bytes = std::move(shoebox_bytes);
       out.set_opaque("shoebox", std::move(column));
     }
-    if (!e.identifier.empty()) out.identifiers[0] = e.identifier;
+    if (!e.identifier.empty())
+      out.identifiers[0] = e.identifier;
 
     const std::string path = args.value("-o", "integrated.refl");
     const double t_write_start = now_wall();
@@ -1200,6 +1275,6 @@ int run_program(int argc, char **argv) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi
 
 int main(int argc, char **argv) { return mxi::run_program(argc, argv); }

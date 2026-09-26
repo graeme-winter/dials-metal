@@ -31,7 +31,7 @@ struct Prediction {
   int h = 0, k = 0, l = 0;
   bool entering = false;
   std::size_t panel = 0;
-  double phi = 0.0;                       // radians
+  double phi = 0.0; // radians
   double px_fast = 0.0, px_slow = 0.0, z = 0.0;
   Vec3 s1;
 };
@@ -74,9 +74,10 @@ std::vector<Prediction> predict(const Experiment &e,
 // Predict a given list of Miller indices, whether or not they are observable.
 // Used by the tests, and by anything that wants to ask "where would this one
 // have been" without enumerating a whole sphere.
-std::vector<Prediction> predict_indices(
-    const Experiment &e, const std::vector<std::array<int, 3>> &indices,
-    const PredictOptions &options = {});
+std::vector<Prediction>
+predict_indices(const Experiment &e,
+                const std::vector<std::array<int, 3>> &indices,
+                const PredictOptions &options = {});
 
 // The Miller index box that covers a given resolution, from the real-space
 // cell: |h_i| <= |a_i| / d_min, because h_i is the dot product of the i-th
@@ -84,4 +85,4 @@ std::vector<Prediction> predict_indices(
 std::array<int, 3> index_bounds(const Crystal &crystal, double d_min,
                                 int max_index);
 
-}  // namespace mxi
+} // namespace mxi

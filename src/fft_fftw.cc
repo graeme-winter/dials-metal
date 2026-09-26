@@ -31,11 +31,13 @@ namespace {
 // planning only, as the documentation asks.
 std::mutex g_plan_lock;
 
-}  // namespace
+} // namespace
 
 void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
-  if (n == 0) return;
-  if (grid.size() != n * n * n) return;
+  if (n == 0)
+    return;
+  if (grid.size() != n * n * n)
+    return;
 
   // fftw_complex and std::complex<double> are required to have the same
   // layout, which is what makes this a cast rather than a copy.
@@ -56,7 +58,8 @@ void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
       std::size_t wanted = g_fft_threads;
       if (wanted == 0) {
         wanted = std::thread::hardware_concurrency();
-        if (wanted == 0) wanted = 1;
+        if (wanted == 0)
+          wanted = 1;
       }
       fftw_plan_with_nthreads(static_cast<int>(wanted));
     }
@@ -77,7 +80,8 @@ void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
                             sign >= 0 ? FFTW_BACKWARD : FFTW_FORWARD,
                             FFTW_ESTIMATE);
   }
-  if (plan == nullptr) return;
+  if (plan == nullptr)
+    return;
   fftw_execute(plan);
   {
     const std::lock_guard<std::mutex> held(g_plan_lock);
@@ -85,4 +89,4 @@ void fft3d(std::vector<std::complex<double>> &grid, std::size_t n, int sign) {
   }
 }
 
-}  // namespace mxi
+} // namespace mxi

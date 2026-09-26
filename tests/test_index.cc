@@ -13,9 +13,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <map>
 #include <tuple>
-#include <complex>
 
 #include "../src/expt.hh"
 #include "../src/fft.hh"
@@ -94,7 +94,7 @@ void check_same_cell(const UnitCell &got, const UnitCell &want,
                "cell volume");
 }
 
-}  // namespace
+} // namespace
 
 TEST(index_recovers_a_cubic_cell_from_its_own_predictions) {
   Experiment truth = synthetic(78.0);
@@ -217,7 +217,8 @@ TEST(index_writes_miller_indices_that_agree_with_the_truth) {
     const Vec3 h{static_cast<double>(miller.integer(i, 0)),
                  static_cast<double>(miller.integer(i, 1)),
                  static_cast<double>(miller.integer(i, 2))};
-    if (h.norm_squared() == 0.0) continue;
+    if (h.norm_squared() == 0.0)
+      continue;
     if (rows.size() == 2) {
       const Vec3 p{static_cast<double>(miller.integer(rows[0], 0)),
                    static_cast<double>(miller.integer(rows[0], 1)),
@@ -225,33 +226,33 @@ TEST(index_writes_miller_indices_that_agree_with_the_truth) {
       const Vec3 q{static_cast<double>(miller.integer(rows[1], 0)),
                    static_cast<double>(miller.integer(rows[1], 1)),
                    static_cast<double>(miller.integer(rows[1], 2))};
-      if (std::abs(Mat3::from_rows(p, q, h).determinant()) < 0.5) continue;
+      if (std::abs(Mat3::from_rows(p, q, h).determinant()) < 0.5)
+        continue;
     }
     rows.push_back(i);
   }
   check::equal(static_cast<long long>(rows.size()), 3,
                "three independent indexed reflections");
 
-  Mat3 found = Mat3::from_rows(
-      {static_cast<double>(miller.integer(rows[0], 0)),
-       static_cast<double>(miller.integer(rows[0], 1)),
-       static_cast<double>(miller.integer(rows[0], 2))},
-      {static_cast<double>(miller.integer(rows[1], 0)),
-       static_cast<double>(miller.integer(rows[1], 1)),
-       static_cast<double>(miller.integer(rows[1], 2))},
-      {static_cast<double>(miller.integer(rows[2], 0)),
-       static_cast<double>(miller.integer(rows[2], 1)),
-       static_cast<double>(miller.integer(rows[2], 2))});
-  Mat3 wanted = Mat3::from_rows(
-      {static_cast<double>(predictions[rows[0]].h),
-       static_cast<double>(predictions[rows[0]].k),
-       static_cast<double>(predictions[rows[0]].l)},
-      {static_cast<double>(predictions[rows[1]].h),
-       static_cast<double>(predictions[rows[1]].k),
-       static_cast<double>(predictions[rows[1]].l)},
-      {static_cast<double>(predictions[rows[2]].h),
-       static_cast<double>(predictions[rows[2]].k),
-       static_cast<double>(predictions[rows[2]].l)});
+  Mat3 found =
+      Mat3::from_rows({static_cast<double>(miller.integer(rows[0], 0)),
+                       static_cast<double>(miller.integer(rows[0], 1)),
+                       static_cast<double>(miller.integer(rows[0], 2))},
+                      {static_cast<double>(miller.integer(rows[1], 0)),
+                       static_cast<double>(miller.integer(rows[1], 1)),
+                       static_cast<double>(miller.integer(rows[1], 2))},
+                      {static_cast<double>(miller.integer(rows[2], 0)),
+                       static_cast<double>(miller.integer(rows[2], 1)),
+                       static_cast<double>(miller.integer(rows[2], 2))});
+  Mat3 wanted = Mat3::from_rows({static_cast<double>(predictions[rows[0]].h),
+                                 static_cast<double>(predictions[rows[0]].k),
+                                 static_cast<double>(predictions[rows[0]].l)},
+                                {static_cast<double>(predictions[rows[1]].h),
+                                 static_cast<double>(predictions[rows[1]].k),
+                                 static_cast<double>(predictions[rows[1]].l)},
+                                {static_cast<double>(predictions[rows[2]].h),
+                                 static_cast<double>(predictions[rows[2]].k),
+                                 static_cast<double>(predictions[rows[2]].l)});
 
   bool ok = false;
   const Mat3 transform = found.inverse(&ok) * wanted;
@@ -265,9 +266,11 @@ TEST(index_writes_miller_indices_that_agree_with_the_truth) {
     const Vec3 h{static_cast<double>(miller.integer(i, 0)),
                  static_cast<double>(miller.integer(i, 1)),
                  static_cast<double>(miller.integer(i, 2))};
-    if (h.norm_squared() == 0.0) continue;
+    if (h.norm_squared() == 0.0)
+      continue;
     ++tested;
-    const Vec3 mapped = Mat3::from_rows(h, {0, 0, 0}, {0, 0, 0}) * Vec3{0, 0, 0};
+    const Vec3 mapped =
+        Mat3::from_rows(h, {0, 0, 0}, {0, 0, 0}) * Vec3{0, 0, 0};
     (void)mapped;
     const Vec3 t{h.dot(transform.column(0)), h.dot(transform.column(1)),
                  h.dot(transform.column(2))};
@@ -278,13 +281,14 @@ TEST(index_writes_miller_indices_that_agree_with_the_truth) {
     }
   }
   check::is_true(tested > 500, "plenty to check");
-  check::is_true(static_cast<double>(agree) / static_cast<double>(tested) > 0.99,
+  check::is_true(static_cast<double>(agree) / static_cast<double>(tested) >
+                     0.99,
                  "one transform must explain nearly every index");
 }
 
 TEST(reduce_basis_shortens_without_changing_the_lattice) {
-  const Mat3 rows = Mat3::from_rows({10.0, 0.0, 0.0}, {90.0, 10.0, 0.0},
-                                    {30.0, 70.0, 10.0});
+  const Mat3 rows =
+      Mat3::from_rows({10.0, 0.0, 0.0}, {90.0, 10.0, 0.0}, {30.0, 70.0, 10.0});
   const Mat3 reduced = reduce_basis(rows);
   // Volume is the invariant: reduction is a unimodular change of basis.
   check::close(std::abs(reduced.determinant()), std::abs(rows.determinant()),
@@ -303,7 +307,8 @@ TEST(reduce_basis_leaves_an_already_reduced_cell_alone) {
       Mat3::from_rows({10.0, 0.0, 0.0}, {0.0, 11.0, 0.0}, {0.0, 0.0, 12.0});
   const Mat3 reduced = reduce_basis(rows);
   double length[3];
-  for (std::size_t i = 0; i < 3; ++i) length[i] = reduced.row(i).norm();
+  for (std::size_t i = 0; i < 3; ++i)
+    length[i] = reduced.row(i).norm();
   std::sort(length, length + 3);
   check::close(length[0], 10.0, 1e-9, "a");
   check::close(length[1], 11.0, 1e-9, "b");
@@ -383,8 +388,9 @@ TEST(macrocycles_keep_a_weak_population_from_dragging_the_model) {
 
   const Vec3 centre{2074.0, 2181.0, 0.0};
   for (std::size_t i = 0; i < good.nrows; ++i) {
-    for (std::size_t k = 0; k < 3; ++k) xyz.reals[i * 3 + k] = from.real(i, k);
-    signal.ints[i] = 30;  // strong
+    for (std::size_t k = 0; k < 3; ++k)
+      xyz.reals[i * 3 + k] = from.real(i, k);
+    signal.ints[i] = 30; // strong
   }
   for (std::size_t i = 0; i < n_bad; ++i) {
     const std::size_t row = good.nrows + i;
@@ -396,7 +402,7 @@ TEST(macrocycles_keep_a_weak_population_from_dragging_the_model) {
     xyz.reals[row * 3 + 0] = from.real(src, 0) + 0.2 * dx / std::fmax(r, 1.0);
     xyz.reals[row * 3 + 1] = from.real(src, 1) + 0.2 * dy / std::fmax(r, 1.0);
     xyz.reals[row * 3 + 2] = from.real(src, 2);
-    signal.ints[row] = 3;  // weak
+    signal.ints[row] = 3; // weak
   }
   (void)panel;
   (void)id;
@@ -439,7 +445,8 @@ TEST(the_transform_in_use_agrees_with_the_built_in) {
                  static_cast<double>(1ULL << 53) -
              0.5;
     };
-    for (auto &z : a) z = {uniform(), uniform()};
+    for (auto &z : a)
+      z = {uniform(), uniform()};
     std::vector<std::complex<double>> b = a;
 
     fft3d(a, n, +1);
@@ -472,7 +479,8 @@ TEST(max_cell_is_not_fooled_by_the_same_reflection_measured_again) {
   for (int h = -8; h <= 8; ++h) {
     for (int k = -8; k <= 8; ++k) {
       for (int l = -8; l <= 8; ++l) {
-        if (!h && !k && !l) continue;
+        if (!h && !k && !l)
+          continue;
         one.push_back({h * d, k * d, l * d});
       }
     }
@@ -494,8 +502,8 @@ TEST(max_cell_is_not_fooled_by_the_same_reflection_measured_again) {
     std::vector<int> groups;
     for (int turn = 0; turn < 10; ++turn) {
       for (const Vec3 &p : one) {
-        many.push_back({p.x + jitter(scale), p.y + jitter(scale),
-                        p.z + jitter(scale)});
+        many.push_back(
+            {p.x + jitter(scale), p.y + jitter(scale), p.z + jitter(scale)});
         groups.push_back(turn);
       }
     }
@@ -523,7 +531,7 @@ TEST(a_sweep_shorter_than_a_block_is_all_one_group) {
   e.scan.first_image = 1;
   e.scan.last_image = 20;
   e.scan.osc_start = 0.0;
-  e.scan.osc_width = 1.0;  // 20 degrees in total, inside one 30 degree block
+  e.scan.osc_width = 1.0; // 20 degrees in total, inside one 30 degree block
   ExperimentList list;
   list.experiments.push_back(e);
 
@@ -531,7 +539,7 @@ TEST(a_sweep_shorter_than_a_block_is_all_one_group) {
   t.nrows = 5;
   Column &obs = t.real_column("xyzobs.px.value", "vec3<double>", 3);
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    obs.reals[i * 3 + 2] = static_cast<double>(i) * 4.0;  // 0 to 16 degrees
+    obs.reals[i * 3 + 2] = static_cast<double>(i) * 4.0; // 0 to 16 degrees
   }
   const std::vector<int> groups = observation_groups(list, t);
   for (std::size_t i = 1; i < groups.size(); ++i) {
@@ -547,7 +555,7 @@ TEST(a_sweep_shorter_than_a_block_is_all_one_group) {
   e.scan.last_image = 360;
   list.experiments[0] = e;
   for (std::size_t i = 0; i < t.nrows; ++i) {
-    obs.reals[i * 3 + 2] = static_cast<double>(i) * 70.0;  // 0 to 280 degrees
+    obs.reals[i * 3 + 2] = static_cast<double>(i) * 70.0; // 0 to 280 degrees
   }
   const std::vector<int> spread = observation_groups(list, t);
   check::is_true(spread.front() != spread.back(),
@@ -572,7 +580,8 @@ TEST(a_reflection_is_seen_twice_in_one_rotation_and_the_blocks_know_it) {
   for (int h = -10; h <= 10; ++h) {
     for (int k = -10; k <= 10; ++k) {
       for (int l = -10; l <= 10; ++l) {
-        if (!h && !k && !l) continue;
+        if (!h && !k && !l)
+          continue;
         one.push_back({h * d, k * d, l * d});
       }
     }
@@ -594,8 +603,8 @@ TEST(a_reflection_is_seen_twice_in_one_rotation_and_the_blocks_know_it) {
     // The two passages of one reflection, a hundred and fifty degrees apart.
     for (double phi : {20.0, 170.0}) {
       for (const Vec3 &p : one) {
-        many.push_back({p.x + jitter(5e-4), p.y + jitter(5e-4),
-                        p.z + jitter(5e-4)});
+        many.push_back(
+            {p.x + jitter(5e-4), p.y + jitter(5e-4), p.z + jitter(5e-4)});
         const double angle = turn * 360.0 + phi;
         by_turn.push_back(static_cast<int>(angle / 360.0));
         by_block.push_back(static_cast<int>(angle / 30.0));
@@ -660,7 +669,8 @@ TEST(a_sweep_of_several_turns_predicts_each_reflection_once_per_turn) {
     const double images = static_cast<double>(e.scan.num_images());
     std::size_t off = 0;
     for (const Prediction &p : v) {
-      if (p.z < -1.0 || p.z > images + 1.0) ++off;
+      if (p.z < -1.0 || p.z > images + 1.0)
+        ++off;
     }
     check::equal(static_cast<long long>(off), 0, "and none is off the scan");
   }
@@ -727,7 +737,8 @@ TEST(a_scan_varying_crystal_also_predicts_once_per_turn) {
     std::vector<std::size_t> per_turn(static_cast<std::size_t>(turns), 0);
     for (const Prediction &p : v) {
       const int turn = static_cast<int>(p.z / 3600.0);
-      if (turn >= 0 && turn < turns) ++per_turn[static_cast<std::size_t>(turn)];
+      if (turn >= 0 && turn < turns)
+        ++per_turn[static_cast<std::size_t>(turn)];
     }
     for (std::size_t t = 0; t < per_turn.size(); ++t) {
       check::is_true(per_turn[t] > one / 2,
@@ -776,8 +787,8 @@ TEST(a_crystal_that_moves_does_not_collapse_its_turns_together) {
   const std::size_t points = static_cast<std::size_t>(3600 * turns) + 1;
   e.crystal->A_points.resize(points);
   for (std::size_t k = 0; k < points; ++k) {
-    const Mat3 wobble =
-        rotation({0.0, 0.0, 1.0}, 1e-4 * std::sin(static_cast<double>(k) * 1e-3));
+    const Mat3 wobble = rotation(
+        {0.0, 0.0, 1.0}, 1e-4 * std::sin(static_cast<double>(k) * 1e-3));
     e.crystal->A_points[k] = wobble * e.crystal->A;
   }
 
@@ -789,13 +800,15 @@ TEST(a_crystal_that_moves_does_not_collapse_its_turns_together) {
   // frames: those are a whole turn apart, or they are the same observation
   // predicted twice.
   std::map<std::tuple<int, int, int, bool>, std::vector<double>> groups;
-  for (const Prediction &q : v) groups[{q.h, q.k, q.l, q.entering}].push_back(q.z);
+  for (const Prediction &q : v)
+    groups[{q.h, q.k, q.l, q.entering}].push_back(q.z);
   std::size_t collapsed = 0;
   for (auto &entry : groups) {
     std::vector<double> &z = entry.second;
     std::sort(z.begin(), z.end());
     for (std::size_t i = 1; i < z.size(); ++i) {
-      if (z[i] - z[i - 1] < 5.0) ++collapsed;
+      if (z[i] - z[i - 1] < 5.0)
+        ++collapsed;
     }
   }
   check::equal(static_cast<long long>(collapsed), 0,
@@ -856,13 +869,15 @@ TEST(every_prediction_is_on_the_sphere_under_the_crystal_at_its_own_position) {
   for (const Prediction &q : v) {
     const Vec3 hkl{static_cast<double>(q.h), static_cast<double>(q.k),
                    static_cast<double>(q.l)};
-    const Vec3 s1 = s0 + e.goniometer.rotation_at(q.phi) * (e.setting_at(q.z) * hkl);
+    const Vec3 s1 =
+        s0 + e.goniometer.rotation_at(q.phi) * (e.setting_at(q.z) * hkl);
     const double miss = std::fabs(s1.norm() - radius) / radius;
     worst = std::max(worst, miss);
-    if (miss > 1e-5) ++off;
+    if (miss > 1e-5)
+      ++off;
   }
   check::equal(static_cast<long long>(off), 0,
                "every prediction is on the sphere under its own crystal");
 }
 
-}  // namespace mxi
+} // namespace mxi

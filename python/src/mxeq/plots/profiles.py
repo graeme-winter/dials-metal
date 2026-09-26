@@ -112,9 +112,7 @@ def draw_profiles(
             if (r // per_panel) % max(reference.blocks, 1) == block
         ]
         if not which:
-            raise ValueError(
-                f"no block {block}: the file has {reference.blocks}"
-            )
+            raise ValueError(f"no block {block}: the file has {reference.blocks}")
     n = len(which)
     middle = reference.side // 2
     fig, axes = plt.subplots(n, 3, figsize=(7.5, 2.5 * n), squeeze=False)

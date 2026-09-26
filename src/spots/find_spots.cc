@@ -281,10 +281,10 @@ private:
   void release() {
     if (data_ == nullptr)
       return;
-    // Spelled out for both builds. With the GPU compiled out, the dangling
-    // 'else' used here left a bare delete indented as though it belonged to
-    // the early return above it -- correct, and exactly the shape that gets
-    // edited wrongly by the next person to read it.
+      // Spelled out for both builds. With the GPU compiled out, the dangling
+      // 'else' used here left a bare delete indented as though it belonged to
+      // the early return above it -- correct, and exactly the shape that gets
+      // edited wrongly by the next person to read it.
 #ifdef SPOTFINDER_GPU
     if (pinned_) {
       gpu::host_free(data_);
@@ -557,10 +557,10 @@ int main(int argc, char **argv) {
         first = static_cast<std::uint64_t>(experiments.first_index);
         last = static_cast<std::uint64_t>(experiments.last_index);
       } else {
-        first = static_cast<std::uint64_t>(std::max<std::int64_t>(
-            experiments.first_image - 1, 0));
-        last = static_cast<std::uint64_t>(std::max<std::int64_t>(
-            experiments.last_image - 1, 0));
+        first = static_cast<std::uint64_t>(
+            std::max<std::int64_t>(experiments.first_image - 1, 0));
+        last = static_cast<std::uint64_t>(
+            std::max<std::int64_t>(experiments.last_image - 1, 0));
       }
       if (!source->restrict_frames(first, last)) {
         throw std::runtime_error(
@@ -750,10 +750,10 @@ int main(int argc, char **argv) {
       std::sort(waiting.begin(), waiting.end());
     }
 
-    const bool complete =
-        (restricted > 0 && dispatched.size() >= restricted) ||
-        (restricted == 0 && info.images > 0 && dispatched.size() >= info.images) ||
-        (source->finished() && added == 0);
+    const bool complete = (restricted > 0 && dispatched.size() >= restricted) ||
+                          (restricted == 0 && info.images > 0 &&
+                           dispatched.size() >= info.images) ||
+                          (source->finished() && added == 0);
     const bool timed_out = Clock::now() - progressed >
                            std::chrono::seconds(options.timeout_seconds);
     if (interrupted != 0 || complete || timed_out)

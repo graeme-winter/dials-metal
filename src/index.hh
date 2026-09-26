@@ -50,15 +50,15 @@ namespace mxi {
 struct IndexTiming {
   double reciprocal_points = 0.0;
   double max_cell = 0.0;
-  double candidate_vectors = 0.0;  //: the whole of it
-  double fft = 0.0;                //: the transform alone
-  double peak_search = 0.0;        //: the modulus, the peaks, the sort
+  double candidate_vectors = 0.0; //: the whole of it
+  double fft = 0.0;               //: the transform alone
+  double peak_search = 0.0;       //: the modulus, the peaks, the sort
   double choose_basis = 0.0;
   double fit_and_reduce = 0.0;
-  double macrocycles = 0.0;   //: all of the below together
-  double subset_copy = 0.0;   //: copying the table and picking the strong half
-  double refine = 0.0;        //: refinement proper
-  double reassign = 0.0;      //: indices reassigned from the refined model
+  double macrocycles = 0.0; //: all of the below together
+  double subset_copy = 0.0; //: copying the table and picking the strong half
+  double refine = 0.0;      //: refinement proper
+  double reassign = 0.0;    //: indices reassigned from the refined model
   //: Triples of candidate vectors actually scored, and how many were skipped
   //: as too nearly degenerate. The cost of choosing a basis is this count
   //: times the number of reflections, and the count depends on the data: the
@@ -103,9 +103,11 @@ struct IndexResult {
   std::size_t n_indexed = 0;
   std::size_t n_total = 0;
   double fraction_indexed() const {
-    return n_total ? static_cast<double>(n_indexed) / static_cast<double>(n_total) : 0.0;
+    return n_total
+               ? static_cast<double>(n_indexed) / static_cast<double>(n_total)
+               : 0.0;
   }
-  double rmsd_index = 0.0;  // RMS distance of h from the nearest integer
+  double rmsd_index = 0.0; // RMS distance of h from the nearest integer
   std::vector<Vec3> candidates;
   double d_min = 0.0;
   double max_cell = 0.0;
@@ -188,4 +190,4 @@ Mat3 reduce_basis(const Mat3 &real_space_rows);
 IndexResult index(ExperimentList &experiments, Table &reflections,
                   const IndexOptions &options = {});
 
-}  // namespace mxi
+} // namespace mxi

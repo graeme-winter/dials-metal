@@ -31,7 +31,8 @@ struct Failure {
 inline void fail(const std::string &message) { throw Failure{message}; }
 
 inline void is_true(bool condition, const std::string &message) {
-  if (!condition) fail(message);
+  if (!condition)
+    fail(message);
 }
 
 inline void close(double a, double b, double tolerance,
@@ -95,9 +96,9 @@ inline int run_all() {
   return failed == 0 ? 0 : 1;
 }
 
-}  // namespace check
+} // namespace check
 
-#define TEST(name)                                       \
-  static void name();                                    \
-  static ::check::Register register_##name(#name, name); \
+#define TEST(name)                                                             \
+  static void name();                                                          \
+  static ::check::Register register_##name(#name, name);                       \
   static void name()

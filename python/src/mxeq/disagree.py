@@ -151,7 +151,8 @@ def select(
         + (f", {unpartnered} unpartnered" if unpartnered else "")
         + f"\n{len(rows)} disagree on {value}"
         + (f" against {other}" if other != value else "")
-        + " by more than " + " and ".join(asked)
+        + " by more than "
+        + " and ".join(asked)
         + (f" (of {int((apart & big_enough).sum())} found)" if limit else "")
     )
     if len(rows):
