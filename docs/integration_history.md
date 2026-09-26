@@ -30,6 +30,7 @@ Read the right-hand section before trusting the left.
 | A constant -0.15 image z residual, from the first `xyzres` table | mismatched inputs, and meaningless |
 | The z residual sinusoid as rocking-curve asymmetry | "The pixel plant": it grows with narrowness, not width |
 | Module-edge outliers as overconfident variances | "The outliers along the module edges were a flag, not an intensity" |
+| The z sinusoid as the integrator's centre following its foreground window | "What the z offset follows is strength": the spot finder's centre, not the integrator's |
 | "Two runs at the same thread count agree exactly" ("Making the second pass pay for itself") | measured wrong: two four-thread runs differ by up to 3.6e-11 in profile-fitted intensities, because profile learning gives reflections to whichever thread is free; only one thread reproduces exactly. Summation is exact either way. Worse, it was a data race: see "Deterministic profile learning" below. Fixed |
 
 **Mismatched inputs.** From the arrival of the 1800 image `i04-ins-small` model
@@ -2394,3 +2395,47 @@ On a 300 image integration the change moves predictions by at most 0.0044
 images, leaves every summed intensity as it was, and moves profile-fitted ones
 by a median ratio of 0.999998. The model predicting them is now the one refined.
 Four tests, one for each rule, each failing against the old code.
+
+
+## What the z offset follows is strength
+
+On a 3600 image Eiger 16M sweep the z residual repeats every 1800 images --
+every 180 degrees of rotation, so it follows the crystal's orientation and not
+time -- around a mean of -0.071 images. The 300 image sweep a DIALS log came
+from shows the offset, -0.145 in xyzres and -0.115 in the integrator's own
+centre, and its first 30 degrees of the cycle as a drift.
+
+The decomposition that mattered was over the SAME reflections, and split by
+strength:
+
+    I/sigma      spot - cal    integ - cal    integ - spot
+    3 - 10         +0.102        -0.058         -0.164
+    10 - 20        +0.042        -0.088         -0.122
+    20 - 50        -0.122        -0.123         +0.007
+    50 - 100       -0.172        -0.148         +0.024
+    100 -          -0.181        -0.155         +0.013
+
+For strong spots the two centroid methods AGREE, and both put the spot about
+0.15 images before the prediction. For weak ones they part, the spot finder late
+and the integrator early. The integrator's centres against the prediction are
+skewed, -1.60, a long tail toward earlier images.
+
+The reading: the rocking curve has a tail toward earlier images; for a weak spot
+the spot finder sees only the pixels above its threshold, which is the peak, and
+for a strong one the whole curve, near its mean. Refinement fits both, so the
+model sits between, and every strong spot looks early by the difference. An
+asymmetry that varies with orientation gives a residual with the crystal's
+two-fold symmetry about the spindle.
+
+The test: refine against the integrator's centres, which measure the whole
+profile, and integrate again. The offset over I/sigma of ten or more went from
+-0.115 images to -0.008; the drift along the scan, -0.085 to -0.143, went flat
+at -0.008 to -0.011; the dependence on strength halved, to +0.016 at the weak
+end and -0.038 at the strong; refinement's own z RMSD fell from 0.241 images to
+0.220. The scan-varying model absorbs it, as it should, once it is given
+centres that mean what integration means.
+
+This overturns the explanation recorded above, that the integrator's centre
+follows its foreground window. The pixel plant shows that effect is real, and it
+is not this: the integrator agrees with the spot finder for exactly the strong
+spots that carry the offset.

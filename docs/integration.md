@@ -261,13 +261,16 @@ What is known not to be right yet, with what is known about each.
   lost, judged by their clean equivalents. The likely cause is profile
   learning: a reflection that is itself truncated can still contribute to a
   reference profile.
-* **A z residual oscillates along the scan,** about +/-0.1 images on a 1800
-  image sweep, mean -0.07. It is in DIALS too, and it is not a refinement
-  failure: refinement fits the spot finder's centres, and is flat against them.
-  It is the difference between the spot finder's z centre and the
-  integrator's, and it is largest for thin rocking curves. Unresolved; the
-  measurement that would settle it is where the foreground window sits against
-  the prediction near images 450 to 600.
+* **A z residual oscillates along the scan and sits below zero,** by about
+  0.1 images, with a period of 180 degrees of rotation. It is not the
+  integrator: refinement is fitted to the SPOT FINDER's centres, and those
+  depend on strength -- a weak spot shows only its peak above the threshold, a
+  strong one its whole rocking curve, which has a tail toward earlier images --
+  so the fitted model is a compromise that every strong spot sees as late.
+  Refined on the integrator's centres instead, on a 300 image sweep, the offset
+  falls from -0.115 images to -0.008 and the drift along the scan goes flat. Not
+  yet a change to the pipeline: how refinement should be given those centres is
+  open.
 * **For a thin spot, `xyzres.px` in z reports the foreground window,** which is
   placed on the prediction -- so it understates the prediction error in z, and
   most for the spots that ought to measure it best. On the detector it is
