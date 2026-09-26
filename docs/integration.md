@@ -36,11 +36,13 @@ Speed, on a 3600 image Eiger 16M sweep, 1.08 million reflections, 16 threads
 
 ## Running it
 
-    mxi_integrate refined.expt strong.refl -o integrated.refl --scan-blocks 36
+    mxi_integrate refined.expt refined.refl -o integrated.refl --scan-blocks 36
 
 `refined.expt` is a refined experiment, scan-static or scan-varying.
-`strong.refl` is optional: given, the profile model is estimated from its
-strong spots; otherwise it is read from the `.expt`'s profile block. The images
+`refined.refl` is optional: given, the profile model is estimated from its
+indexed spots; otherwise it is read from the `.expt`'s profile block. It has to
+be INDEXED reflections -- the estimate needs each spot's predicted diffracted
+beam -- so the spot finder's `strong.refl` will not do, and says so. The images
 are found from the `.expt`'s imageset template, or named with `--images`.
 
 `mxi_integrate --help` is the authority on options and defaults. By purpose:
@@ -167,6 +169,38 @@ voxel with no measurement is zero. Internally a bad pixel keeps its region bit
 and loses only `valid`, which is what the fit needs to know a part is missing;
 it is translated on writing, because DIALS never sets a region bit on an
 invalid voxel and rejects a table that does.
+
+## What it prints
+
+Standard output is for results; warnings and errors go to standard error. A
+run says what profile model it used and where the images came from, how many
+reflections it predicted and why any were not integrated, and how many
+reference profiles it learned; then two tables, modelled on the summaries
+`dials.integrate` prints and limited to what is measured here:
+
+* **against resolution**, in shells of equal volume in reciprocal space:
+  counts fully and partially recorded, summed and fitted; mean background;
+  mean I/sigma by summation and by profile fitting; mean profile correlation;
+  and RMSD XY;
+* **overall, lowest shell and highest**: the same, with the counts whose
+  foreground or background reached a masked pixel, and the Pearson and
+  Spearman correlations between the summed and fitted intensities.
+
+There are no overload or ice-ring columns, because nothing here detects either.
+Thread counts, chunking and frames read are under `--timing`, with the phases.
+
+Two numbers are defined so as to be read beside DIALS', and one is not:
+
+* **RMSD XY** is the observed centre, `xyzobs.px`, against the prediction, over
+  reflections integrated by summation and detected. On a 300 image insulin
+  sweep it is 0.267 pixels where DIALS gives about 0.25. It is not built from
+  `xyzres.px`, the unclipped centre, which is honest about its noise and so twice
+  as scattered for weak spots -- 0.544 on the same data. That is the one to
+  judge predicted positions by, and the wrong one to set beside DIALS'.
+* **Partially recorded** counts reflections whose partiality is below 0.99. It is
+  not DIALS' count, which is several times larger: DIALS splits a reflection
+  crossing one of its job boundaries into separate partial rows, and counts
+  reflections running off the ends of the scan.
 
 ## Conventions that caused bugs
 

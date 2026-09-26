@@ -39,6 +39,7 @@
 #include "profile_model.hh"
 #include "reference.hh"
 #include "shoebox.hh"
+#include "summary.hh"
 
 #include "decompress.hh"
 #include "series.hh"
@@ -165,13 +166,15 @@ private:
 
 void usage(const char *program) {
   std::printf(
-      "usage: %s [options] EXPT [STRONG_REFL]\n"
+      "usage: %s [options] EXPT [INDEXED_REFL]\n"
       "\n"
       "  -o FILE           where to write (integrated.refl)\n"
       "  --images PATH     the image file; by default the .expt's own\n"
       "                    imageset template is used\n"
-      "  --sigma-b B --sigma-m M   profile model. Estimated from STRONG_REFL\n"
-      "                    if given, else taken from EXPT's profile block\n"
+      "  --sigma-b B --sigma-m M   profile model. Estimated from INDEXED_REFL\n"
+      "                    if given -- indexed or refined reflections, not a\n"
+      "                    spot finder's -- else taken from EXPT's profile "
+      "block\n"
       "  --n-sigma N       foreground spans plus and minus N sigma (3)\n"
       "  --box-scale S     box is S times wider than the foreground (1.9)\n"
       "  --min-zeta Z      skip reflections nearer the rotation axis than "
@@ -256,7 +259,7 @@ int run_program(int argc, char **argv) {
   if (args.positional.empty() || args.positional.size() > 2) {
     std::fprintf(stderr,
                  "mxi_integrate: expected an .expt and optionally a .refl of "
-                 "strong spots\n");
+                 "indexed reflections\n");
     usage(argv[0]);
     return 2;
   }
@@ -313,6 +316,20 @@ int run_program(int argc, char **argv) {
                      strong_path.c_str());
         return 1;
       }
+      // The profile model needs INDEXED spots -- each spot's predicted
+      // diffracted beam -- and a spot finder's strong.refl has none. Said in
+      // those terms, because "no column 's1'" is true and names nothing a
+      // user can do.
+      if (!strong.has("s1") || !strong.has("xyzcal.mm")) {
+        std::fprintf(
+            stderr,
+            "mxi_integrate: %s has no predictions for its spots, so the "
+            "profile model cannot be estimated from it. Give the "
+            "refined or indexed reflections (refined.refl), not the "
+            "spot finder's, or set --sigma-b and --sigma-m\n",
+            strong_path.c_str());
+        return 1;
+      }
       const Column &s1_in = strong.at("s1");
       const Column &cal_in = strong.at("xyzcal.mm");
       std::vector<Shoebox> selected;
@@ -344,7 +361,7 @@ int run_program(int argc, char **argv) {
         sigma_m =
             reflecting_range(samples, Scan::radians(e.scan.osc_width), 0.0);
       }
-      source = "estimated from the strong spots";
+      source = "estimated from the indexed spots";
     }
     if ((!(sigma_b > 0.0) || !(sigma_m > 0.0)) && experiments.profile.present) {
       if (!(sigma_b > 0.0))
@@ -366,8 +383,9 @@ int run_program(int argc, char **argv) {
     mask_options.sigma_m = sigma_m;
     mask_options.n_sigma = n_sigma > 0.0 ? n_sigma : 3.0;
     t_profile = now_wall() - t_profile_start;
-    std::printf("profile model: sigma_b %.6f sigma_m %.6f n_sigma %.1f (%s)\n",
-                sigma_b, sigma_m, mask_options.n_sigma, source);
+    std::printf("Profile model: sigma_b %.4f deg, sigma_m %.4f deg (%s); "
+                "foreground to %.1f sigma\n",
+                sigma_b, sigma_m, source, mask_options.n_sigma);
     IntegrateOptions integrate_options;
     integrate_options.gain = args.number("--gain", 1.0);
 
@@ -398,7 +416,7 @@ int run_program(int argc, char **argv) {
         return 1;
       }
     }
-    std::printf("images: %s (from %s)\n", image_path.c_str(), image_source);
+    std::printf("Images: %s (from %s)\n", image_path.c_str(), image_source);
 
     std::unique_ptr<series::Series> images = series::nxmx(image_path);
     series::Info info;
@@ -409,7 +427,6 @@ int run_program(int argc, char **argv) {
                    image_path.c_str());
       return 1;
     }
-    std::printf("%s\n", images->describe().c_str());
 
     std::size_t workers =
         static_cast<std::size_t>(args.number("--threads", 0.0));
@@ -431,7 +448,7 @@ int run_program(int argc, char **argv) {
     const double first_image = args.number("--first-image", 0.0);
     const double last_image =
         args.number("--last-image", static_cast<double>(e.scan.num_images()));
-    std::printf("%zu reflections predicted\n", predictions.size());
+    std::printf("Predicted %zu reflections\n", predictions.size());
 
     // TWO PASSES, AND WHY
     //
@@ -469,12 +486,20 @@ int run_program(int argc, char **argv) {
       planned.push_back(item);
     }
     t_boxes = now_wall() - t_boxes_start;
-    std::printf("%zu shoeboxes to fill\n", planned.size());
-    if (outside_range > 0) {
-      std::printf("  %zu outside the image range\n", outside_range);
-    }
-    for (const auto &entry : refused) {
-      std::printf("  %zu %s\n", entry.second, entry.first.c_str());
+    {
+      std::size_t left_out = outside_range;
+      for (const auto &entry : refused)
+        left_out += entry.second;
+      std::printf("Integrating %zu of them", planned.size());
+      if (left_out > 0) {
+        std::printf("; not integrated:\n");
+        if (outside_range > 0)
+          std::printf("  %8zu  outside the image range\n", outside_range);
+        for (const auto &entry : refused)
+          std::printf("  %8zu  %s\n", entry.second, entry.first.c_str());
+      } else {
+        std::printf("\n");
+      }
     }
     if (planned.empty())
       return 1;
@@ -579,7 +604,6 @@ int run_program(int argc, char **argv) {
     // something rather than left to be compared with the image count.
     std::set<std::int32_t> wanted;
     std::size_t bad_pixels = 0;
-    std::size_t integrated = 0;
     std::size_t most_open = 0;
     const Vec3 s0 = e.beam.s0();
     const Vec3 axis = e.goniometer.lab_axis();
@@ -719,9 +743,6 @@ int run_program(int argc, char **argv) {
     // than dropping boxes when it bites.
     const std::size_t max_boxes = static_cast<std::size_t>(
         std::max(1.0, args.number("--max-boxes", 20000.0)));
-    std::printf(
-        "%zu threads, chunks of %zu frames, at most %zu boxes opened a chunk\n",
-        workers, window, max_boxes);
 
     //: Run `count` units of work over the pool, by index.
     // Run body(i, worker) for i in [0, count), where worker is this call's
@@ -800,7 +821,6 @@ int run_program(int argc, char **argv) {
     std::size_t at = 0;
     int pass = 0;
     std::size_t references_used = 0;
-    std::size_t fitted = 0;
     double t_transform = 0.0, t_fit = 0.0;
     // Boxes OUTLIVE a chunk of frames. Each chunk opens the boxes that start
     // in it, reads its frames once into every open box, and closes the boxes
@@ -1029,14 +1049,11 @@ int run_program(int argc, char **argv) {
       if (pass == 0) {
         // Integrate, in parallel over boxes.
         const double t_close_start = now_wall();
-        std::atomic<std::size_t> done{0};
         in_parallel(count, [&](std::size_t i) {
           if (boxes[i].data.empty())
             return;
-          if (close(rows[i], &boxes[i]))
-            done.fetch_add(1);
+          close(rows[i], &boxes[i]);
         });
-        integrated += done.load();
         t_integrate += now_wall() - t_close_start;
 
         // Learn from the ones worth learning from, in parallel.
@@ -1115,7 +1132,6 @@ int run_program(int argc, char **argv) {
       } else {
         // Fit, in parallel over boxes: each writes only its own row.
         const double t0 = now_wall();
-        std::atomic<std::size_t> done{0};
         in_parallel(count, [&](std::size_t i) {
           if (boxes[i].data.empty())
             return;
@@ -1165,9 +1181,7 @@ int run_program(int argc, char **argv) {
           iprf_var.reals[row] = fit.variance;
           prf_cc.reals[row] = fit.correlation;
           flags.ints[row] |= flag::kIntegratedPrf;
-          done.fetch_add(1);
         });
-        fitted += done.load();
         t_fit += now_wall() - t0;
       }
 
@@ -1225,13 +1239,15 @@ int run_program(int argc, char **argv) {
             ++empty;
         }
         std::printf(
-            "learned %zu reference profiles from %zu reflections (%zu of %zu "
+            "Reference profiles: %zu learned from %zu reflections (%zu of %zu "
             "regions borrowed the detector average)\n",
             reference.region_count() - empty, references_used, empty,
             reference.region_count());
         if (references_used == 0) {
-          std::printf("  nothing to learn from, so no profile fitting: raise "
-                      "--reference-signal or check the summation\n");
+          std::fprintf(stderr,
+                       "mxi_integrate: nothing to learn profiles from, so no "
+                       "profile fitting: lower --reference-signal or check the "
+                       "summation\n");
         } else {
           pass = 1;
           at = 0;
@@ -1242,31 +1258,64 @@ int run_program(int argc, char **argv) {
     }
     if (save)
       shoebox_bytes = encode_shoeboxes(saved);
-    std::printf("at most %zu shoeboxes open at once\n", most_open);
-    if (fitting)
-      std::printf("%zu of %zu profile fitted\n", fitted, planned.size());
-
-    std::printf("%zu frames read (%zu wanted by a shoebox, each read %.2f "
-                "times), %zu bad pixels masked\n",
-                frames_read, wanted.size(),
-                wanted.empty() ? 0.0
-                               : static_cast<double>(frames_read) /
-                                     static_cast<double>(wanted.size()),
-                bad_pixels);
     if (frames_missing > 0) {
-      std::printf(
-          "  %zu reads found no frame: an unallocated chunk is a frame the "
-          "writer never received, and a shoebox spanning one is missing a "
-          "slice\n",
+      std::fprintf(
+          stderr,
+          "mxi_integrate: %zu reads found no frame: an unallocated chunk is a "
+          "frame the writer never received, and a shoebox spanning one is "
+          "missing a slice\n",
           frames_missing);
     }
-    std::printf("%zu of %zu integrated\n", integrated, planned.size());
+
+    // What a user reads to judge the run: the summaries dials.integrate
+    // prints, against resolution and overall, from the columns just written.
+    {
+      SummaryInput summary;
+      const std::size_t n = planned.size();
+      summary.d.assign(d_column.reals.begin(), d_column.reals.begin() + n);
+      summary.flags.assign(flags.ints.begin(), flags.ints.begin() + n);
+      summary.intensity_sum.assign(isum.reals.begin(), isum.reals.begin() + n);
+      summary.variance_sum.assign(ivar.reals.begin(), ivar.reals.begin() + n);
+      summary.intensity_prf.assign(iprf.reals.begin(), iprf.reals.begin() + n);
+      summary.variance_prf.assign(iprf_var.reals.begin(),
+                                  iprf_var.reals.begin() + n);
+      summary.profile_correlation.assign(prf_cc.reals.begin(),
+                                         prf_cc.reals.begin() + n);
+      summary.background.assign(bmean.reals.begin(), bmean.reals.begin() + n);
+      summary.partiality.assign(part_column.reals.begin(),
+                                part_column.reals.begin() + n);
+      summary.res_fast.resize(n);
+      summary.res_slow.resize(n);
+      // The OBSERVED centre against the prediction, over reflections that were
+      // detected -- which is what dials.integrate's RMSD XY is, so the two can
+      // be read side by side. Not xyzres.px: that is the unclipped centre,
+      // honest about its noise and so twice as scattered for weak spots
+      // (0.544 px against 0.267 on a 300 image insulin sweep, where DIALS gave
+      // about 0.25). It is the right thing for judging predicted positions,
+      // and the wrong one for a column people will set beside DIALS'.
+      // xyzres.px being NaN is what says a reflection was not detected, since
+      // xyzobs.px falls back to the prediction and would read as perfect.
+      const double nan = std::numeric_limits<double>::quiet_NaN();
+      for (std::size_t i = 0; i < n; ++i) {
+        // Over reflections integrated by summation, as DIALS reports it: one
+        // crossing a module gap has a centre pulled off by the gap, which
+        // took the overall figure from 0.267 px to 0.343.
+        const bool detected = std::isfinite(res_px.reals[i * 3 + 0]) &&
+                              (flags.ints[i] & flag::kIntegratedSum) != 0;
+        summary.res_fast[i] =
+            detected ? obs_px.reals[i * 3 + 0] - cal_px.reals[i * 3 + 0] : nan;
+        summary.res_slow[i] =
+            detected ? obs_px.reals[i * 3 + 1] - cal_px.reals[i * 3 + 1] : nan;
+      }
+      print_summary(stdout, summarise(summary, 10));
+    }
+    std::printf("\n");
 
     if (save) {
       Table::Opaque column;
       column.type = "Shoebox<>";
       column.rows = planned.size();
-      std::printf("shoeboxes kept: %.1f MB\n", shoebox_bytes.size() / 1e6);
+      std::printf("Shoeboxes kept: %.1f MB\n", shoebox_bytes.size() / 1e6);
       column.bytes = std::move(shoebox_bytes);
       out.set_opaque("shoebox", std::move(column));
     }
@@ -1277,7 +1326,7 @@ int run_program(int argc, char **argv) {
     const double t_write_start = now_wall();
     write_reflections(path, out);
     t_write = now_wall() - t_write_start;
-    std::printf("wrote %s\n", path.c_str());
+    std::printf("Wrote %zu reflections to %s\n", planned.size(), path.c_str());
 
     if (args.has("--timing")) {
       const double total = now_wall() - t_start;
@@ -1285,7 +1334,16 @@ int run_program(int argc, char **argv) {
         std::printf("  %-26s %8.3f s  %5.1f%%\n", name, seconds,
                     total > 0.0 ? 100.0 * seconds / total : 0.0);
       };
-      std::printf("\ntiming\n");
+      std::printf("\nTiming: %zu threads, chunks of %zu frames, at most %zu "
+                  "boxes opened a chunk, %zu open at once\n",
+                  workers, window, max_boxes, most_open);
+      std::printf("  %zu frames read, %zu wanted by a shoebox, each read %.2f "
+                  "times; %zu voxels on masked pixels\n",
+                  frames_read, wanted.size(),
+                  wanted.empty() ? 0.0
+                                 : static_cast<double>(frames_read) /
+                                       static_cast<double>(wanted.size()),
+                  bad_pixels);
       line("the profile model", t_profile);
       line("prediction", t_predict);
       line("bounding boxes", t_boxes);
