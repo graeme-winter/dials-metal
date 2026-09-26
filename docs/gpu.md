@@ -20,6 +20,9 @@ The run went from 67.7 seconds to 36.9 with no device. Where it stands now:
     profile fitting          12.2 s   33 per cent   independent per reflection
     opening shoeboxes         4.3 s   12 per cent
 
+Profile learning, which uses the same geometry, has since had the same change:
+4.3 times faster a box, about two seconds less on that run.
+
 Profile fitting is still the natural device workload -- one independent fit per
 reflection, a few thousand voxels each, and a reference profile shared by
 thousands -- but it is now a third of a much shorter run, and the case for

@@ -2324,3 +2324,35 @@ the old single-thread run, profile-fitted values move by 3.7e-15 relative, which
 is the regrouping, and summation not at all. The test runs the real program at
 one thread and at four, twice, with short chunks for many reductions; against
 the old code it fails with "two four-thread runs differ".
+
+
+## The same geometry for learning
+
+Profile learning's `transform_shoebox` still called `epsilon_of` for every
+subdivision after profile fitting had stopped. Measured before changing it: 1.21
+ms a box, the face 49 per cent of that. Not most, this time -- it carries counts
+ONTO the grid and wrote three arrays for every subdivision and plane, so the
+voxel loop was the other half.
+
+Both halves changed. The face is now shared: `pixel_cells` does the corner
+interpolation and the boundary guard for both transforms, and `plane_weights`
+the eps3 planes, so the two cannot come to disagree about which cell a pixel
+reaches. And each voxel writes a reached cell once, with the number of
+subdivisions that reached it. One detail of the direct code had to be kept: an
+image spanning no eps3 range skips its voxels entirely, but one that spans a
+range and meets no plane still counts its foreground toward `outside`.
+
+0.28 ms a box, 4.3 times faster. Against `transform_shoebox_direct`, kept as the
+specification, the grid arrays agree to 1.4e-13 on values up to 36; a subdivision
+in the wrong cell would be about 0.06. `outside`, being 1 - inside / total with
+inside now added once per reached cell rather than per subdivision, differs by
+up to 1.8e-12 of rounding. The test fails with the boundary guard off -- and so
+then does the fitting test, the guard being shared -- and with the validity rule
+broken in the fast transform alone.
+
+On one thread, warm, 120 images: learning 7.17 seconds to 1.64, the run 17.6 to
+12.2. A first comparison said 26.5 to 12.0, and was the "before" run reading its
+images from a cold cache. The same 2980 reflections are learned, flags and
+summation are identical, profile-fitted values move by 5.2e-15, the thread count
+still changes no byte, and the tests and an integration are clean under
+AddressSanitizer and UndefinedBehaviorSanitizer.

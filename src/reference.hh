@@ -87,6 +87,13 @@ Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
                               const Vec3 &s1, double phi_calculated,
                               const GridSpec &spec);
 
+//: The same thing done the obvious way: every subdivision of every pixel
+//: through epsilon_of, every valid voxel through every subdivision and plane.
+//: transform_shoebox is tested against this, which is its specification.
+Transformed transform_shoebox_direct(const Experiment &e, const Shoebox &box,
+                                     const Vec3 &s1, double phi_calculated,
+                                     const GridSpec &spec);
+
 //: Reference profiles, over the detector AND over the scan.
 //:
 //: Kabsch section 3.3 and Leslie section 6.1 both divide the detector: the

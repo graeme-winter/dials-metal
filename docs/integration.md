@@ -92,6 +92,15 @@ Choosing a few of them:
    the fit's plus the background term of Leslie's equation 34.
 6. **Writing.** One row per prediction.
 
+**Both transforms share one geometry.** Learning carries counts onto the
+grid (`transform_shoebox`) and fitting carries the profile back onto the
+pixels (`profile_on_pixels`), and both get it from `pixel_cells` and
+`plane_weights`: eps1 and eps2 at the pixel corners, interpolated, with any
+subdivision near a cell boundary computed exactly, so the cells are the ones
+a direct computation gives. The direct versions are kept as
+`transform_shoebox_direct` and `profile_on_pixels_direct`, and the tests hold
+the fast ones to them.
+
 **The output does not depend on the thread count.** Every parallel reduction
 adds in an order fixed by the data, not by the scheduler: profile learning sums
 sixteen fixed blocks of reflections, each in index order, and adds them in block
@@ -233,6 +242,3 @@ What is known not to be right yet, with what is known about each.
   1.5 radii would exclude it for about fourteen per cent of the background
   pixels. Not built.
 * **Overlapping reflections are not detected** (Leslie sections 6.3, 6.7.1).
-* **Profile learning uses the per-subdivision transform** that profile fitting
-  no longer does; the same corner interpolation would make it several times
-  faster. About two seconds on the 16M run.

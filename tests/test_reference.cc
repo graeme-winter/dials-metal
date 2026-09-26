@@ -643,3 +643,103 @@ TEST(the_fast_profile_on_pixels_is_the_direct_one) {
 }
 
 } // namespace mxi
+
+namespace mxi {
+
+TEST(the_fast_transform_is_the_direct_one) {
+  // transform_shoebox carries counts onto the grid for profile learning, and
+  // shares its geometry with profile_on_pixels through pixel_cells: the face
+  // from the pixel corners, with subdivisions near a cell boundary done
+  // exactly, and each reached cell written once with the number of
+  // subdivisions that reached it. transform_shoebox_direct is the obvious
+  // version, and the specification. 4.3 times faster on real boxes.
+  //
+  // Counts are Poisson and some voxels are bad pixels, which keep their region
+  // bit and lose only Valid -- the case that once put module gaps on the grid
+  // as real zeroes.
+  Experiment e;
+  e.beam.direction = {0.0, 0.0, 1.0};
+  e.beam.wavelength = 0.9537;
+  Panel p;
+  p.fast = {1.0, 0.0, 0.0};
+  p.slow = {0.0, -1.0, 0.0};
+  p.pixel_size[0] = p.pixel_size[1] = 0.075;
+  p.image_size[0] = 2068;
+  p.image_size[1] = 2162;
+  p.origin = {-77.5, 81.1, -168.5};
+  e.detector.panels.push_back(p);
+  e.goniometer.axis = {1.0, 0.0, 0.0};
+  e.scan.first_image = 1;
+  e.scan.last_image = 600;
+  e.scan.osc_start = 0.0;
+  e.scan.osc_width = 0.1;
+  const Mat3 r = rotation({0.3, -0.5, 0.81}, 0.7);
+  e.crystal = Crystal::from_real_space(r * Vec3{78, 0, 0}, r * Vec3{0, 78, 0},
+                                       r * Vec3{0, 0, 78});
+  PredictOptions po;
+  po.d_min = 2.0;
+  const std::vector<Prediction> v = predict(e, po);
+  MaskOptions mo;
+  mo.box_scale = 1.9;
+  mo.min_zeta = 0.05;
+  mo.n_sigma = 3.0;
+  mo.sigma_d = 0.0274;
+  mo.sigma_m = 0.1185;
+  GridSpec g;
+  g.n = 4;
+  g.sigma_d = mo.sigma_d;
+  g.sigma_m = mo.sigma_m;
+  g.half_width = 3.0;
+  g.subdivisions = 5;
+
+  std::uint32_t state = 12345u; // a fixed sequence, not <random>'s, so the test
+  const auto next = [&state]() { // cannot move between standard libraries
+    state = state * 1664525u + 1013904223u;
+    return static_cast<double>(state >> 8) / 16777216.0;
+  };
+  std::size_t compared = 0, bad_pixels = 0;
+  double worst_grid = 0.0, worst_outside = 0.0;
+  for (std::size_t i = 0; i < v.size() && compared < 1500; i += 7) {
+    Shoebox box;
+    BoxRejection why = BoxRejection::kNone;
+    if (!build_shoebox(e, v[i], mo, &box, &why))
+      continue;
+    box.data.resize(box.size());
+    box.background.assign(box.size(), 1.5f);
+    for (std::size_t k = 0; k < box.size(); ++k) {
+      box.data[k] = static_cast<float>(std::floor(6.0 * next()));
+      if (next() < 0.03) {
+        box.mask[k] &= static_cast<std::uint8_t>(~shoebox_mask::kValid);
+        ++bad_pixels;
+      }
+    }
+    const Transformed fast = transform_shoebox(e, box, v[i].s1, v[i].phi, g);
+    const Transformed direct =
+        transform_shoebox_direct(e, box, v[i].s1, v[i].phi, g);
+    check::is_true(fast.valid == direct.valid, "the same boxes are valid");
+    if (!direct.valid)
+      continue;
+    for (std::size_t k = 0; k < direct.data.size(); ++k) {
+      const double scale = std::max(1.0, std::fabs(direct.data[k]));
+      worst_grid = std::max(
+          {worst_grid, std::fabs(fast.data[k] - direct.data[k]) / scale,
+           std::fabs(fast.background[k] - direct.background[k]) / scale,
+           std::fabs(fast.coverage[k] - direct.coverage[k])});
+    }
+    worst_outside =
+        std::max(worst_outside, std::fabs(fast.outside - direct.outside));
+    ++compared;
+  }
+  check::is_true(compared > 1000, "enough boxes to meet the boundary cases");
+  check::is_true(bad_pixels > 1000, "and enough bad pixels to test validity");
+  // Rounding apart, the same: a subdivision in the wrong cell moves a grid
+  // value by about 0.06 here, eleven orders of magnitude above this.
+  check::is_true(worst_grid < 1e-12, "data, background and coverage match");
+  // outside is 1 - inside / total, and inside is added once per reached cell
+  // here against once per subdivision there: rounding, magnified by the
+  // difference, measured at 1.8e-12.
+  check::is_true(worst_outside < 1e-10,
+                 "and so does the fraction outside the grid");
+}
+
+} // namespace mxi
