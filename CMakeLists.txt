@@ -191,6 +191,24 @@ if(MXI_SSE41 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[36]86")
     endif()
 endif()
 
+# AddressSanitizer and UndefinedBehaviorSanitizer, for running the tests under:
+#
+#     cmake -S . -B build-san -DMXI_SANITIZE=ON && cmake --build build-san
+#     ctest --test-dir build-san
+#
+# -fno-sanitize-recover makes undefined behaviour ABORT rather than print and
+# carry on. Without it UBSan reports and the test still passes, which is a
+# sanitizer run that cannot fail. Global, so the spot finder and the libraries
+# are instrumented as well as the tests: memory misused in a library and
+# noticed in a test is only caught if both are built this way.
+option(MXI_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(MXI_SANITIZE)
+    add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined
+                        -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "sanitizers: address and undefined behaviour")
+endif()
+
 
 enable_testing()
 

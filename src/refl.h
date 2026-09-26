@@ -160,6 +160,13 @@ class Table {
 };
 
 Table read_reflections(const std::string &path);
+//: Throws ReflError when a binary column of `size` bytes cannot be written:
+//: msgpack's bin32 describes at most 2^32 - 1, and a larger one used to be
+//: written with its length wrapped, leaving everything after it unreadable.
+//: Separate from the writer so the rule can be tested at its boundary without
+//: building four gigabytes to do it.
+void check_blob_size(std::uint64_t size);
+
 void write_reflections(const std::string &path, const Table &table);
 
 //: Whether row `i` carries a real predicted position.

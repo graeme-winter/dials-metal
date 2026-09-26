@@ -53,6 +53,15 @@ inline void equal(long long a, long long b, const std::string &message) {
   }
 }
 
+//: A test that cannot run here says so and is counted as skipped: neither a
+//: pass, which would claim something was checked, nor a failure, which would
+//: blame the code for the machine. The four gigabyte test used to catch
+//: bad_alloc and assert true, which reported "ok" for a check never made.
+struct Skip {
+  std::string why;
+};
+[[noreturn]] inline void skip(const std::string &why) { throw Skip{why}; }
+
 struct Register {
   Register(const char *name, std::function<void()> body) {
     registry().push_back({name, std::move(body)});
@@ -61,10 +70,14 @@ struct Register {
 
 inline int run_all() {
   int failed = 0;
+  int skipped = 0;
   for (const Case &c : registry()) {
     try {
       c.body();
       std::printf("  ok    %s\n", c.name.c_str());
+    } catch (const Skip &k) {
+      std::printf("  skip  %s\n        %s\n", c.name.c_str(), k.why.c_str());
+      ++skipped;
     } catch (const Failure &f) {
       std::printf("  FAIL  %s\n        %s\n", c.name.c_str(), f.what.c_str());
       ++failed;
@@ -73,7 +86,12 @@ inline int run_all() {
       ++failed;
     }
   }
-  std::printf("%zu tests, %d failed\n", registry().size(), failed);
+  if (skipped > 0) {
+    std::printf("%zu tests, %d failed, %d skipped\n", registry().size(), failed,
+                skipped);
+  } else {
+    std::printf("%zu tests, %d failed\n", registry().size(), failed);
+  }
   return failed == 0 ? 0 : 1;
 }
 

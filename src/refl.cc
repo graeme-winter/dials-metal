@@ -223,15 +223,23 @@ void put_uint(std::string &out, std::uint64_t v) {
 //: that gets near it, at about 34 kB a reflection.
 constexpr std::uint64_t kBlobLimit = 0xFFFFFFFFull;
 
-void put_blob(std::string &out, const std::string &bytes) {
-  if (bytes.size() > kBlobLimit) {
+}  // namespace
+
+void check_blob_size(std::uint64_t size) {
+  if (size > kBlobLimit) {
     throw ReflError(
-        "a column of " + std::to_string(bytes.size()) +
+        "a column of " + std::to_string(size) +
         " bytes cannot be written: msgpack's binary type describes at most 4 "
         "GB, and there is no larger one. With shoeboxes at about 34 kB a "
         "reflection that is around 126000 of them, so write a slice of the "
         "scan instead.");
   }
+}
+
+namespace {
+
+void put_blob(std::string &out, const std::string &bytes) {
+  check_blob_size(bytes.size());
   if (bytes.size() < 256) {
     put(out, 0xC4);
     put_big_endian(out, bytes.size(), 1);

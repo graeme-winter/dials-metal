@@ -70,16 +70,25 @@ TEST(a_column_too_large_for_msgpack_is_refused_rather_than_truncated) {
   Column &c = table.int_column("id", "int", 1);
   c.ints[0] = 0;
 
+  // Under AddressSanitizer a four gigabyte allocation aborts rather than
+  // throwing, and the rule itself is tested without one below.
+#if defined(__SANITIZE_ADDRESS__)
+  check::skip("a four gigabyte allocation under AddressSanitizer");
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+  check::skip("a four gigabyte allocation under AddressSanitizer");
+#endif
+#endif
   Table::Opaque big;
   big.type = "Shoebox<>";
   big.rows = 1;
   try {
-    // 4 GB plus one byte. If the allocation itself fails this machine cannot
-    // run the test, which is said rather than reported as a pass.
+    // 4 GB plus one byte. A machine without the memory cannot run this, and
+    // it is SKIPPED: it used to assert true and report "ok" for a check that
+    // was never made.
     big.bytes.assign(static_cast<std::size_t>(0xFFFFFFFFull) + 1, '\0');
   } catch (const std::bad_alloc &) {
-    check::is_true(true, "not enough memory to test the limit here");
-    return;
+    check::skip("not enough memory for a four gigabyte column");
   }
   table.set_opaque("shoebox", std::move(big));
 
@@ -133,4 +142,29 @@ TEST(a_saved_shoebox_follows_dials_mask_convention) {
     check::is_true(!region || (m & shoebox_mask::kValid) != 0,
                    "no region bit without Valid");
   }
+}
+
+TEST(the_msgpack_size_rule_holds_at_its_exact_boundary) {
+  // The rule on its own, at the boundary, with nothing allocated -- so it runs
+  // everywhere, under the sanitizers included, where the end-to-end test above
+  // cannot. msgpack's bin32 length is four bytes: 2^32 - 1 is the largest.
+  bool largest_refused = false;
+  try {
+    check_blob_size(0xFFFFFFFFull);
+  } catch (const ReflError &) {
+    largest_refused = true;
+  }
+  check::is_true(!largest_refused, "the largest size bin32 can describe is written");
+
+  bool over_refused = false;
+  std::string said;
+  try {
+    check_blob_size(0xFFFFFFFFull + 1);
+  } catch (const ReflError &error) {
+    over_refused = true;
+    said = error.what();
+  }
+  check::is_true(over_refused, "one byte more is refused");
+  check::is_true(said.find("4 GB") != std::string::npos, "and it says why");
+  check::is_true(said.find("slice") != std::string::npos, "and what to do");
 }
