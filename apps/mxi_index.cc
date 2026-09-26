@@ -40,18 +40,29 @@ void usage() {
       "  --output-refl P  (default indexed.refl)\n"
       "  --macrocycles N  assign/refine/re-assign cycles (3)\n"
       "  --all-reflections  refine on everything, not the stronger half\n"
-      "  --quiet\n");
+      "  --verbose         also print the search: candidate vectors, the fit\n"
+      "                    at each tolerance, and the cell before reduction\n"
+      "  --quiet           accepted for older scripts; the search is no\n"
+      "                    longer printed unless --verbose asks for it\n");
 }
 
 } // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {
-      "--d-min",           "--max-cell",   "--grid",
-      "--tolerance",       "--candidates", "--output-expt",
-      "--output-refl",     "--quiet",      "--macrocycles",
-      "--all-reflections", "--timing",     "--jacobian-threads",
-      "--fft-threads"};
+  const std::set<std::string> known = {"--d-min",
+                                       "--max-cell",
+                                       "--grid",
+                                       "--tolerance",
+                                       "--candidates",
+                                       "--output-expt",
+                                       "--output-refl",
+                                       "--quiet",
+                                       "--verbose",
+                                       "--macrocycles",
+                                       "--all-reflections",
+                                       "--timing",
+                                       "--jacobian-threads",
+                                       "--fft-threads"};
   const std::set<std::string> takes_value = {
       "--d-min",       "--max-cell",    "--grid",
       "--tolerance",   "--candidates",  "--output-expt",
@@ -81,7 +92,10 @@ int run_program(int argc, char **argv) {
   }
 
   IndexOptions options;
-  options.verbose = !args.has("--quiet");
+  // The search's diagnostics -- candidate vectors, the fit at each tolerance,
+  // the cell before and after reduction -- are for whoever is working on the
+  // indexer, and were printed by default. The result is what a user reads.
+  options.verbose = args.has("--verbose");
   options.d_min = args.number("--d-min", 0.0);
   options.max_cell = args.number("--max-cell", 0.0);
   options.grid = static_cast<std::size_t>(args.number("--grid", 0));
@@ -96,12 +110,11 @@ int run_program(int argc, char **argv) {
   try {
     ExperimentList experiments = read_experiments(args.positional[0]);
     Table reflections = read_reflections(args.positional[1]);
-    if (options.verbose) {
-      std::printf("%zu experiments, %zu reflections\n", experiments.size(),
-                  reflections.nrows);
-      for (const std::string &d : reflections.dropped()) {
-        std::printf("  not read: %s\n", d.c_str());
-      }
+    std::printf("Indexing %zu reflections from %zu experiment%s\n",
+                reflections.nrows, experiments.size(),
+                experiments.size() == 1 ? "" : "s");
+    for (const std::string &d : reflections.dropped()) {
+      std::fprintf(stderr, "mxi_index: not read: %s\n", d.c_str());
     }
 
     // Before indexing, because these are observations expressed through the
@@ -120,20 +133,41 @@ int run_program(int argc, char **argv) {
       return 1;
     }
 
+    std::printf("  to %.2f A, maximum cell %.1f A, FFT grid %zu^3\n",
+                result.d_min, result.max_cell, result.grid);
+    // Each macrocycle: refine on the strong reflections, index everything
+    // again. The RMSDs are the refinement's, in pixels and images, which is
+    // what DIALS reports and what to set beside it; the index RMSD, which has
+    // no unit, is how far fractional Miller indices sit from integers. It was
+    // printed as "rmsd 0.0292" with nothing to say which it was.
+    if (!result.cycles.empty()) {
+      std::printf("\n  %5s %10s %8s %8s %8s %8s %8s %8s\n", "cycle",
+                  "refined on", "rejected", "indexed", "RMSD x", "RMSD y",
+                  "RMSD z", "index");
+      std::printf("  %5s %10s %8s %8s %8s %8s %8s %8s\n", "", "", "", "",
+                  "(px)", "(px)", "(images)", "RMSD");
+      for (std::size_t c = 0; c < result.cycles.size(); ++c) {
+        const IndexCycle &k = result.cycles[c];
+        std::printf("  %5zu %10zu %8zu %8zu %8.3f %8.3f %8.3f %8.4f\n", c + 1,
+                    k.refined_on, k.rejected, k.indexed, k.rmsd_x, k.rmsd_y,
+                    k.rmsd_z, k.rmsd_index);
+      }
+      std::printf("\n");
+    }
     const UnitCell cell = result.crystal.cell();
-    std::printf("indexed %zu of %zu (%.1f%%)  rmsd %.4f\n", result.n_indexed,
-                result.n_total, 100.0 * result.fraction_indexed(),
-                result.rmsd_index);
-    std::printf("cell %.4f %.4f %.4f  %.3f %.3f %.3f   volume %.1f\n", cell.a,
-                cell.b, cell.c, cell.alpha, cell.beta, cell.gamma,
-                cell.volume());
+    std::printf("Indexed %zu of %zu reflections (%.1f%%)\n", result.n_indexed,
+                result.n_total, 100.0 * result.fraction_indexed());
+    std::printf(
+        "Unit cell: %.3f %.3f %.3f A, %.3f %.3f %.3f deg; volume %.0f A^3\n",
+        cell.a, cell.b, cell.c, cell.alpha, cell.beta, cell.gamma,
+        cell.volume());
 
     set_indexed_flags(reflections);
     add_reciprocal_columns(experiments, reflections);
     update_predictions(experiments, reflections);
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);
-    std::printf("wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
+    std::printf("Wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
 
     if (args.has("--timing")) {
       const IndexTiming &t = result.timing;

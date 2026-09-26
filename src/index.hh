@@ -98,6 +98,23 @@ struct IndexOptions {
   bool verbose = false;
 };
 
+//: One macrocycle of indexing: refine the model on the strong reflections, then
+//: index everything again with it. Recorded rather than printed, so the program
+//: decides what to show; the library used to print these itself.
+struct IndexCycle {
+  std::size_t refined_on = 0; //: strong reflections the refinement drew on
+  std::size_t rejected = 0;   //: of those, rejected as outliers
+  std::size_t indexed = 0;    //: indexed after the cycle
+  //: The cycle's refinement: RMS observed minus calculated, in pixels, pixels
+  //: and images, over the reflections it kept. What DIALS reports, and what to
+  //: set beside it.
+  double rmsd_x = 0.0, rmsd_y = 0.0, rmsd_z = 0.0;
+  //: RMS distance of the fractional Miller indices from the nearest integers,
+  //: which has no unit: a measure of how well the lattice fits, not of where
+  //: spots are predicted.
+  double rmsd_index = 0.0;
+};
+
 struct IndexResult {
   Crystal crystal;
   std::size_t n_indexed = 0;
@@ -115,6 +132,7 @@ struct IndexResult {
   //: Reflections used to refine the model, as opposed to indexed by it.
   std::size_t n_refined_on = 0;
   int cycles_run = 0;
+  std::vector<IndexCycle> cycles;
   IndexTiming timing;
 };
 

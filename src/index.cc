@@ -604,10 +604,6 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
   result.d_min = d_min;
   result.max_cell = max_cell;
   result.grid = grid;
-  if (options.verbose) {
-    std::printf("  d_min %.3f A, max_cell %.1f A, grid %zu^3\n", d_min,
-                max_cell, grid);
-  }
 
   const double t_candidates = now_seconds();
   result.candidates =
@@ -803,10 +799,15 @@ IndexResult index(ExperimentList &experiments, Table &reflections,
     const double t_reassign = now_seconds();
     assign(reciprocal_lattice_points(experiments, reflections));
     result.timing.reassign += now_seconds() - t_reassign;
-    if (options.verbose) {
-      std::printf("  cycle %d: refined on %zu strong, indexed %zu, rmsd %.4f\n",
-                  cycle + 1, n_strong, result.n_indexed, result.rmsd_index);
-    }
+    IndexCycle record;
+    record.refined_on = n_strong;
+    record.rejected = r.n_rejected;
+    record.indexed = result.n_indexed;
+    record.rmsd_x = r.rmsd_x;
+    record.rmsd_y = r.rmsd_y;
+    record.rmsd_z = r.rmsd_z;
+    record.rmsd_index = result.rmsd_index;
+    result.cycles.push_back(record);
   }
 
   for (Experiment &e : experiments)
