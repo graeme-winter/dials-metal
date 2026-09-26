@@ -157,8 +157,8 @@ std::string describe(const Info &info) {
     result += ", " + std::to_string(info.panels) + " panel";
     if (info.panels != 1)
       result += "s";
-    result += " of " + std::to_string(info.image_slow) + " x " +
-              std::to_string(info.image_fast);
+    result += " of " + std::to_string(info.image_fast) + " x " +
+              std::to_string(info.image_slow) + " pixels (fast x slow)";
   }
   if (!info.identifier.empty())
     result += ", identifier " + info.identifier;

@@ -89,7 +89,9 @@ def find(expt, directory):
         [BINARY, "-e", str(expt), "-o", str(out)], capture_output=True, text=True
     )
     assert run.returncode == 0, run.stderr
-    return refl.load(str(out)), run.stderr
+    # The report is on standard output; standard error is for errors, and is
+    # what the assertion above shows if the run fails.
+    return refl.load(str(out)), run.stdout
 
 
 @pytest.mark.skipif(not TEMPLATE_EXPT, reason="needs MXI_TEMPLATE_EXPT")

@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
@@ -47,6 +48,7 @@
 #include "dext.hh"
 #include "dials_spots.hh"
 #include "expt.hh"
+#include "histogram.hh"
 #include "queue.hh"
 #include "refl.hh"
 #include "series.hh"
@@ -98,9 +100,12 @@ void report_version(const char *program) {
   );
 }
 
-void usage(const char *program) {
+// To standard output when it was asked for, and to standard error when it is
+// the answer to a mistake: `mxi_find --help | less` showed nothing while it
+// all went to standard error.
+void usage(const char *program, std::FILE *to = stderr) {
   std::fprintf(
-      stderr,
+      to,
       "usage: %s [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]\n"
       "       [options] [master.nxs]\n"
       "\n"
@@ -172,7 +177,7 @@ bool parse_options(int argc, char **argv, Options *options) {
     } else if (flag == "-h" || flag == "--help") {
       // Asked for, so not an error: it exited 2, like an unknown flag, which
       // made a script checking whether this is installed think it was broken.
-      usage(argv[0]);
+      usage(argv[0], stdout);
       std::exit(0);
     } else if (!flag.empty() && flag[0] != '-' && options->master.empty()) {
       // The master file may be named without -x, since it is the only thing
@@ -221,7 +226,7 @@ bool parse_options(int argc, char **argv, Options *options) {
       return false;
     }
     options->master = info.image_file;
-    std::fprintf(stderr, "Images: %s, from %s\n", options->master.c_str(),
+    std::fprintf(stdout, "Images: %s, from %s\n", options->master.c_str(),
                  options->experiments.c_str());
   }
   if (options->master.empty()) {
@@ -401,7 +406,7 @@ series::Info open_series(series::Series *source, const Options &options) {
     if (Clock::now() > deadline)
       throw std::runtime_error("timed out waiting for " + source->describe());
     if (!announced) {
-      std::fprintf(stderr, "Waiting for %s\n", source->describe().c_str());
+      std::fprintf(stdout, "Waiting for %s\n", source->describe().c_str());
       announced = true;
     }
     sleep_for(options.poll_milliseconds);
@@ -414,7 +419,7 @@ series::Info open_series(series::Series *source, const Options &options) {
 // reason would not be visible in either file.
 void reconcile(const expt::Info &experiments, const series::Info &series,
                Options *options) {
-  std::fprintf(stderr, "Experiments: %s\n", describe(experiments).c_str());
+  std::fprintf(stdout, "Experiments: %s\n", describe(experiments).c_str());
 
   if (experiments.experiments != 1) {
     throw std::runtime_error("this writes one experiment's spots, and " +
@@ -433,10 +438,10 @@ void reconcile(const expt::Info &experiments, const series::Info &series,
                                      experiments.image_fast != series.width)) {
     throw std::runtime_error(
         "the panel in " + options->experiments + " is " +
-        std::to_string(experiments.image_slow) + " x " +
-        std::to_string(experiments.image_fast) + " and the frames are " +
-        std::to_string(series.height) + " x " + std::to_string(series.width) +
-        "; these are not the same images");
+        std::to_string(experiments.image_fast) + " x " +
+        std::to_string(experiments.image_slow) + " and the frames are " +
+        std::to_string(series.width) + " x " + std::to_string(series.height) +
+        " (fast x slow); these are not the same images");
   }
   // A scan covering fewer images than the file is not a mismatch to warn
   // about: the frames outside it are simply not read. It used to warn that z
@@ -494,7 +499,7 @@ void reconcile(const expt::Info &experiments, const series::Info &series,
                                          : experiments.first_image - 1;
     options->z_offset = (experiments.first_image - 1) - first_index;
     if (options->z_offset != 0) {
-      std::fprintf(stderr,
+      std::fprintf(stdout,
                    "The scan starts at image %lld, so z starts at %lld\n",
                    static_cast<long long>(experiments.first_image),
                    static_cast<long long>(options->z_offset));
@@ -579,21 +584,23 @@ int main(int argc, char **argv) {
   }
 
   if (restricted > 0 && restricted != info.images) {
-    std::fprintf(stderr,
+    std::fprintf(stdout,
                  "Reading %llu of the %llu images, the ones the scan covers\n",
                  static_cast<unsigned long long>(restricted),
                  static_cast<unsigned long long>(info.images));
   }
-  std::fprintf(stderr,
-               "Series %s: %llu images of %llu x %llu, from %s, %d thread%s, "
-               "on the %s\n",
-               info.name.c_str(), static_cast<unsigned long long>(info.images),
-               static_cast<unsigned long long>(info.height),
-               static_cast<unsigned long long>(info.width),
-               source->describe().c_str(), options.threads,
-               options.threads == 1 ? "" : "s", options.gpu ? "GPU" : "CPU");
   std::fprintf(
-      stderr,
+      stdout,
+      "Series %s: %llu images of %llu x %llu pixels (fast x slow), from %s, "
+      "%d thread%s, "
+      "on the %s\n",
+      info.name.c_str(), static_cast<unsigned long long>(info.images),
+      static_cast<unsigned long long>(info.width),
+      static_cast<unsigned long long>(info.height), source->describe().c_str(),
+      options.threads, options.threads == 1 ? "" : "s",
+      options.gpu ? "GPU" : "CPU");
+  std::fprintf(
+      stdout,
       "Grouping in %s, %zu to %zu pixels a spot, peak within %.1f of the "
       "centroid\n",
       options.two_d ? "two dimensions" : "three dimensions",
@@ -783,7 +790,7 @@ int main(int argc, char **argv) {
       std::chrono::duration<double>(Clock::now() - began).count();
   const dials_spots::Counts &counts = labeller.counts();
 
-  std::fprintf(stderr,
+  std::fprintf(stdout,
                "Thresholded %llu of %llu images in %.1f s (%.1f images/s), "
                "%llu never written, %llu failures\n",
                static_cast<unsigned long long>(read.load()),
@@ -806,28 +813,54 @@ int main(int argc, char **argv) {
   const std::uint64_t sized =
       counts.groups - counts.too_small - counts.too_large;
 
-  std::fprintf(stderr, "Found %llu signal pixels on %llu frames\n",
+  std::fprintf(stdout, "Found %llu signal pixels on %llu frames\n",
                static_cast<unsigned long long>(counts.signal_pixels),
                static_cast<unsigned long long>(grouped));
-  std::fprintf(stderr, "Extracted %llu spots\n",
+  std::fprintf(stdout, "Extracted %llu spots\n",
                static_cast<unsigned long long>(counts.groups));
-  std::fprintf(stderr, "Removed %llu spots with size < %zu pixels\n",
+  std::fprintf(stdout, "Removed %llu spots with size < %zu pixels\n",
                static_cast<unsigned long long>(counts.too_small),
                options.grouping.min_spot_size);
-  std::fprintf(stderr, "Removed %llu spots with size > %zu pixels\n",
+  std::fprintf(stdout, "Removed %llu spots with size > %zu pixels\n",
                static_cast<unsigned long long>(counts.too_large),
                options.grouping.max_spot_size);
-  std::fprintf(stderr, "Calculated %llu spot centroids\n",
+  std::fprintf(stdout, "Calculated %llu spot centroids\n",
                static_cast<unsigned long long>(sized));
-  std::fprintf(stderr, "Calculated %llu spot intensities\n",
+  std::fprintf(stdout, "Calculated %llu spot intensities\n",
                static_cast<unsigned long long>(sized));
   // Only when the filter ran: "Filtered 48 of 48" would otherwise read as a
   // filter that passed everything rather than one that was switched off.
   if (options.grouping.max_separation > 0.0) {
-    std::fprintf(stderr,
+    std::fprintf(stdout,
                  "Filtered %llu of %llu spots by peak-centroid distance\n",
                  static_cast<unsigned long long>(counts.accepted),
                  static_cast<unsigned long long>(sized));
+  }
+
+  // Spots per image, as dials.find_spots draws it: the part of this report a
+  // user reads at a glance. A spot's image is floor(z) + 1, image n starting at
+  // z = n - 1, over the images the scan covers or, without a scan, the series.
+  if (!labeller.spots().empty()) {
+    long long first = 1;
+    long long last = static_cast<long long>(info.images);
+    if (experiments.has_scan) {
+      first = experiments.first_image;
+      last = experiments.last_image;
+    }
+    if (last >= first) {
+      std::vector<std::size_t> per_image(
+          static_cast<std::size_t>(last - first + 1), 0);
+      for (const auto &spot : labeller.spots()) {
+        const long long image =
+            static_cast<long long>(std::floor(spot.position[2])) + 1;
+        if (image >= first && image <= last)
+          ++per_image[static_cast<std::size_t>(image - first)];
+      }
+      std::fprintf(stdout, "\nHistogram of spots per image:\n");
+      for (const std::string &line : spots::spot_histogram(per_image, first))
+        std::fprintf(stdout, "%s\n", line.c_str());
+      std::fprintf(stdout, "\n");
+    }
   }
 
   refl::Options writing;
@@ -850,7 +883,7 @@ int main(int argc, char **argv) {
     std::error_code ignored;
     const std::uintmax_t bytes =
         std::filesystem::file_size(options.output, ignored);
-    std::fprintf(stderr, "Wrote %zu reflections to %s (%.1f MB%s)\n",
+    std::fprintf(stdout, "Wrote %zu reflections to %s (%.1f MB%s)\n",
                  labeller.spots().size(), options.output.c_str(),
                  static_cast<double>(bytes) / 1e6,
                  options.shoeboxes ? ", most of it shoeboxes" : "");

@@ -162,3 +162,26 @@ the program's name into a file it produces -- it appears only in `--version`
 -- so tables written under the old name read exactly as before. A binary built
 under the old name is not removed by rebuilding and should be deleted by hand,
 or it will go on being found first on a PATH.
+
+## What it prints
+
+The report is on standard output and errors and warnings are on standard
+error, so `mxi_find ... > find.log` keeps the report; it used to write
+everything to standard error and leave that file empty. `--help` goes to
+standard output, being asked for; a usage printed because of a mistake goes to
+standard error.
+
+Sizes are fast by slow, as DIALS and the `.expt` give them: 2068 x 2162 for an
+Eiger 4M, where it used to print 2162 x 2068.
+
+On the 300 image insulin sweep a DIALS log came from, every filtering count
+matches `dials.find_spots` exactly -- 18755 extracted, 5683 and 5 removed for
+size, 13067 centroids, 12915 kept.
+
+After them, a histogram of spots per image, drawn as `dials.find_spots` draws
+it, with column heights rounded as DIALS rounds them. Its columns are runs of
+whole images, so the axis labels are exact. DIALS bins over the data's own z
+range, with every z moved a quarter of an image up or down, alternately by its
+position in the table, to break ties at the bin edges; so on the same spots the
+shapes agree and the maximum a bin does not -- 269 here against DIALS' 286. That
+jitter depends on the order of the table, and is not reproduced.
