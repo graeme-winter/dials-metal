@@ -2,38 +2,40 @@
 
 ## What this is
 
-The standalone Metal pipeline downstream of spot finding: indexing, refinement
-and prediction. Reads `strong.refl`, writes `indexed.expt` and `indexed.refl`.
+An MX data-reduction chain from the images to integrated intensities: spot
+finding, indexing, refinement, prediction and integration, reading and writing
+DIALS' formats so that any stage can be swapped for DIALS' own.
 
-Three independent pieces share this repository and are not one program:
-`spotfinder/`, the pipeline in `src/` and `apps/`, and `mxeq/`. Each has its own
-notes; `spotfinder/CLAUDE.md` and `mxeq/CLAUDE.md` are theirs and this file does
-not restate them.
+Three pieces share this repository and are not one program:
+
+| | where | its notes |
+| --- | --- | --- |
+| the spot finder and image reader | `src/spots/` | `docs/spots.md`, `docs/spots_notes.md`, `docs/spotfinder.md` |
+| the pipeline | `src/`, `apps/` | this file; integration in `docs/integration.md` |
+| `mxeq`, the referee | `python/` | `python/CLAUDE.md` |
 
 `mxeq` must stay independent of everything else here. It is the referee, and a
 referee that depends on the thing it judges is not one. Nothing in `src/` or
 `apps/` may import it, and it must never import them; it reads files, which is
 the whole point.
 
-**The spot finder has not been built or tested in the environment these notes
-were written in**, which has no HDF5 and no way to install it. Its CMake is
-included unmodified and guarded at the top level, and the only path verified
-here is the one where it is skipped. Anything said about it below comes from
-reading it, not from running it.
+Anything that reads images needs HDF5: `mxi_find` and `mxi_integrate`. Both are
+built and tested here. Without HDF5 both are left out of the build silently.
 
 Two overlaps, neither resolved:
 
-* `spotfinder/src/refl.cc` writes reflection tables and so does `src/refl.cc`.
-  The spot finder's is specialised to its Spot type, mine is a general reader
-  and writer validated against real DIALS files. Consolidating them is worth
+* `src/spots/refl.cc` writes reflection tables and so does `src/refl.cc`. The
+  spot finder's is specialised to its Spot type; the other is a general reader
+  and writer validated against real DIALS files. The cost of two is real: the
+  4 GB msgpack limit was guarded in one and not the other, and a shoebox table
+  was written corrupt through the unguarded one. Consolidating them is worth
   doing and is exactly the kind of change that quietly breaks a format that
-  currently works, so: not in the same commit as the merge, and with the spot
-  finder's own output compared before and after.
-* `spotfinder/src/expt.cc` reads experiment lists too, but only for the scan
-  range, the panel size and the identifier, and its header says plainly that it
-  is not trying to be dxtbx. So the geometry conventions still live in exactly
-  one place, `src/geometry.h`, which was the thing worth checking before
-  merging.
+  works, so: not in the same commit as anything else, and with both writers'
+  output compared byte for byte before and after.
+* `src/spots/expt.cc` reads experiment lists too, but only for the scan range,
+  the panel size, the identifier and the image mapping, and its header says it
+  is not trying to be dxtbx. The geometry conventions still live in one place,
+  `src/geometry.h`.
 
 ## Hard constraints
 
@@ -98,7 +100,8 @@ Plus two structural surprises: the goniometer is multi-axis
 `scan.properties.oscillation` is a per-image array, not `[start, width]`.
 
 `tests/test_real_geometry.cc` embeds forty real reflections and the geometry
-that produced them, regenerable by `tests/make_real_data.py`. Both parallax
+that produced them, regenerable by `python/src/mxeq/fixtures/real_data.py`
+(it was tests/make_real_data.py, until the Python moved into one package). Both parallax
 directions reproduce DIALS to the last bit; `entering` agrees on 100% of 13072
 reflections; the full chain lands on `A h` with median residual 1.9e-4.
 
@@ -909,7 +912,7 @@ happen while the commit says it did. **Anything that rewrites a file must
 assert that its anchor was found**, and fail loudly when it was not.
 
 Written down, and then done again three commits later: a regex meant to add a
-test target to `spotfinder/CMakeLists.txt` matched nothing, the commit said the
+test target to spotfinder/CMakeLists.txt matched nothing, the commit said the
 test was wired in, and it was not. Knowing the failure mode is not the same as
 guarding against it. The guard is an assertion in the edit, every time.
 
@@ -935,6 +938,71 @@ Both `target.h` and `derivatives_t.h` are templated on the scalar type for this
 reason, and both are checked against the double-precision originals first --
 the derivatives bit for bit. Writing a second implementation to measure the
 first is worse than useless: a disagreement could be either thing.
+
+## Integration: what has to stay true
+
+The full account is `docs/integration_history.md`; `docs/integration.md` is the
+reference. These are the rules that came out of it, each one broken once.
+
+**Validity and region are separate mask bits.** A pixel was measured if and
+only if `mask & kValid`. Never test `mask == 0` for "not measured": a bad pixel
+keeps its region bit so the fit knows part of a reflection is missing, and
+when that changed five places broke together, including the transform that
+learns profiles, which began putting bad pixels on the grid as real zeroes.
+
+**Flags are DIALS', read from `dials/array_family/reflection_table.h`.** Not
+from memory, and not from a table here: bit 19 was once taken for an exclusion
+flag, and `mxeq`'s own table had three wrong entries for as long as nothing
+read it. A foreground reaching a masked pixel gets
+`foreground_includes_bad_pixels` and `failed_during_summation` and NOT
+`integrated_sum`, because the sum is missing counts; setting it anyway sent
+truncated sums into `dials.scale`, which rejected them along every module edge.
+
+**Files DIALS reads follow DIALS' conventions,** even where the internal ones
+differ. Saved shoeboxes carry no region bit on an invalid voxel; DIALS rejects
+a table that does.
+
+**An angle goes into the scan before the crystal is looked up at it.** The
+Ewald solver answers in any 2 pi interval. At -260 degrees on a 0 to 180 scan
+the crystal came from image zero, and leaving reflections were up to a frame
+late from the first scan-varying version onward. Wrap into a window centred on the scan: one that
+starts at the scan start sends a root just before it to the far end.
+
+**A scan-varying test needs a crystal that moves.** The same A at every scan
+point is the static geometry with a scan-varying label; two separate bugs
+passed tests written that way. Test physical invariants where they exist --
+every prediction on the Ewald sphere under its own crystal; a pull of one on
+spots planted at known positions -- since those cannot be satisfied by an
+answer that is merely consistent.
+
+**A fitted variance below Leslie's floor is a missing term.** About half the
+summed variance is the best a profile can do. Fitting on the grid, and leaving
+out equation 34's background term, each made the fit look better than theory
+allows.
+
+**DIALS is a reference, not the truth.** Where they disagree, find something
+that can judge both: a reflection's symmetry equivalents judged DIALS' gap
+recoveries worse than ours. The comparison says two programs differ, not which
+is right.
+
+**Before comparing, check the model and the images are one dataset,** and read
+the matched count before anything else. One sweep's images integrated with
+another's model gives reasonable-looking numbers, and a whole stretch of the
+real-data measurements made here was of that kind. A comparison whose
+matched count is far below the smaller table's rows is measuring the matcher.
+
+**A median over a mixture hides a split.** Entering and leaving reflections,
+pooled, gave a prediction difference of 0.0007 images; split, it was 0.0003
+and 0.227. Split by the obvious categories before concluding two things agree.
+
+**When a fast version replaces a slow one, keep the slow one as the
+specification** and test the fast one against it. `profile_on_pixels_direct`
+is that for `profile_on_pixels`; the fast one's first version differed in 147
+of 3000 boxes, which a test with a flat profile could not have seen.
+
+**A number measured is a number attributed.** Performance and agreement figures
+in the documents name their dataset. The documents that said "integration not
+started" were accurate when written; nothing marked them as dated.
 
 ## Style
 

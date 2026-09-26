@@ -1,7 +1,8 @@
 # mxeq
 
 Equivalence checks between two runs of an MX processing pipeline, boundary by
-boundary, without cctbx.
+boundary, without cctbx -- and, for integration, tools that find and explain
+where two runs differ.
 
 ```sh
 mxeq check strong      dials/strong.refl     gpu/strong.refl
@@ -16,6 +17,51 @@ thresholding and stops being achievable somewhere around integration, and a
 checker that demands it would report every difference in summation order as a
 failure. So each boundary is compared on quantities that mean the same thing on
 both sides, and the tool reports distributions rather than verdicts.
+
+## Comparing two integrations
+
+`check` says whether two runs are equivalent at a boundary. These say where and
+why two integrations differ:
+
+```sh
+mxeq explain  ours.refl theirs.refl                 # why rows went unpartnered
+mxeq trend    ours.refl theirs.refl --value intensity.prf.value
+mxeq html     ours.refl theirs.refl -o comparison.html
+mxeq disagree ours.refl theirs.refl -o disagree.refl --sigma 5
+mxeq residuals integrated.refl -o residuals.html    # one file: predicted positions
+mxeq profiles profiles.txt -o profiles.png          # mxi_integrate --save-profiles
+```
+
+**The ratio is always the first file over the second**, so the order of the
+arguments sets which way a ratio above one points. Put the one being judged
+first.
+
+**Rows are paired as observations, not reflections.** Miller index and entering
+flag group them and the frame separates them, because a sweep of several turns
+records each reflection many times; `--radius` (5 images) is a sanity check and
+not a discriminator. Every report states how many matched. **That count should
+be close to the smaller table's rows**, and when it is not, nothing after it is
+worth reading -- run `explain`, which says for each unpartnered observation
+whether the other program did not predict it, put it in another turn, disagreed
+about its side of the Ewald sphere, or placed it further than the radius.
+
+Bins hold equal populations, since equal widths on a quantity like I/sigma put
+nearly everything in the first bin. The band on a ratio is the robust spread,
+not the standard error.
+
+`trend` and `html` bin against everything a disagreement might follow:
+resolution, I/sigma in the second file, |zeta|, partiality, and -- from the
+first -- profile correlation, foreground pixels and background, then distance
+from the beam centre and frame. `disagree` writes only the disagreeing rows, ours
+with the other side's value alongside, for `dials.image_viewer`; its three
+criteria find different things -- `--factor` proportional error, `--difference`
+absolute counts, `--sigma` the only one that knows whether a difference is
+larger than the measurement -- and each one given must be exceeded.
+
+`residuals` reads `xyzres.px`, the observed centre less the predicted, and
+shows it against image, resolution and detector position, with a summary that
+separates the systematic offset, the counting noise and the prediction error.
+See `docs/integration.md` for what it cannot tell you in z.
 
 ## No thresholds
 

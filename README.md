@@ -1,9 +1,9 @@
 # dials-metal
 
-An independent implementation of the MX data-reduction chain downstream of the
-images: spot finding, indexing, refinement, and the beginnings of integration.
-C++ with no dependencies outside the spot finder, plus `mxeq`, a checker that
-compares its output against DIALS.
+An independent implementation of the MX data-reduction chain from the images to
+integrated intensities: spot finding, indexing, refinement and integration, in
+C++, plus `mxeq`, a checker that compares its output against DIALS and explains
+the differences.
 
 The aim is to **stand in for DIALS**, not to improve on it. A pipeline built on
 its own ideas would be fast and would agree with nothing anyone runs. Where it
@@ -14,11 +14,12 @@ defaults off and the reason is written down.
 
 | | |
 | --- | --- |
-| `src/`, `apps/` | indexing, refinement, prediction, profile model |
-| `src/spots/` | the Metal and CUDA spot finder; needs HDF5 |
+| `src/`, `apps/` | indexing, refinement, prediction, the profile model, integration |
+| `src/spots/` | the Metal and CUDA spot finder, and the NXmx image reader |
 | `tests/` | the C++ tests, `tests/spots/` for the spot finder's |
-| `python/` | everything Python: the checker, the plots, the fixtures |
-| `docs/` | notes on integration and on a device port |
+| `tools/` | measurement harnesses kept for rerunning, such as planted spots |
+| `python/` | everything Python: the checker, the comparisons, the plots |
+| `docs/` | the integration reference and its notebook, the spot finder, a device port |
 | `CLAUDE.md` | working notes: what was got wrong, and how it was found |
 
 `mxeq` is the referee and must stay independent of what it judges. Nothing in
@@ -28,15 +29,17 @@ working where matplotlib and h5py are not installed.
 
 ## Building
 
-The pipeline itself has no dependencies:
+Indexing and refinement have no dependencies:
 
 ```sh
 cmake -S . -B build && cmake --build build
 ctest --test-dir build
 ```
 
-The spot finder needs HDF5 and the bitshuffle submodule, and is left out
-silently if either is missing -- `cmake` prints which. To build it:
+**Anything that reads images needs HDF5 and the bitshuffle submodule**: the spot
+finder `mxi_find` and the integrator `mxi_integrate` both. Without them both
+are left out *silently* -- `cmake` prints which is missing, and the build
+otherwise succeeds. To build them:
 
 ```sh
 sudo apt-get install libhdf5-dev        # Debian and Ubuntu
@@ -49,8 +52,9 @@ cmake -S . -B build && cmake --build build
 
 `cmake` says `spotfinder: building` when it has both, and
 `spotfinder: HDF5 not found, skipping` or `bitshuffle submodule not checked
-out` when it does not. If the spot finder is what you want, check that line
-rather than the absence of an error: leaving it out is not a failure.
+out` when it does not. If you want the spot finder or the integrator, check
+that line rather than the absence of an error: leaving them out is not a
+failure.
 
 The threshold kernels are CPU by default. One device backend at a time, and
 `cmake` refuses both at once:
@@ -152,28 +156,50 @@ those are not installed.
 ## The chain
 
 ```sh
-mxi_find  master.h5                          # -> strong.refl
-mxi_index               imported.expt strong.refl          # -> indexed.*
-mxi_refine              indexed.expt  indexed.refl --analytic
-mxeq check indexed      indexed.refl  dials/indexed.refl -e indexed.expt
+dials.import  master.nxs                                        # -> imported.expt
+mxi_find      -e imported.expt -j 16 -gpu -o strong.refl
+mxi_index     imported.expt strong.refl                         # -> indexed.*
+mxi_refine    indexed.expt indexed.refl --analytic              # -> refined.*
+              # static by default; --scan-varying N for a crystal that moves,
+              # which on real data is nearly every crystal
+mxi_integrate refined.expt strong.refl -o integrated.refl --scan-blocks 36
+dials.scale   refined.expt integrated.refl
 ```
 
-Output is interchangeable with DIALS at every boundary: `dials.refine`,
-`dials.integrate` and `dials.export` all read it, and `dials.image_viewer`
-draws it.
+Output is interchangeable with DIALS at every boundary: any stage can be
+swapped for DIALS' own, `dials.scale` and `dials.export` read the integrated
+table, and `dials.image_viewer` draws every stage's output. To compare a stage
+against DIALS, see `mxeq` below and `python/README.md`.
 
 ## The tools
 
 | | |
 | --- | --- |
+The pipeline:
+
+| | |
+| --- | --- |
+| `mxi_find` | spot finding on the CPU, CUDA or Metal, from NXmx HDF5 |
 | `mxi_index` | FFT indexing with assign, refine and reassign macrocycles |
 | `mxi_refine` | scan-static and scan-varying refinement, analytical derivatives |
-| `mxi_residuals` | residuals by resolution, by detector module, by anything |
+| `mxi_integrate` | summation and profile fitting; see `docs/integration.md` |
+
+For looking inside it:
+
+| | |
+| --- | --- |
+| `mxi_residuals` | refinement residuals by resolution, by detector module, by anything |
 | `mxi_profile` | the Gaussian profile model, and how much of a spot it holds |
 | `mxi_mask` | shoeboxes marking the integration region, for the image viewer |
 | `mxi_grid` | spot density in Kabsch space, and spot widths across the face |
 | `mxi_forward` | the model rendered onto the pixels, against the data |
-| `mxeq check` | two pipelines compared at a boundary, over a common set |
+| `mxi_background` | the robust background fitted to pixel values from a file |
+
+And `mxeq`, which judges the output: `check` compares two pipelines at a
+boundary; `trend`, `html`, `explain` and `disagree` find and explain where two
+integrations differ; `residuals` shows how well positions were predicted; and
+`profiles` draws the learned reference profiles. Every program answers
+`--help`.
 
 ## Where it stands
 
@@ -183,10 +209,13 @@ detector distance to two microns and its cell to six thousandths of an
 Angstrom. Analytical derivatives for crystal, detector and beam are validated
 against finite differences and are six times faster.
 
-**Integration is not started.** `docs/integration.md` has the plan and what it
-is bound by. The profile model is implemented and does not yet agree with
-DIALS; `mxi_profile` prints both values and the disagreement with every answer,
-which is the only place either number should be read from.
+**Integration works and agrees with DIALS through scaling.** On 1800 images
+of insulin `dials.scale` gives Rmerge 0.038 and Rpim 0.009 on this output and on
+DIALS' alike; on a 3600 image Eiger 16M sweep the merging statistics are close
+to DIALS'. Judged by their own symmetry equivalents, reflections crossing a
+module gap come out better here than in DIALS. The 16M sweep -- 1.08 million
+reflections -- integrates in 37 seconds on 16 threads. `docs/integration.md` is
+the reference, and lists what is still open.
 
 **A device port is designed but not written.** `docs/gpu.md`. The target
 evaluation is 88 to 106 per cent of refinement time, the work is one

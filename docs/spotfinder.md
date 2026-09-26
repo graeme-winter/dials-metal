@@ -24,7 +24,8 @@ than skip one part.
 
 ## What is shared now
 
-**The JSON parser.** `spotfinder/src/expt.cc` was 461 lines, of which about 400
+**The JSON parser.** The spot finder's expt.cc, then spotfinder/src/expt.cc and
+now `src/spots/expt.cc`, was 461 lines, of which about 400
 were a second parser for a format this repository already parses. It is now 152
 and uses `src/json.cc`.
 
@@ -45,13 +46,17 @@ silently none of the spot finder's.
 
 ## What is still duplicated
 
-`spotfinder/src/refl.cc` is 353 lines that write a reflection table, which
+`src/spots/refl.cc` is 353 lines that write a reflection table, which
 `src/refl.cc` also does and does more generally -- opaque columns, every dtype,
 round-tripped against real DIALS files.
 
+The duplication has already cost something: msgpack's 4 GB limit on a binary
+was guarded in this writer and not in the other, and a 4.87 GB shoebox column
+went through the unguarded one and was written corrupt.
+
 It has not been consolidated because the two writers must produce the same
 bytes for the same spots and that has not been demonstrated. The acceptance
-test is written and is in `spotfinder/tests/test_refl_golden.cc`: it holds the
+test is written and is in `tests/spots/test_refl_golden.cc`: it holds the
 current output of a fixed set of spots, so a rewrite can be shown to change
 nothing before it is believed. **Do the consolidation against that test, not
 against a reading of the code.**

@@ -1,5 +1,31 @@
 # Computing the refinement target on a device
 
+## Integration: what a device would buy, measured first
+
+Profile fitting was 53 per cent of integrating a 3600 image Eiger 16M sweep --
+the obvious thing to move. It was not the arithmetic that cost: 97 per cent of
+it was carrying the reference profile onto the pixels, and nearly all of that
+was one call to `epsilon_of` for every subdivision of every pixel, 8100 a box.
+Computing it at the pixel corners and interpolating, with the subdivisions near
+a cell boundary done exactly, was 4.8 times faster on the CPU and gave the same
+answer. Fitting went from 35.8 seconds to 12.2.
+
+Reading frames had the same shape: 5.62 reads a frame where two passes need 2,
+from windows that discarded their boxes. Reading each frame once a pass took it
+from 19.6 seconds to 11.0.
+
+The run went from 67.7 seconds to 36.9 with no device. Where it stands now:
+
+    reading frames (wall)    11.0 s   30 per cent   decompression 98 thread-s
+    profile fitting          12.2 s   33 per cent   independent per reflection
+    opening shoeboxes         4.3 s   12 per cent
+
+Profile fitting is still the natural device workload -- one independent fit per
+reflection, a few thousand voxels each, and a reference profile shared by
+thousands -- but it is now a third of a much shorter run, and the case for
+moving it should be made from a profile of this version, not the old one.
+Reading is decompression on the CPU and would not move with it.
+
 ## Scan-varying refinement, where the normal equations were the cost
 
 The static case below is not the command anyone actually runs. This is:
