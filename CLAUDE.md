@@ -1006,6 +1006,14 @@ matched count is far below the smaller table's rows is measuring the matcher.
 pooled, gave a prediction difference of 0.0007 images; split, it was 0.0003
 and 0.227. Split by the obvious categories before concluding two things agree.
 
+**No per-thread state through `thread_local` in a parallel call.** The calling
+thread takes part in every call and outlives them all, so a lane it chose
+once was shared with a later call's new threads -- a data race in profile
+learning that ThreadSanitizer, watching one run, did not see. Index per-thread
+state by the worker number `in_parallel_by_worker` passes; and make a reduction
+add in an order fixed by the data, so that the thread count changes no byte of
+the output.
+
 **When a fast version replaces a slow one, keep the slow one as the
 specification** and test the fast one against it. `profile_on_pixels_direct`
 is that for `profile_on_pixels`; the fast one's first version differed in 147

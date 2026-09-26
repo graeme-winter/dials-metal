@@ -724,31 +724,50 @@ int run_program(int argc, char **argv) {
         workers, window, max_boxes);
 
     //: Run `count` units of work over the pool, by index.
-    const auto in_parallel = [&](std::size_t count, auto &&body) {
+    // Run body(i, worker) for i in [0, count), where worker is this call's
+    // number for the thread running it: 0 for the calling thread, 1 to n - 1
+    // for the threads started here. It is stable within one call and means
+    // nothing across calls, so anything kept per thread must be indexed by it
+    // and not by thread_local state.
+    //
+    // thread_local lane numbers were a data race. The threads are new on every
+    // call but the calling thread takes part in all of them, so its lane,
+    // chosen once, outlived the call that chose it -- while each later call's
+    // new threads were numbered from zero again. A probe caught two threads
+    // sharing lane 0 in 32 calls of a thirty image run: the calling thread did
+    // the whole of three small early calls on lane 0 and kept it. In profile
+    // learning that meant two threads adding into the same partial profiles at
+    // once. ThreadSanitizer saw nothing on that run only because the two rarely
+    // both learned a reflection in the same call.
+    const auto in_parallel_by_worker = [&](std::size_t count, auto &&body) {
       if (count == 0)
         return;
       const std::size_t n = std::min(workers, count);
       if (n <= 1) {
         for (std::size_t i = 0; i < count; ++i)
-          body(i);
+          body(i, std::size_t{0});
         return;
       }
       std::atomic<std::size_t> next_unit{0};
       std::vector<std::thread> pool;
       pool.reserve(n - 1);
-      const auto run = [&]() {
+      const auto run = [&](std::size_t worker) {
         for (;;) {
           const std::size_t i = next_unit.fetch_add(1);
           if (i >= count)
             break;
-          body(i);
+          body(i, worker);
         }
       };
       for (std::size_t t = 1; t < n; ++t)
-        pool.emplace_back(run);
-      run();
+        pool.emplace_back(run, t);
+      run(0);
       for (std::thread &t : pool)
         t.join();
+    };
+    const auto in_parallel = [&](std::size_t count, auto &&body) {
+      in_parallel_by_worker(count,
+                            [&](std::size_t i, std::size_t) { body(i); });
     };
 
     // TWO PASSES OVER THE IMAGES
@@ -863,97 +882,98 @@ int run_program(int argc, char **argv) {
                                           0.0);
       std::vector<double> decompress_by_thread(fetch_by_thread.size(), 0.0);
       std::vector<double> fill_by_thread(fetch_by_thread.size(), 0.0);
-      std::atomic<std::size_t> thread_slot{0};
       const double t_region_start = now_wall();
-      in_parallel(frame_numbers.size(), [&](std::size_t which) {
-        thread_local std::unique_ptr<series::Reader> mine;
-        thread_local std::size_t slot = 0;
-        thread_local bool first = true;
-        if (first) {
-          mine = images->reader();
-          slot = thread_slot.fetch_add(1) % fetch_by_thread.size();
-          first = false;
-        }
-        const std::int32_t z = frame_numbers[which];
-        if (z < 0 || static_cast<std::size_t>(z) >= keys.size())
-          return;
-        series::Frame raw;
-        const double t0 = now_wall();
-        if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) {
-          // A frame the writer never received: an unallocated chunk. Counted,
-          // because a shoebox that spans it is missing a slice and will
-          // integrate low, and silently dropping it leaves "frames read" less
-          // than the number of images with no explanation.
-          unread.fetch_add(1);
-          return;
-        }
-        const double t1 = now_wall();
-        const std::size_t height = static_cast<std::size_t>(raw.height);
-        const std::size_t width = static_cast<std::size_t>(raw.width);
-        const std::size_t bytes =
-            decompress::frame_bytes(height, width, raw.bit_depth);
-        std::vector<std::uint8_t> pixels(bytes);
-        decompress::image(raw.data, raw.algorithm, raw.bit_depth, height, width,
-                          {pixels.data(), bytes});
-        const double t2 = now_wall();
-        frames_done.fetch_add(1);
+      in_parallel_by_worker(
+          frame_numbers.size(), [&](std::size_t which, std::size_t worker) {
+            // A reader per thread, kept for the thread's life: it belongs to
+            // one thread only, so outliving a call is harmless. Its TIMING lane
+            // is the worker number, which is unique within the call; a
+            // thread_local lane was shared between the calling thread and a new
+            // one.
+            thread_local std::unique_ptr<series::Reader> mine;
+            if (!mine)
+              mine = images->reader();
+            const std::size_t slot = worker % fetch_by_thread.size();
+            const std::int32_t z = frame_numbers[which];
+            if (z < 0 || static_cast<std::size_t>(z) >= keys.size())
+              return;
+            series::Frame raw;
+            const double t0 = now_wall();
+            if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) {
+              // A frame the writer never received: an unallocated chunk.
+              // Counted, because a shoebox that spans it is missing a slice and
+              // will integrate low, and silently dropping it leaves "frames
+              // read" less than the number of images with no explanation.
+              unread.fetch_add(1);
+              return;
+            }
+            const double t1 = now_wall();
+            const std::size_t height = static_cast<std::size_t>(raw.height);
+            const std::size_t width = static_cast<std::size_t>(raw.width);
+            const std::size_t bytes =
+                decompress::frame_bytes(height, width, raw.bit_depth);
+            std::vector<std::uint8_t> pixels(bytes);
+            decompress::image(raw.data, raw.algorithm, raw.bit_depth, height,
+                              width, {pixels.data(), bytes});
+            const double t2 = now_wall();
+            frames_done.fetch_add(1);
 
-        const auto fill = [&](auto typed, std::uint32_t bad) {
-          using Pixel = decltype(typed);
-          const Pixel *const raw_pixels =
-              reinterpret_cast<const Pixel *>(pixels.data());
-          std::size_t bad_count = 0;
-          for (std::size_t i : touching[z]) {
-            Shoebox &box = active[i];
-            if (box.data.empty())
-              continue;
-            const std::int32_t zi = z - box.bbox[4];
-            for (std::int32_t y = 0; y < box.ny(); ++y) {
-              const std::size_t row =
-                  static_cast<std::size_t>(box.bbox[2] + y) * width;
-              for (std::int32_t x = 0; x < box.nx(); ++x) {
-                const std::size_t index =
-                    row + static_cast<std::size_t>(box.bbox[0] + x);
-                const std::size_t into = box.at(x, y, zi);
-                const std::uint32_t v =
-                    static_cast<std::uint32_t>(raw_pixels[index]);
-                // The largest representable value is the bad-pixel marker, not
-                // a count: excluded from both sums rather than counted as
-                // zero, which would drag the background down wherever a module
-                // gap crosses a shoebox.
-                if (v == bad) {
-                  // Clear VALIDITY and keep the region. A voxel in a module
-                  // gap is still a foreground voxel, it just has no
-                  // measurement in it -- and the profile fit needs to know
-                  // that a part of the reflection is missing rather than
-                  // simply not seeing it. Zeroing the whole mask made a
-                  // reflection with a third of its foreground in a gap report
-                  // two thirds of its intensity, which is exactly what profile
-                  // fitting exists to avoid.
-                  box.mask[into] &=
-                      static_cast<std::uint8_t>(~shoebox_mask::kValid);
-                  ++bad_count;
-                } else {
-                  box.data[into] = static_cast<float>(v);
+            const auto fill = [&](auto typed, std::uint32_t bad) {
+              using Pixel = decltype(typed);
+              const Pixel *const raw_pixels =
+                  reinterpret_cast<const Pixel *>(pixels.data());
+              std::size_t bad_count = 0;
+              for (std::size_t i : touching[z]) {
+                Shoebox &box = active[i];
+                if (box.data.empty())
+                  continue;
+                const std::int32_t zi = z - box.bbox[4];
+                for (std::int32_t y = 0; y < box.ny(); ++y) {
+                  const std::size_t row =
+                      static_cast<std::size_t>(box.bbox[2] + y) * width;
+                  for (std::int32_t x = 0; x < box.nx(); ++x) {
+                    const std::size_t index =
+                        row + static_cast<std::size_t>(box.bbox[0] + x);
+                    const std::size_t into = box.at(x, y, zi);
+                    const std::uint32_t v =
+                        static_cast<std::uint32_t>(raw_pixels[index]);
+                    // The largest representable value is the bad-pixel marker,
+                    // not a count: excluded from both sums rather than counted
+                    // as zero, which would drag the background down wherever a
+                    // module gap crosses a shoebox.
+                    if (v == bad) {
+                      // Clear VALIDITY and keep the region. A voxel in a module
+                      // gap is still a foreground voxel, it just has no
+                      // measurement in it -- and the profile fit needs to know
+                      // that a part of the reflection is missing rather than
+                      // simply not seeing it. Zeroing the whole mask made a
+                      // reflection with a third of its foreground in a gap
+                      // report two thirds of its intensity, which is exactly
+                      // what profile fitting exists to avoid.
+                      box.mask[into] &=
+                          static_cast<std::uint8_t>(~shoebox_mask::kValid);
+                      ++bad_count;
+                    } else {
+                      box.data[into] = static_cast<float>(v);
+                    }
+                  }
                 }
               }
+              bad_here.fetch_add(bad_count);
+            };
+            if (raw.bit_depth == 16) {
+              fill(std::uint16_t{}, 0xFFFFu);
+            } else if (raw.bit_depth == 32) {
+              fill(std::uint32_t{}, 0xFFFFFFFFu);
+            } else {
+              throw std::runtime_error("unsupported bit depth " +
+                                       std::to_string(raw.bit_depth));
             }
-          }
-          bad_here.fetch_add(bad_count);
-        };
-        if (raw.bit_depth == 16) {
-          fill(std::uint16_t{}, 0xFFFFu);
-        } else if (raw.bit_depth == 32) {
-          fill(std::uint32_t{}, 0xFFFFFFFFu);
-        } else {
-          throw std::runtime_error("unsupported bit depth " +
-                                   std::to_string(raw.bit_depth));
-        }
-        const double t3 = now_wall();
-        fetch_by_thread[slot] += t1 - t0;
-        decompress_by_thread[slot] += t2 - t1;
-        fill_by_thread[slot] += t3 - t2;
-      });
+            const double t3 = now_wall();
+            fetch_by_thread[slot] += t1 - t0;
+            decompress_by_thread[slot] += t2 - t1;
+            fill_by_thread[slot] += t3 - t2;
+          });
       t_region += now_wall() - t_region_start;
       frames_read += frames_done.load();
       bad_pixels += bad_here.load();
@@ -1030,40 +1050,58 @@ int run_program(int argc, char **argv) {
         // in a different order is the only thing that changes.
         if (fitting) {
           const double t0 = now_wall();
-          const std::size_t lanes = std::max<std::size_t>(workers, 1);
-          std::vector<ReferenceProfiles> mine(lanes, reference);
-          for (ReferenceProfiles &r : mine) {
+          // FIXED BLOCKS, NOT THREADS. The closing reflections are cut into a
+          // fixed number of blocks by index, each summed in index order by one
+          // task into its own partial, and the partials added in block order.
+          // Which thread runs a block is left to the scheduler and changes
+          // nothing: every addition happens in the same order on every run,
+          // whatever the thread count. Refinement's reduction already worked
+          // this way.
+          //
+          // It replaced partials per thread, which were a data race (see
+          // in_parallel_by_worker) and, even without the race, added in an
+          // order the scheduler chose: two four-thread runs differed by 3.6e-11
+          // in intensity.prf.value.
+          //
+          // Sixteen blocks bounds the parallelism of this phase at sixteen,
+          // which is a few per cent of a run, and costs sixteen partial sets of
+          // profiles: about two megabytes each at 324 cells.
+          constexpr std::size_t kBlocks = 16;
+          const std::size_t blocks =
+              std::min(kBlocks, std::max<std::size_t>(count, 1));
+          std::vector<ReferenceProfiles> partial(blocks, reference);
+          for (ReferenceProfiles &r : partial) {
             for (std::vector<double> &p : r.profile)
               std::fill(p.begin(), p.end(), 0.0);
             std::fill(r.spots.begin(), r.spots.end(), 0);
           }
-          std::atomic<std::size_t> lane{0};
           std::atomic<std::size_t> learned{0};
-          in_parallel(count, [&](std::size_t i) {
-            thread_local std::size_t slot = lanes;
-            if (slot == lanes)
-              slot = lane.fetch_add(1) % lanes;
-            if (boxes[i].data.empty())
-              return;
-            const std::size_t row = rows[i];
-            const double signal = isum.reals[row];
-            const double sigma = std::sqrt(std::max(ivar.reals[row], 1e-12));
-            if (!(signal > least_signal * sigma))
-              return;
-            if (part_column.reals[row] < 0.99)
-              return;
-            const Prediction &q = *planned[row].prediction;
-            const Transformed t =
-                transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
-            if (!t.valid || t.outside > 0.05)
-              return;
-            const std::size_t region =
-                reference.region_of(panel, static_cast<std::size_t>(q.panel),
-                                    q.px_fast, q.px_slow, q.z);
-            if (add_reference(&mine[slot], region, t))
-              learned.fetch_add(1);
+          in_parallel(blocks, [&](std::size_t b) {
+            const std::size_t first = b * count / blocks;
+            const std::size_t last = (b + 1) * count / blocks;
+            for (std::size_t i = first; i < last; ++i) {
+              if (boxes[i].data.empty())
+                continue;
+              const std::size_t row = rows[i];
+              const double signal = isum.reals[row];
+              const double sigma = std::sqrt(std::max(ivar.reals[row], 1e-12));
+              if (!(signal > least_signal * sigma))
+                continue;
+              if (part_column.reals[row] < 0.99)
+                continue;
+              const Prediction &q = *planned[row].prediction;
+              const Transformed t =
+                  transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
+              if (!t.valid || t.outside > 0.05)
+                continue;
+              const std::size_t region =
+                  reference.region_of(panel, static_cast<std::size_t>(q.panel),
+                                      q.px_fast, q.px_slow, q.z);
+              if (add_reference(&partial[b], region, t))
+                learned.fetch_add(1);
+            }
           });
-          for (const ReferenceProfiles &r : mine) {
+          for (const ReferenceProfiles &r : partial) {
             for (std::size_t g = 0; g < reference.profile.size(); ++g) {
               for (std::size_t k = 0; k < reference.profile[g].size(); ++k) {
                 reference.profile[g][k] += r.profile[g][k];

@@ -30,7 +30,7 @@ Read the right-hand section before trusting the left.
 | A constant -0.15 image z residual, from the first `xyzres` table | mismatched inputs, and meaningless |
 | The z residual sinusoid as rocking-curve asymmetry | "The pixel plant": it grows with narrowness, not width |
 | Module-edge outliers as overconfident variances | "The outliers along the module edges were a flag, not an intensity" |
-| "Two runs at the same thread count agree exactly" ("Making the second pass pay for itself") | measured wrong: two four-thread runs differ by up to 3.6e-11 in profile-fitted intensities, because profile learning gives reflections to whichever thread is free; only one thread reproduces exactly. Summation is exact either way |
+| "Two runs at the same thread count agree exactly" ("Making the second pass pay for itself") | measured wrong: two four-thread runs differ by up to 3.6e-11 in profile-fitted intensities, because profile learning gives reflections to whichever thread is free; only one thread reproduces exactly. Summation is exact either way. Worse, it was a data race: see "Deterministic profile learning" below. Fixed |
 
 **Mismatched inputs.** From the arrival of the 1800 image `i04-ins-small` model
 until the end of the record, both `.expt` files in the working directory were
@@ -2288,3 +2288,39 @@ the change, 6.3 ms against 4.65, and the guess was the chunk being a
 synchronisation point. It is flat from 32 to 256 frames a chunk. The old figure
 was flattered -- a frame read for the fifth time comes from the page cache, and
 the average was over those.
+
+
+## Deterministic profile learning, and the race it removed
+
+Two runs at the same thread count differed by 3.6e-11 in the profile-fitted
+intensities, which was put down to addition in an order the scheduler chose.
+Rewriting it as fixed blocks turned up something worse first.
+
+Each thread took a partial-sum lane through `thread_local` state. The threads in
+`in_parallel` are new on every call, but the calling thread runs the same loop
+in every call and so lives through all of them: a lane it chose once outlived
+the call that chose it, while every later call's new threads were numbered from
+zero again. A probe recording which thread used which lane found two threads
+sharing lane 0 in 32 calls of a thirty image run. The calling thread had done
+all of three small early calls alone, on lane 0, and kept it.
+
+That is two threads adding into the same partial reference profiles at once: a
+data race, undefined behaviour, and lost contributions to the learned profiles.
+ThreadSanitizer, run on that very case, reported nothing -- it reports a race
+when both threads write, and in a small run the two sharers seldom both learned
+a reflection in one call. A sanitizer that sees nothing has watched one
+execution, not all of them. The frame reader's timing lane had the same flaw,
+harmless to the result and a race all the same.
+
+`in_parallel_by_worker` now hands each call's threads a number, 0 for the caller
+and 1 to n - 1 for the rest, stable within the call and meaningless across
+calls; the reader's timing lane is that number. Profile learning no longer has
+lanes: the closing reflections are cut into sixteen blocks by index, each summed
+in order by one task into its own partial, and the partials added in block
+order. Which thread runs which block changes nothing.
+
+One, two, four twice and eight threads now give byte-identical output. Against
+the old single-thread run, profile-fitted values move by 3.7e-15 relative, which
+is the regrouping, and summation not at all. The test runs the real program at
+one thread and at four, twice, with short chunks for many reductions; against
+the old code it fails with "two four-thread runs differ".

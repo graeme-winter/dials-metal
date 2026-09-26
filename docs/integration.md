@@ -92,6 +92,11 @@ Choosing a few of them:
    the fit's plus the background term of Leslie's equation 34.
 6. **Writing.** One row per prediction.
 
+**The output does not depend on the thread count.** Every parallel reduction
+adds in an order fixed by the data, not by the scheduler: profile learning sums
+sixteen fixed blocks of reflections, each in index order, and adds them in block
+order. One thread and eight give the same bytes, and a test holds it.
+
 Profile fitting is on the pixels, not the grid, because the grid has more
 points than a shoebox has pixels and one pixel reaches several of them, so
 treating grid points as independent overstates the information. That and a
@@ -228,13 +233,6 @@ What is known not to be right yet, with what is known about each.
   1.5 radii would exclude it for about fourteen per cent of the background
   pixels. Not built.
 * **Overlapping reflections are not detected** (Leslie sections 6.3, 6.7.1).
-* **Profile fitting is not reproducible run to run** except on one thread. Two
-  four-thread runs differ by up to 3.6e-11 in `intensity.prf.value`, because
-  profile learning hands reflections to whichever thread is free and so adds
-  them in a different order each time. Immaterial in size -- far below any
-  sigma -- but `docs/gpu.md` holds that a reduction answering differently run
-  to run makes every downstream comparison meaningless, and refinement avoids
-  it with chunks fixed by the thread count. Summation is exact in any case.
 * **Profile learning uses the per-subdivision transform** that profile fitting
   no longer does; the same corner interpolation would make it several times
   faster. About two seconds on the 16M run.
