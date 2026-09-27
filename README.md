@@ -226,6 +226,11 @@ module gap come out better here than in DIALS. The 16M sweep -- 1.08 million
 reflections -- integrates in 37 seconds on 16 threads. `docs/integration.md` is
 the reference, and lists what is still open.
 
+**Symmetry and scaling are planned, not written.** `docs/scaling_plan.md`: the
+scaling after Beilsten-Edmands et al. (2020), with cubic B-splines for the scale
+and decay and spherical harmonics for absorption, and the symmetry analysis as
+dials.symmetry does it; two decisions in it are open.
+
 **A device port is designed but not written.** `docs/gpu.md`. The target
 evaluation is 88 to 106 per cent of refinement time, the work is one
 independent thread per reflection and parameter, and float32 holds seven digits
