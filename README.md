@@ -29,12 +29,18 @@ working where matplotlib and h5py are not installed.
 
 ## Building
 
-Indexing and refinement have no dependencies:
+Everything needs the gemmi submodule, for space groups; indexing and
+refinement need nothing else:
 
 ```sh
+git submodule update --init --recursive
 cmake -S . -B build && cmake --build build
 ctest --test-dir build
 ```
+
+gemmi is pinned at a release (v0.7.5), and only its symmetry source is
+compiled. A checkout without it stops at `cmake`, naming the command above,
+rather than building part of the pipeline.
 
 **Anything that reads images needs HDF5 and the bitshuffle submodule**: the spot
 finder `mxi_find` and the integrator `mxi_integrate` both. Without them both

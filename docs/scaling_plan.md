@@ -1,8 +1,9 @@
 # Symmetry and scaling: a plan
 
-STATUS: a plan, nothing built. Two decisions below are open and wait on Graeme:
-the order of the two programs, and whether to depend on gemmi. Program names
-here are in plain text, not code, because they do not exist yet.
+STATUS: a plan, being built. Decided: gemmi as the dependency for space groups
+(a submodule at v0.7.5, wrapped in `src/symmetry.hh`), and mxi_scale first.
+Built so far: space groups and changes of basis. Program names here are in plain
+text, not code, while they do not exist yet.
 
 The pipeline ends at integration. What follows it in DIALS is dials.symmetry,
 choosing the point group and space group, and dials.scale, putting every
@@ -111,14 +112,17 @@ As dials.symmetry and POINTLESS do it:
 The multi-crystal case -- indexing ambiguities between crystals, as dials.cosym
 resolves them -- comes after, and has its own prior work to build on.
 
-## Decisions open
+## Decisions
 
-* **Order.** The recommendation is scaling first, taking the space group from
-  the model or from the command line. It is self-contained and is where the
-  detail of the paper lies. Symmetry needs space-group machinery -- operators,
-  Laue groups, change-of-basis and reindexing -- before anything can be scored.
-* **gemmi.** It would supply that machinery, and MTZ and mmCIF writing, as a
-  small C++ library under MPL-2.0. The spot finder needs only HDF5 and
-  bitshuffle, and the pipeline FFTW besides; this would be the first
-  crystallographic dependency. Written here instead, space groups are a
-  substantial piece of work of their own.
+* **Scaling first.** mxi_scale takes the space group from the model, or from
+  the command line with a change of basis until mxi_symmetry can choose one:
+  for the 300 image sweep, I 2 3 and `b+c,a+c,a+b` as dials.symmetry reported.
+  That operator takes this pipeline's own indexing to 77.93 77.90 77.89 A at
+  89.99 89.94 89.93 degrees, and leaves none of 20914 reflections forbidden by
+  the I centring.
+* **gemmi**, pinned at a release, for operators, the reciprocal asymmetric unit,
+  absences and centric reflections, behind `src/symmetry.hh`.
+* **Reports** of merging statistics, in the manner of dials.scale's HTML, go in
+  a later mxi_report. mxi_scale prints its summary tables, as the others do.
+* **MTZ and mmCIF** go in a later mxi_export. mxi_scale writes a scaled,
+  unmerged reflection table and the models.

@@ -85,6 +85,21 @@ else()
     message(STATUS "FFT: the built-in radix-2; -DMXI_FFTW=ON for FFTW")
 endif()
 
+# gemmi, for space groups: operators, the reciprocal asymmetric unit, absences.
+# A submodule pinned at a release, as bitshuffle is. Only its symmetry source
+# is compiled -- the rest used so far is headers -- and with its own warnings
+# off: the no-warnings rule is about this code, and gemmi's headers come in as
+# system headers so that it stays so.
+if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/gemmi/include/gemmi/symmetry.hpp)
+    message(FATAL_ERROR "third_party/gemmi is empty: run git submodule update --init")
+endif()
+add_library(mxi_gemmi STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/gemmi/src/symmetry.cpp)
+target_include_directories(mxi_gemmi SYSTEM PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/gemmi/include)
+target_compile_options(mxi_gemmi PRIVATE -w)
+set_target_properties(mxi_gemmi PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(mxi
   src/linalg.cc
   src/geometry.cc
@@ -108,7 +123,10 @@ add_library(mxi
   src/reference.cc
   src/summary.cc
   src/postrefine.cc
+  src/symmetry.cc
 )
+
+target_link_libraries(mxi PUBLIC mxi_gemmi)
 
 if(MXI_FFTW)
     # PUBLIC: fft3d is called from mxi and the symbol has to resolve in every
@@ -244,6 +262,7 @@ add_executable(mxi_tests
   tests/test_shoebox.cc
   tests/test_summary.cc
   tests/test_postrefine.cc
+  tests/test_symmetry.cc
   tests/test_mask.cc
   tests/test_profile_model.cc
 )
