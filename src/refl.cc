@@ -646,4 +646,32 @@ void write_reflections(const std::string &path, const Table &table) {
   file.write(out.data(), static_cast<std::streamsize>(out.size()));
 }
 
+Table select_rows(const Table &table, const std::vector<std::size_t> &rows) {
+  Table out;
+  out.identifiers = table.identifiers;
+  out.version = table.version;
+  out.nrows = rows.size();
+  for (const std::string &name : table.names()) {
+    const Column &from = table.at(name);
+    Column to;
+    to.type = from.type;
+    to.width = from.width;
+    to.integral = from.integral;
+    const std::size_t w = from.width ? from.width : 1;
+    for (std::size_t r : rows) {
+      if (r >= table.nrows)
+        throw ReflError("select_rows: row " + std::to_string(r) +
+                        " of a table of " + std::to_string(table.nrows));
+      for (std::size_t k = 0; k < w; ++k) {
+        if (from.integral)
+          to.ints.push_back(from.ints[r * w + k]);
+        else
+          to.reals.push_back(from.reals[r * w + k]);
+      }
+    }
+    out.set(name, std::move(to));
+  }
+  return out;
+}
+
 } // namespace mxi

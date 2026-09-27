@@ -107,6 +107,7 @@ add_library(mxi
   src/integrate.cc
   src/reference.cc
   src/summary.cc
+  src/postrefine.cc
 )
 
 if(MXI_FFTW)
@@ -242,6 +243,7 @@ add_executable(mxi_tests
   tests/test_refl.cc
   tests/test_shoebox.cc
   tests/test_summary.cc
+  tests/test_postrefine.cc
   tests/test_mask.cc
   tests/test_profile_model.cc
 )

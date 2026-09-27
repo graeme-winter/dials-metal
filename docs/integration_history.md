@@ -2439,3 +2439,24 @@ This overturns the explanation recorded above, that the integrator's centre
 follows its foreground window. The pixel plant shows that effect is real, and it
 is not this: the integrator agrees with the spot finder for exactly the strong
 spots that carry the offset.
+
+
+## Post-refinement, and the rows it may use
+
+`mxi_integrate --postrefine` integrates, refines against the centres it
+measured, and integrates again. The first measurement of the idea -- refining
+on every integrated row with `mxi_refine` -- took the z offset from -0.115
+images to -0.008. It had included about six thousand rows that were not summed
+or had no centre of mass, and a row without a centre carries its PREDICTION as
+its observed position: a residual of exactly zero, pulling the refinement back
+toward the model it started from. Restricted to the 14959 summed rows with a
+centre, the scan-varying z RMSD is 0.177 images where it had been 0.220, and the
+offset in the second integration -0.006, flat along the scan at -0.004 to
+-0.010. The test of that selection fails with the centre-of-mass check removed.
+
+The refinement is the one mxi_refine runs, not a copy of it: the static then
+scan-varying procedure moved into the library as `refine_in_two_passes`, and
+mxi_refine's files are byte-identical through it. The program composes two of
+its own runs around it, with the models written between, because integration is
+still one body inside `run_program`; making it a function is refactoring of its
+own.

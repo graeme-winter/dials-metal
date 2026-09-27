@@ -158,6 +158,11 @@ private:
 };
 
 Table read_reflections(const std::string &path);
+
+//: The given rows of a table, in the order given, with every decoded column
+//: and the identifiers. Undecoded columns -- shoeboxes, and anything else kept
+//: verbatim as bytes -- are left out, since bytes cannot be split by row.
+Table select_rows(const Table &table, const std::vector<std::size_t> &rows);
 //: Throws ReflError when a binary column of `size` bytes cannot be written:
 //: msgpack's bin32 describes at most 2^32 - 1, and a larger one used to be
 //: written with its length wrapped, leaving everything after it unreadable.

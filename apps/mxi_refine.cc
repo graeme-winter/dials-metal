@@ -222,39 +222,25 @@ int run_program(int argc, char **argv) {
                 reflections.nrows, experiments.size(),
                 experiments.size() == 1 ? "" : "s");
 
-    RefineResult result = refine(experiments, reflections, options);
-    if (result.n_used > 0) {
-      std::printf("\nScan-static: %zu parameters\n", result.n_parameters);
-      print_cycles(result);
+    const TwoPassRefinement two =
+        refine_in_two_passes(experiments, reflections, options,
+                             static_cast<std::size_t>(scan_points),
+                             !args.has("--detector-in-scan-varying"));
+    if (two.static_pass.n_used > 0) {
+      std::printf("\nScan-static: %zu parameters\n",
+                  two.static_pass.n_parameters);
+      print_cycles(two.static_pass);
     }
-    if (scan_points > 1 && result.n_used > 0) {
-      options.scan_points = static_cast<std::size_t>(scan_points);
-      // The detector is held where the static pass put it.
-      //
-      // A scan-varying crystal and a refinable detector distance are
-      // degenerate: the cell scales with the distance, and a crystal free at
-      // every control point can pay for a smaller residual by moving the
-      // detector. Measured on 1800 images of insulin, eighteen control points:
-      // the distance drifts 0.27 mm and the cell volume falls 0.59 per cent,
-      // for five thousandths of a pixel. Holding the detector keeps the volume
-      // within 0.04 per cent of what DIALS reports and costs 0.005 px.
-      //
-      // There is nothing scan-varying about a detector in any case. It does
-      // not move during a sweep, so letting it move while the crystal is free
-      // only gives crystal drift somewhere else to go.
-      const bool hold = !args.has("--detector-in-scan-varying");
-      if (hold)
-        options.detector = false;
-      result = refine(experiments, reflections, options);
-      if (result.n_used > 0) {
-        std::printf("\nScan-varying, %d control points: %zu parameters%s\n",
-                    scan_points, result.n_parameters,
-                    hold ? "; the detector held where the scan-static pass put "
-                           "it (--detector-in-scan-varying to refine it too)"
-                         : "");
-        print_cycles(result);
-      }
+    if (two.varied && two.varying_pass.n_used > 0) {
+      std::printf("\nScan-varying, %d control points: %zu parameters%s\n",
+                  scan_points, two.varying_pass.n_parameters,
+                  two.detector_held
+                      ? "; the detector held where the scan-static pass put "
+                        "it (--detector-in-scan-varying to refine it too)"
+                      : "");
+      print_cycles(two.varying_pass);
     }
+    RefineResult result = two.final();
     if (result.n_used == 0) {
       std::fprintf(stderr, "mxi_refine: nothing to refine against\n");
       return 1;

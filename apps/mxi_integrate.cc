@@ -36,6 +36,7 @@
 #include "integrate.hh"
 #include "log_mirror.hh"
 #include "mask.hh"
+#include "postrefine.hh"
 #include "predict.hh"
 #include "profile_model.hh"
 #include "reference.hh"
@@ -172,6 +173,14 @@ void usage(const char *program) {
       "  -o FILE           where to write (integrated.refl)\n"
       "  --images PATH     the image file; by default the .expt's own\n"
       "                    imageset template is used\n"
+      "  --postrefine      integrate, refine against the centres integration\n"
+      "                    measured, and integrate again with the refined\n"
+      "                    models, which are written to --output-expt\n"
+      "                    (integrated.expt). Removes the z offset the spot\n"
+      "                    finder's centres leave in a refined model\n"
+      "  --postrefine-points N   control points for its scan-varying pass;\n"
+      "                    default one per 36 degrees and two more, at least "
+      "5\n"
       "  --sigma-b B --sigma-m M   profile model. Estimated from INDEXED_REFL\n"
       "                    if given -- indexed or refined reflections, not a\n"
       "                    spot finder's -- else taken from EXPT's profile "
@@ -219,6 +228,108 @@ struct Frame {
 
 } // namespace
 
+int run_program(int argc, char **argv);
+
+// Integrate; refine against the centres that integration measured; integrate
+// again with the refined models. Composed of whole runs of this program rather
+// than of a function, because the integration is still one body in
+// run_program: the models are written to --output-expt between the two, and
+// the second run reads them as any later program would.
+int integrate_with_postrefinement(const Arguments &args, const char *program,
+                                  const std::set<std::string> &takes_value) {
+  const std::string out_refl = args.value("-o", "integrated.refl");
+  const std::string out_expt = args.value("--output-expt", "integrated.expt");
+  const std::string first_refl = out_refl + ".before-postrefinement.refl";
+  std::size_t points = 0;
+  if (args.has("--postrefine-points")) {
+    const double n = args.number("--postrefine-points", 0.0);
+    if (!(n >= 2.0)) {
+      std::fprintf(stderr,
+                   "mxi_integrate: --postrefine-points needs at least 2\n");
+      return 2;
+    }
+    points = static_cast<std::size_t>(n);
+  }
+
+  // A command line for one run: this one's options, less those that belong to
+  // the post-refinement, with its own models and output. The first run keeps no
+  // shoeboxes or profiles, since only the second run's are the result.
+  const auto command = [&](const std::string &expt, const std::string &refl,
+                           bool first) {
+    std::vector<std::string> words = {program, expt};
+    if (args.positional.size() == 2)
+      words.push_back(args.positional[1]);
+    for (const auto &[flag, value] : args.options) {
+      if (flag == "--postrefine" || flag == "--postrefine-points" ||
+          flag == "--output-expt" || flag == "-o")
+        continue;
+      if (first && (flag == "--save-shoeboxes" || flag == "--save-profiles"))
+        continue;
+      words.push_back(flag);
+      if (takes_value.count(flag))
+        words.push_back(value);
+    }
+    words.push_back("-o");
+    words.push_back(refl);
+    return words;
+  };
+  const auto run = [](std::vector<std::string> words) {
+    std::vector<char *> argv;
+    for (std::string &w : words)
+      argv.push_back(w.data());
+    argv.push_back(nullptr);
+    return run_program(static_cast<int>(words.size()), argv.data());
+  };
+
+  std::printf("Integrating with the models as given, then refining against the "
+              "centres that measures, then integrating again\n\n");
+  std::printf("=== Integration with the models as given ===\n");
+  int status = run(command(args.positional[0], first_refl, true));
+  if (status != 0)
+    return status;
+
+  try {
+    ExperimentList experiments = read_experiments(args.positional[0]);
+    const Table first = read_reflections(first_refl);
+    const PostrefineResult result = postrefine(experiments, first, points);
+    std::printf("\n=== Post-refinement ===\n");
+    std::printf(
+        "Refining against %zu of the %zu integrated reflections: summed, "
+        "and with a centre of mass\n",
+        result.selected, result.candidates);
+    const RefineResult &st = result.refinement.static_pass;
+    const RefineResult &sv = result.refinement.varying_pass;
+    if (st.n_used == 0) {
+      std::fprintf(stderr,
+                   "mxi_integrate: post-refinement fitted nothing, so there "
+                   "is nothing to integrate again with\n");
+      std::remove(first_refl.c_str());
+      return 1;
+    }
+    std::printf(
+        "  scan-static:  %3zu parameters, %zu reflections, RMSD %.4f px, "
+        "%.4f px, %.4f images\n",
+        st.n_parameters, st.n_used, st.rmsd_x, st.rmsd_y, st.rmsd_z);
+    if (result.refinement.varied) {
+      std::printf(
+          "  scan-varying: %3zu parameters, %zu reflections, RMSD %.4f px, "
+          "%.4f px, %.4f images; %zu control points, the detector held\n",
+          sv.n_parameters, sv.n_used, sv.rmsd_x, sv.rmsd_y, sv.rmsd_z,
+          experiments[0].crystal ? experiments[0].crystal->A_points.size() : 0);
+    }
+    write_experiments(out_expt, experiments);
+    std::printf("Wrote the post-refined models to %s\n\n", out_expt.c_str());
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "mxi_integrate: post-refinement: %s\n", error.what());
+    std::remove(first_refl.c_str());
+    return 1;
+  }
+  std::remove(first_refl.c_str());
+
+  std::printf("=== Integration with the post-refined models ===\n");
+  return run(command(out_expt, out_refl, false));
+}
+
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"-o",
                                        "--sigma-b",
@@ -243,11 +354,15 @@ int run_program(int argc, char **argv) {
                                        "--summation-only",
                                        "--save-profiles",
                                        "--min-zeta",
-                                       "--least-measured"};
+                                       "--least-measured",
+                                       "--postrefine",
+                                       "--postrefine-points",
+                                       "--output-expt"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
   takes_value.erase("--summation-only");
+  takes_value.erase("--postrefine");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage(argv[0]);
@@ -266,6 +381,17 @@ int run_program(int argc, char **argv) {
   }
   const std::string strong_path =
       args.positional.size() == 2 ? args.positional[1] : std::string();
+
+  if (args.has("--postrefine"))
+    return integrate_with_postrefinement(args, argv[0], takes_value);
+  // Refused rather than ignored: a run that silently drops an option has used
+  // settings nobody chose.
+  for (const char *needs : {"--postrefine-points", "--output-expt"}) {
+    if (args.has(needs)) {
+      std::fprintf(stderr, "mxi_integrate: %s is for --postrefine\n", needs);
+      return 2;
+    }
+  }
 
   try {
     const double t_start = now_wall();

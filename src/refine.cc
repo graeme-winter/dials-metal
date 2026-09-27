@@ -1209,4 +1209,36 @@ std::vector<std::size_t> update_predictions(const ExperimentList &experiments,
   return unpredicted;
 }
 
+TwoPassRefinement refine_in_two_passes(ExperimentList &experiments,
+                                       const Table &reflections,
+                                       RefineOptions options,
+                                       std::size_t scan_points,
+                                       bool hold_detector) {
+  TwoPassRefinement out;
+  out.static_pass = refine(experiments, reflections, options);
+  if (scan_points > 1 && out.static_pass.n_used > 0) {
+    options.scan_points = scan_points;
+    // The detector is held where the static pass put it.
+    //
+    // A scan-varying crystal and a refinable detector distance are
+    // degenerate: the cell scales with the distance, and a crystal free at
+    // every control point can pay for a smaller residual by moving the
+    // detector. Measured on 1800 images of insulin, eighteen control points:
+    // the distance drifts 0.27 mm and the cell volume falls 0.59 per cent,
+    // for five thousandths of a pixel. Holding the detector keeps the volume
+    // within 0.04 per cent of what DIALS reports and costs 0.005 px.
+    //
+    // There is nothing scan-varying about a detector in any case. It does
+    // not move during a sweep, so letting it move while the crystal is free
+    // only gives crystal drift somewhere else to go.
+    if (hold_detector && options.detector) {
+      options.detector = false;
+      out.detector_held = true;
+    }
+    out.varying_pass = refine(experiments, reflections, options);
+    out.varied = true;
+  }
+  return out;
+}
+
 } // namespace mxi

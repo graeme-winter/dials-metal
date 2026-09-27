@@ -189,6 +189,27 @@ JacobianComparison compare_jacobians(const ExperimentList &experiments,
                                      const Table &reflections,
                                      const RefineOptions &options);
 
+//: Refinement as mxi_refine runs it: scan-static, then -- if scan_points is
+//: more than one and the static pass fitted anything -- scan-varying from where
+//: the static pass left the models, with the detector held there unless
+//: hold_detector is false. The procedure lives here, not in a program, so that
+//: every program refining a model does it the same way.
+struct TwoPassRefinement {
+  RefineResult static_pass;
+  RefineResult varying_pass;
+  bool varied = false;
+  bool detector_held = false;
+  //: The pass the models were left by.
+  const RefineResult & final() const {
+    return varied ? varying_pass : static_pass;
+  }
+};
+TwoPassRefinement refine_in_two_passes(ExperimentList &experiments,
+                                       const Table &reflections,
+                                       RefineOptions options,
+                                       std::size_t scan_points,
+                                       bool hold_detector = true);
+
 // Write xyzcal.px and xyzcal.mm into the table from the current models, so the
 // result can be compared against DIALS' own predictions.
 //: Returns the rows it could not predict with the model it was given. Their
