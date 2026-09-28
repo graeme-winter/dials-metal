@@ -34,6 +34,12 @@ struct ScaleData {
   std::vector<std::size_t> row;   //: in the reflection table
   std::vector<double> d;
   std::vector<bool> outlier;
+  //: Both estimates, corrected likewise, for combining them; has_sum is false
+  //: where summation failed, as it does across a module gap.
+  std::vector<double> prf, prf_variance, sum, sum_variance;
+  std::vector<bool> has_sum;
+  //: The variances as integration gave them, corrected, before an error model.
+  std::vector<double> variance_before;
   std::size_t size() const { return intensity.size(); }
 };
 
@@ -86,5 +92,40 @@ struct ScaleFitResult {
 ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
                                const ScaleFitOptions &options = {},
                                const std::vector<std::size_t> &use = {});
+
+//: Observations whose normalised deviation from their group's weighted mean,
+//: excluding themselves, exceeds zmax (Evans 2006), flagged in data.outlier.
+//: Every observation is retested, earlier outliers too; within a group the
+//: worst is removed and the rest retested, so one cannot hide another. Returns
+//: how many are flagged.
+std::size_t reject_outliers(ScaleData &data, const std::vector<double> &g,
+                            double zmax = 6.0);
+
+struct ErrorModel {
+  double a = 1.0, b = 0.02;
+  std::size_t used = 0; //: observations it was determined from
+};
+//: sigma'^2 = a^2 (sigma^2 + (b I)^2), determined as dials.scale does: a from
+//: the slope of the central normal probability plot, |x| < 1.5, of the
+//: normalised deviations (eqn 12); b by minimising eqn 17 over logarithmically
+//: spaced intensity bins; the two alternated to convergence from a = 1,
+//: b = 0.02; on groups with <I> above 25 and <I / sigma^2> above 0.85.
+ErrorModel refine_error_model(const ScaleData &data,
+                              const std::vector<double> &g);
+//: The error model applied to every observation's variance, from the variance
+//: before any: applying it twice does not compound.
+void apply_error_model(ScaleData &data, const ErrorModel &model);
+
+//: I = w I_prf + (1 - w) I_sum with w = 1 / (1 + (I_sum / I_mid)^3), eqns 13
+//: and 14; the variance as for fully correlated estimates, which they are,
+//: being from the same pixels. I_mid of zero is profile fitting alone, and of
+//: infinity summation alone.
+void combine_intensities(ScaleData &data, double i_mid);
+//: Rmeas with the scales given, over observations that are not outliers.
+double rmeas(const ScaleData &data, const std::vector<double> &g);
+//: The I_mid of lowest Rmeas, among profile alone, summation alone, and powers
+//: of ten between; leaves data combined with it.
+double choose_intensity_combination(ScaleData &data,
+                                    const std::vector<double> &g);
 
 } // namespace mxi

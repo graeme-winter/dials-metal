@@ -136,4 +136,120 @@ TEST(fitting_selects_whole_groups_until_both_thresholds_are_met) {
                  "and not everything, when that is enough");
 }
 
+namespace {
+
+//: Groups of one reflection seen `seen` times with unit scales, true
+//: intensities from 100 to 10000, reported variances I (as counting would
+//: give), and true noise a^2 (I + (b I)^2).
+ScaleData plain(std::size_t groups, int seen, double a, double b,
+                unsigned seed) {
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> uni(0.0, 1.0);
+  std::normal_distribution<double> noise(0.0, 1.0);
+  ScaleData data;
+  for (std::size_t h = 0; h < groups; ++h) {
+    data.unique.push_back(Miller{static_cast<int>(h), 1, 0});
+    const double truth = 100.0 * std::pow(100.0, uni(rng));
+    for (int k = 0; k < seen; ++k) {
+      const double sigma = a * std::sqrt(truth + b * b * truth * truth);
+      const double i = truth + sigma * noise(rng);
+      data.intensity.push_back(i);
+      data.variance.push_back(std::fmax(truth, 1.0));
+      data.variance_before.push_back(std::fmax(truth, 1.0));
+      data.observation.emplace_back();
+      data.group.push_back(h);
+      data.outlier.push_back(false);
+    }
+  }
+  return data;
+}
+
+} // namespace
+
+TEST(the_outliers_planted_are_the_outliers_found) {
+  ScaleData data = plain(400, 6, 1.0, 0.0, 11);
+  const std::vector<std::size_t> planted_at = {5, 101, 777, 1500, 2203};
+  for (std::size_t i : planted_at)
+    data.intensity[i] *= 3.0;
+  const std::vector<double> g(data.size(), 1.0);
+  const std::size_t n = reject_outliers(data, g);
+  check::equal(static_cast<long long>(n), 5, "five flagged");
+  for (std::size_t i : planted_at)
+    check::is_true(data.outlier[i], "each planted one: " + std::to_string(i));
+}
+
+TEST(a_planted_error_model_is_recovered) {
+  // Reported variances I; true noise 1.3^2 (I + (0.03 I)^2).
+  ScaleData data = plain(3000, 8, 1.3, 0.03, 5);
+  const ErrorModel em =
+      refine_error_model(data, std::vector<double>(data.size(), 1.0));
+  check::is_true(em.used > 20000,
+                 "most observations judged it: " + std::to_string(em.used));
+  check::is_true(std::abs(em.a - 1.3) < 0.04, "a = " + std::to_string(em.a));
+  check::is_true(std::abs(em.b - 0.03) < 0.004, "b = " + std::to_string(em.b));
+  apply_error_model(data, em);
+  apply_error_model(data, em);
+  check::close(data.variance[0],
+               em.a * em.a *
+                   (data.variance_before[0] +
+                    em.b * em.b * data.intensity[0] * data.intensity[0]),
+               1e-9 * data.variance[0], "applying it twice does not compound");
+}
+
+TEST(the_error_model_is_unbiased_in_pairs) {
+  // Every reflection seen twice, where eqn 12's prefactor -- dials.scale's --
+  // would leave the deviations' spread at a half and return a = 0.65 for 1.3.
+  // The exact variance of a deviation from a mean it is part of does not.
+  ScaleData data = plain(15000, 2, 1.3, 0.03, 8);
+  const ErrorModel em =
+      refine_error_model(data, std::vector<double>(data.size(), 1.0));
+  check::is_true(std::abs(em.a - 1.3) < 0.05, "a = " + std::to_string(em.a));
+  check::is_true(std::abs(em.b - 0.03) < 0.006, "b = " + std::to_string(em.b));
+}
+
+TEST(the_intensity_combination_chosen_is_better_than_either_alone) {
+  // Profile fitting less noisy for weak spots and five per cent wrong, at
+  // random, for strong ones; summation counting-noisy throughout. The best
+  // crossover is neither extreme.
+  std::mt19937 rng(9);
+  std::uniform_real_distribution<double> uni(0.0, 1.0);
+  std::normal_distribution<double> noise(0.0, 1.0);
+  ScaleData data;
+  for (std::size_t h = 0; h < 3000; ++h) {
+    data.unique.push_back(Miller{static_cast<int>(h), 2, 0});
+    const double truth = 10.0 * std::pow(3000.0, uni(rng));
+    for (int k = 0; k < 6; ++k) {
+      const double ss = std::sqrt(truth + 200.0), sp = 0.5 * ss;
+      const double sum = truth + ss * noise(rng);
+      const double prf =
+          truth * (truth > 3000.0 ? 1.0 + 0.05 * noise(rng) : 1.0) +
+          sp * noise(rng);
+      data.sum.push_back(sum);
+      data.sum_variance.push_back(ss * ss);
+      data.prf.push_back(prf);
+      data.prf_variance.push_back(sp * sp);
+      data.has_sum.push_back(true);
+      data.intensity.push_back(prf);
+      data.variance.push_back(sp * sp);
+      data.variance_before.push_back(sp * sp);
+      data.observation.emplace_back();
+      data.group.push_back(h);
+      data.outlier.push_back(false);
+    }
+  }
+  const std::vector<double> g(data.size(), 1.0);
+  combine_intensities(data, 0.0);
+  const double r_prf = rmeas(data, g);
+  combine_intensities(data, HUGE_VAL);
+  const double r_sum = rmeas(data, g);
+  const double chosen = choose_intensity_combination(data, g);
+  const double r_best = rmeas(data, g);
+  check::is_true(chosen > 0.0 && std::isfinite(chosen),
+                 "a crossover, not either alone: " + std::to_string(chosen));
+  check::is_true(r_best < r_prf && r_best < r_sum,
+                 "Rmeas " + std::to_string(r_best) + " against profile " +
+                     std::to_string(r_prf) + " and summation " +
+                     std::to_string(r_sum));
+}
+
 } // namespace mxi
