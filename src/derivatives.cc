@@ -207,18 +207,16 @@ std::array<CentroidDerivative, 2> beam_derivatives(const PredictionState &s,
   return out;
 }
 
-SplineWeights spline_weights(const Experiment &e, double z) {
+SplineWeights spline_weights(std::size_t points, double t) {
   SplineWeights out;
-  if (!e.crystal || !e.crystal->scan_varying()) {
+  if (points < 2) {
     out.count = 1;
     out.index[0] = 0;
     out.weight[0] = 1.0;
     return out;
   }
-  const auto n = static_cast<long>(e.crystal->A_points.size());
-  const double images = static_cast<double>(e.scan.num_images());
-  const double t =
-      images > 0.0 ? std::fmax(0.0, std::fmin(1.0, z / images)) : 0.0;
+  const auto n = static_cast<long>(points);
+  t = std::fmax(0.0, std::fmin(1.0, t));
   const double segments = static_cast<double>(n + 1);
   const double u = t * segments;
   const auto i = static_cast<long>(std::fmin(std::floor(u), segments - 1.0));
@@ -237,6 +235,14 @@ SplineWeights spline_weights(const Experiment &e, double z) {
     out.weight[m] = b[m];
   }
   return out;
+}
+
+SplineWeights spline_weights(const Experiment &e, double z) {
+  if (!e.crystal || !e.crystal->scan_varying())
+    return spline_weights(std::size_t{1}, 0.0);
+  const double images = static_cast<double>(e.scan.num_images());
+  return spline_weights(e.crystal->A_points.size(),
+                        images > 0.0 ? z / images : 0.0);
 }
 
 } // namespace mxi

@@ -124,6 +124,7 @@ add_library(mxi
   src/summary.cc
   src/postrefine.cc
   src/symmetry.cc
+  src/scale_model.cc
 )
 
 target_link_libraries(mxi PUBLIC mxi_gemmi)
@@ -263,6 +264,7 @@ add_executable(mxi_tests
   tests/test_summary.cc
   tests/test_postrefine.cc
   tests/test_symmetry.cc
+  tests/test_scale_model.cc
   tests/test_mask.cc
   tests/test_profile_model.cc
 )

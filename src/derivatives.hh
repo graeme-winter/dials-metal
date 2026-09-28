@@ -92,6 +92,10 @@ struct SplineWeights {
   std::size_t count = 0;
 };
 SplineWeights spline_weights(const Experiment &e, double z);
+//: The same weights for a curve of n control points at t in [0, 1], clamped:
+//: the basis every smooth function of the scan here shares -- the crystal's
+//: scan-varying model and the scale and decay of scaling alike.
+SplineWeights spline_weights(std::size_t n, double t);
 
 // --------------------------------------------------------------------------
 // Detector and beam
