@@ -490,4 +490,8 @@ UnitCell reindexed_cell(const UnitCell &cell, const ChangeOfBasis &cb) {
                   angle(axes[0], axes[2]), angle(axes[0], axes[1])};
 }
 
+double d_spacing(const UnitCell &cell, const Miller &hkl) {
+  return to_gemmi(cell).calculate_d(gemmi::Miller{hkl[0], hkl[1], hkl[2]});
+}
+
 } // namespace mxi

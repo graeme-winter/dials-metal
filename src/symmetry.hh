@@ -101,6 +101,8 @@ struct Setting {
 //: The cell after a change of basis: the new axes, columns of M, measured
 //: in the old metric.
 UnitCell reindexed_cell(const UnitCell &cell, const ChangeOfBasis &cb);
+//: d of hkl in a cell.
+double d_spacing(const UnitCell &cell, const Miller &hkl);
 
 std::optional<Setting> reference_setting(const std::vector<Rotation> &rotations,
                                          const UnitCell &cell);
