@@ -245,3 +245,29 @@ with no options gives merging statistics identical, and scaled.refl
 byte-identical, to mxi_scale given the space group and change of basis by hand.
 The cell is written reindexed but not constrained: 77.93 77.90 77.89 A where
 dials.symmetry reports 77.898.
+
+## A dataset measured to the corner: two simplifications undone
+
+On a sweep dials.symmetry called I m -3, mxi_symmetry chose P -1: the true
+three-folds scored CC 0.27 where dials.symmetry has 0.97. The lattice's rotations
+were right -- they keep the cell's metric to 0.2 per cent, transposed they are
+167 per cent off -- and the difference was in the data scored:
+
+* **No resolution limit.** dials.symmetry scores to a limit from the data, the
+  finer of CC half above 0.6 and <I>/<sigma> above 4 (1.68 A there); this scored
+  to the detector's corner, 176220 reflections with mates merged where
+  dials.symmetry kept 173252 with mates apart, most of them beyond the
+  diffraction. Quasi-normalised, noise weighs as much as signal in a correlation.
+  Now the same limit, with dials.symmetry's other filters: observations with
+  I/sigma below -5, and Wilson outliers of E^2 16 or more.
+* **Friedel mates merged.** The identity then compared each reflection with
+  itself and gave CC 1 exactly, and E(CC; S), the CC a true element is expected
+  to reach, was set from that. With mates apart the identity compares I(h) with
+  I(-h) and measures it: 0.987 on the 300 image sweep, where dials.symmetry has
+  0.979.
+
+A test plants m-3 in strong reflections to 3.5 A and pure noise beyond: without
+the limit it finds P -1, as that sweep did, and with it I m -3. The 300 image
+sweep still gives I m -3, b+c,a+c,a+b and I 2 3. The limits differ from
+dials.symmetry's -- 1.85 A from <I>/<sigma> there, 2.46 in dials.symmetry, which
+fits a curve where this takes the last shell above the threshold.

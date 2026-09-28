@@ -98,4 +98,62 @@ TEST(the_laue_group_planted_is_the_laue_group_found) {
   check::is_true(p > 0.9, "with likelihood " + std::to_string(p));
 }
 
+namespace {
+
+//: The failure seen on a dataset measured to the detector's corner: true m-3
+//: symmetry in the strong low-resolution reflections, and a majority of pure
+//: noise beyond. Friedel mates both present, as observations come.
+P1Intensities noisy_beyond(double strong_to, unsigned seed) {
+  const UnitCell cell{67.42, 67.46, 67.46, 109.44, 109.47, 109.46};
+  const SpaceGroup group = SpaceGroup::from_name("I 2 3");
+  const ChangeOfBasis cb = ChangeOfBasis::parse("b+c,a+c,a+b");
+  std::mt19937 rng(seed);
+  std::exponential_distribution<double> wilson(1.0);
+  std::normal_distribution<double> noise(0.0, 1.0);
+  std::map<Miller, double> value;
+  P1Intensities out;
+  for (int h = -18; h <= 18; ++h)
+    for (int k = -18; k <= 18; ++k)
+      for (int l = -18; l <= 18; ++l) {
+        const Miller m{h, k, l};
+        if (m == Miller{0, 0, 0})
+          continue;
+        const double d = d_spacing(cell, m);
+        if (d < 2.2 || d > 30.0)
+          continue;
+        const Miller u = group.unique(cb.apply(m));
+        if (!value.count(u))
+          value[u] = wilson(rng);
+        // Strong to `strong_to`; beyond it the signal is a twentieth of the
+        // noise.
+        const double signal = d >= strong_to ? 1.0 : 0.05;
+        const double sigma = d >= strong_to ? 0.05 : 1.0;
+        out.hkl.push_back(m);
+        out.i.push_back(signal * value[u] + sigma * noise(rng));
+        out.sigma.push_back(sigma);
+        out.d.push_back(d);
+      }
+  return out;
+}
+
+} // namespace
+
+TEST(noise_beyond_the_diffraction_does_not_hide_the_symmetry) {
+  // As dials.symmetry does: a resolution limit from the data, before scoring.
+  P1Intensities data = noisy_beyond(3.5, 6);
+  const UnitCell cell{67.42, 67.46, 67.46, 109.44, 109.47, 109.46};
+  const double d_min = laue_resolution_limit(data);
+  check::is_true(d_min > 3.0 && d_min < 4.2,
+                 "the limit found: " + std::to_string(d_min));
+  select_resolution(data, d_min);
+  normalise(data);
+  const LaueScores s = score_laue_groups(data, lattice_symmetry(cell));
+  const auto set = reference_setting(s.groups.front().rotations, cell);
+  const std::string found = set ? set->group.name() : "?";
+  check::is_true(found == "I m -3", "planted m-3 under noise, found " + found);
+  check::is_true(s.cc_identity < 0.999,
+                 "and the identity, Friedel mates apart, is measured: " +
+                     std::to_string(s.cc_identity));
+}
+
 } // namespace mxi

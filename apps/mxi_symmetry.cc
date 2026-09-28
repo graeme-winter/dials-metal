@@ -58,18 +58,32 @@ int run_program(int argc, char **argv) {
     std::printf("Cell %.3f %.3f %.3f A, %.3f %.3f %.3f deg\n", cell.a, cell.b,
                 cell.c, cell.alpha, cell.beta, cell.gamma);
 
-    const P1Intensities merged = merge_in_p1(experiments, reflections);
+    P1Selection selection;
+    const P1Intensities merged =
+        merge_in_p1(experiments, reflections, &selection);
+    std::printf("%zu observations; %zu removed with I/sigma below -5\n",
+                selection.observations, selection.negative);
+    std::printf("Resolution from CC half above 0.6: %.2f A; from <I>/<sigma> "
+                "above 4: %.2f A; "
+                "the finer, %.2f A, used\n",
+                selection.d_min_cc_half, selection.d_min_i_over_sigma,
+                selection.d_min);
     P1Intensities normalised = merged;
-    normalise(normalised);
+    const std::size_t wilson = normalise(normalised);
+    std::printf("%zu Wilson outliers removed, E^2 of 16 or more\n", wilson);
     const std::vector<Rotation> lattice =
         lattice_symmetry(cell, args.number("--max-delta", 2.0));
     const LaueScores scores = score_laue_groups(normalised, lattice);
-    std::printf("%zu reflections merged in P1; the lattice has %zu rotations, "
+    std::printf("%zu reflections merged in P1, Friedel mates apart; the "
+                "lattice has %zu rotations, "
                 "%zu symmetry "
                 "elements, %zu subgroups\n",
                 merged.size(), lattice.size(), scores.elements.size(),
                 scores.groups.size());
-    std::printf("E(CC; S) %.3f, sigma(CC) factor %.3f\n", scores.cc_true,
+    std::printf("E(CC; S) %.3f, from the intensities %.3f and from the "
+                "identity %.3f; sigma(CC) "
+                "factor %.3f\n",
+                scores.cc_true, scores.e_cc_true, scores.cc_identity,
                 scores.cc_sig_fac);
 
     std::printf("\nScoring each symmetry element\n");

@@ -15,24 +15,50 @@
 
 namespace mxi {
 
-//: Intensities merged in P1 with Friedel mates merged, one per reflection.
+//: Intensities merged in P1, Friedel mates APART, one per reflection. Apart
+//: so that the identity element compares I(h) with I(-h), and measures what
+//: equivalent reflections achieve -- 0.931 on one dataset in dials.symmetry's
+//: hands -- where with mates merged it compared each reflection with itself,
+//: gave 1 exactly, and set the expected CC of every true element too high.
 struct P1Intensities {
-  std::vector<Miller> hkl; //: the P -1 unique index
+  std::vector<Miller> hkl;
   std::vector<double> i, sigma, d;
   std::size_t size() const { return hkl.size(); }
 };
 
-//: One sweep's integrated reflections merged in P1, Friedel mates merged, by
-//: inverse variance: the observations as scaling takes them (profile fitted,
-//: corrected by lp / qe / partiality, partiality at 0.4 or more) with no
-//: scaling applied.
+//: What merging in P1 kept and why, as dials.symmetry reports it.
+struct P1Selection {
+  std::size_t observations = 0,
+              negative = 0; //: negative: I/sigma below -5, removed
+  double d_min_cc_half = 0.0, d_min_i_over_sigma = 0.0, d_min = 0.0;
+  std::size_t kept = 0; //: merged reflections to d_min
+};
+
+//: One sweep's integrated reflections merged in P1 by inverse variance, as
+//: dials.symmetry takes them: observations as scaling takes them (profile
+//: fitted, corrected by lp / qe / partiality, partiality at 0.4 or more), less
+//: those with I/sigma below -5, to a resolution limit from the data -- the
+//: finer of CC half above 0.6 and <I>/<sigma> above 4. Without the limit, a
+//: sweep measured to the detector's corner had most of its reflections beyond
+//: the diffraction, noise that pulled every element's CC toward zero and left
+//: the true three-folds at 0.27.
 P1Intensities merge_in_p1(const ExperimentList &experiments,
-                          const Table &reflections);
+                          const Table &reflections,
+                          P1Selection *report = nullptr);
+
+//: The resolution to which <I>/<sigma> stays above the threshold, in shells of
+//: equal count from low resolution: the d_min of the last shell before the
+//: first below it. All of the data if none is.
+double laue_resolution_limit(const P1Intensities &data,
+                             double min_i_over_sigma = 4.0);
+void select_resolution(P1Intensities &data, double d_min);
 
 //: Divided by <I> in shells of equal count by resolution -- the
 //: quasi-normalisation E^2, where dials.symmetry fits an anisotropic
 //: maximum-likelihood model -- so that correlations compare like with like.
-void normalise(P1Intensities &data, std::size_t per_shell = 200);
+//: Wilson outliers, E^2 of 16 or more, are then removed, as dials.symmetry
+//: removes them; returns how many.
+std::size_t normalise(P1Intensities &data, std::size_t per_shell = 200);
 
 struct ElementScore {
   Rotation rotation;

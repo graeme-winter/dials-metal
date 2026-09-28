@@ -27,12 +27,6 @@ Rotation times(const Rotation &a, const Rotation &b) {
   return out;
 }
 
-//: The P -1 representative: of h and -h, the one first in order.
-Miller p1_unique(const Miller &h) {
-  const Miller n{-h[0], -h[1], -h[2]};
-  return n < h ? n : h;
-}
-
 double cauchy_cdf(double x, double loc, double scale) {
   return 0.5 + std::atan((x - loc) / scale) / std::acos(-1.0);
 }
@@ -109,7 +103,7 @@ std::vector<Rotation> symmetry_elements(const std::vector<Rotation> &lattice) {
   return out;
 }
 
-void normalise(P1Intensities &data, std::size_t per_shell) {
+std::size_t normalise(P1Intensities &data, std::size_t per_shell) {
   std::vector<std::size_t> order(data.size());
   std::iota(order.begin(), order.end(), std::size_t{0});
   std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
@@ -130,6 +124,21 @@ void normalise(P1Intensities &data, std::size_t per_shell) {
     if (end == order.size())
       break;
   }
+  // Wilson outliers, E^2 of 16 or more, as dials.symmetry removes them.
+  P1Intensities kept;
+  std::size_t removed = 0;
+  for (std::size_t k = 0; k < data.size(); ++k) {
+    if (data.i[k] >= 16.0) {
+      ++removed;
+      continue;
+    }
+    kept.hkl.push_back(data.hkl[k]);
+    kept.i.push_back(data.i[k]);
+    kept.sigma.push_back(data.sigma[k]);
+    kept.d.push_back(data.d[k]);
+  }
+  data = std::move(kept);
+  return removed;
 }
 
 double p_cc_given_present(double cc, double sigma_cc, double expected) {
@@ -149,13 +158,31 @@ double p_cc_given_absent(double cc, double sigma_cc) {
   return (sum / steps) / (std::acos(-1.0) / 4.0);
 }
 
+namespace {
+
+//: CC of I(h) against I(-h) over the Friedel pairs present: what equivalent
+//: reflections achieve, as dials.symmetry estimates E(CC; S) from the identity.
+double identity_cc(const P1Intensities &data,
+                   const std::map<Miller, std::size_t> &where) {
+  Accumulator acc;
+  for (std::size_t k = 0; k < data.size(); ++k) {
+    const Miller &h = data.hkl[k];
+    const auto it = where.find(Miller{-h[0], -h[1], -h[2]});
+    if (it != where.end())
+      acc.add(data.i[k], data.i[it->second]);
+  }
+  return acc.n > 10 ? acc.cc() : 1.0;
+}
+
+} // namespace
+
 LaueScores score_laue_groups(const P1Intensities &data,
                              const std::vector<Rotation> &lattice,
                              unsigned seed) {
   LaueScores out;
   std::map<Miller, std::size_t> where;
   for (std::size_t k = 0; k < data.size(); ++k)
-    where[p1_unique(data.hkl[k])] = k;
+    where[data.hkl[k]] = k; // exact: Friedel mates are apart
 
   // sigma(CC) as a function of sample size, from pairs of unrelated
   // reflections at similar resolution: rms CC against 1/sqrt(n), fitted.
@@ -219,7 +246,8 @@ LaueScores score_laue_groups(const P1Intensities &data,
       var += (data.i[k] - mean) * (data.i[k] - mean) /
              static_cast<double>(data.size() - 1);
     out.e_cc_true = var / (var + s2);
-    out.cc_identity = 1.0;
+    // CC of the identity, I(h) against I(-h): measured.
+    out.cc_identity = identity_cc(data, where);
     const double sigma_1 = std::fmax(0.05, out.cc_sig_fac / std::sqrt(200.0));
     const double sigma_2 = std::fmax(
         0.05, out.cc_sig_fac / std::sqrt(static_cast<double>(data.size())));
@@ -244,9 +272,11 @@ LaueScores score_laue_groups(const P1Intensities &data,
     for (const Rotation &op : ops) {
       for (std::size_t k = 0; k < data.size(); ++k) {
         const Miller h = data.hkl[k];
-        const Miller image = p1_unique(
-            e.order == 1 ? Miller{-h[0], -h[1], -h[2]} : apply(op, h));
-        if (e.order > 1 && image == p1_unique(h))
+        // The identity pairs h with -h, its Friedel mate; the rest h with
+        // its image, exactly.
+        const Miller image =
+            e.order == 1 ? Miller{-h[0], -h[1], -h[2]} : apply(op, h);
+        if (e.order > 1 && image == h)
           continue; // on the axis: epsilon > 1
         const auto it = where.find(image);
         if (it == where.end())
@@ -368,29 +398,140 @@ SpaceGroupChoice choose_space_group(const std::vector<Miller> &hkl,
   return out;
 }
 
+double laue_resolution_limit(const P1Intensities &data,
+                             double min_i_over_sigma) {
+  if (data.size() == 0)
+    return 0.0;
+  std::vector<std::size_t> order(data.size());
+  std::iota(order.begin(), order.end(), std::size_t{0});
+  std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+    return data.d[a] > data.d[b];
+  });
+  const std::size_t shells = 20,
+                    per = std::max<std::size_t>(1, order.size() / shells);
+  double limit = data.d[order.back()];
+  for (std::size_t s = 0; s < shells; ++s) {
+    const std::size_t a = s * per, b = s + 1 == shells
+                                           ? order.size()
+                                           : std::min(order.size(), a + per);
+    if (a >= b)
+      break;
+    double si = 0.0, ss = 0.0;
+    for (std::size_t k = a; k < b; ++k) {
+      si += data.i[order[k]];
+      ss += data.sigma[order[k]];
+    }
+    if (!(ss > 0.0) || si / ss < min_i_over_sigma) {
+      limit = s == 0 ? data.d[order.back()] : data.d[order[a - 1]];
+      break;
+    }
+  }
+  return limit;
+}
+
+void select_resolution(P1Intensities &data, double d_min) {
+  P1Intensities kept;
+  for (std::size_t k = 0; k < data.size(); ++k) {
+    if (data.d[k] < d_min)
+      continue;
+    kept.hkl.push_back(data.hkl[k]);
+    kept.i.push_back(data.i[k]);
+    kept.sigma.push_back(data.sigma[k]);
+    kept.d.push_back(data.d[k]);
+  }
+  data = std::move(kept);
+}
+
 P1Intensities merge_in_p1(const ExperimentList &experiments,
-                          const Table &reflections) {
-  const ScaleData data =
+                          const Table &reflections, P1Selection *report) {
+  ScaleData data =
       build_scale_data(experiments, reflections, SpaceGroup::from_name("P 1"),
                        ScaleModelShape{1, 0, 0});
-  std::vector<double> sw(data.unique.size(), 0.0), swx(data.unique.size(), 0.0),
-      d(data.unique.size(), 0.0);
+  P1Selection sel;
+  sel.observations = data.size();
+  for (std::size_t i = 0; i < data.size(); ++i)
+    if (data.intensity[i] / std::sqrt(data.variance[i]) < -5.0) {
+      data.outlier[i] = true;
+      ++sel.negative;
+    }
+  // CC half by resolution, Friedel mates merged, random halves of each
+  // reflection's observations: the finest shell from low resolution before
+  // the first below 0.6.
+  {
+    std::vector<std::vector<std::size_t>> members(data.unique.size());
+    for (std::size_t i = 0; i < data.size(); ++i)
+      if (!data.outlier[i])
+        members[data.group[i]].push_back(i);
+    std::vector<std::size_t> groups;
+    for (std::size_t h = 0; h < members.size(); ++h)
+      if (members[h].size() >= 2)
+        groups.push_back(h);
+    std::sort(groups.begin(), groups.end(), [&](std::size_t a, std::size_t b) {
+      return data.d[members[a][0]] > data.d[members[b][0]];
+    });
+    std::mt19937 rng(20);
+    const std::size_t shells = 20,
+                      per = std::max<std::size_t>(1, groups.size() / shells);
+    sel.d_min_cc_half =
+        groups.empty() ? 0.0 : data.d[members[groups.back()][0]];
+    for (std::size_t s = 0; s < shells && !groups.empty(); ++s) {
+      const std::size_t a = s * per, b = s + 1 == shells
+                                             ? groups.size()
+                                             : std::min(groups.size(), a + per);
+      if (a >= b)
+        break;
+      Accumulator acc;
+      for (std::size_t k = a; k < b; ++k) {
+        std::vector<std::size_t> o = members[groups[k]];
+        std::shuffle(o.begin(), o.end(), rng);
+        const std::size_t split = o.size() / 2;
+        double x = 0.0, y = 0.0;
+        for (std::size_t j = 0; j < o.size(); ++j)
+          (j < split ? x : y) += data.intensity[o[j]];
+        acc.add(x / static_cast<double>(split),
+                y / static_cast<double>(o.size() - split));
+      }
+      if (acc.cc() < 0.6) {
+        sel.d_min_cc_half =
+            s == 0 ? sel.d_min_cc_half : data.d[members[groups[a - 1]][0]];
+        break;
+      }
+    }
+  }
+  // Merged by inverse variance, Friedel mates apart: I+ at the unique index,
+  // I- at its negative.
+  std::map<Miller, std::pair<double, double>> sums; // index -> (sum w, sum w I)
+  std::map<Miller, double> d_of;
   for (std::size_t i = 0; i < data.size(); ++i) {
-    const double w = 1.0 / data.variance[i];
-    sw[data.group[i]] += w;
-    swx[data.group[i]] += w * data.intensity[i];
-    d[data.group[i]] = data.d[i];
-  }
-  P1Intensities out;
-  for (std::size_t h = 0; h < data.unique.size(); ++h) {
-    if (!(sw[h] > 0.0))
+    if (data.outlier[i])
       continue;
-    out.hkl.push_back(data.unique[h]);
-    out.i.push_back(swx[h] / sw[h]);
-    out.sigma.push_back(1.0 / std::sqrt(sw[h]));
-    out.d.push_back(d[h]);
+    const Miller &u = data.unique[data.group[i]];
+    const Miller h = (i < data.plus.size() && !data.plus[i])
+                         ? Miller{-u[0], -u[1], -u[2]}
+                         : u;
+    const double w = 1.0 / data.variance[i];
+    auto &sw = sums[h];
+    sw.first += w;
+    sw.second += w * data.intensity[i];
+    d_of[h] = data.d[i];
   }
-  return out;
+  P1Intensities all;
+  for (const auto &[h, sw] : sums) {
+    if (!(sw.first > 0.0))
+      continue;
+    all.hkl.push_back(h);
+    all.i.push_back(sw.second / sw.first);
+    all.sigma.push_back(1.0 / std::sqrt(sw.first));
+    all.d.push_back(d_of[h]);
+  }
+  sel.d_min_i_over_sigma = laue_resolution_limit(all);
+  // The finer of the two, as dials.symmetry takes it.
+  sel.d_min = std::fmin(sel.d_min_cc_half, sel.d_min_i_over_sigma);
+  select_resolution(all, sel.d_min);
+  sel.kept = all.size();
+  if (report)
+    *report = sel;
+  return all;
 }
 
 } // namespace mxi
