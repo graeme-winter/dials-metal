@@ -40,6 +40,17 @@ struct ScaleData {
   std::vector<bool> has_sum;
   //: The variances as integration gave them, corrected, before an error model.
   std::vector<double> variance_before;
+  //: I^2 var(g) / g^2, the uncertainty of the scale carried into the
+  //: observation's own units: var(I / g) = (sigma^2 + this) / g^2. Zero until
+  //: propagate_scale_variances sets it; the error model is refined and applied
+  //: to sigma^2 plus this, so that a and b correct what remains after it.
+  std::vector<double> scale_term;
+  //: The term for observation i, zero where none was propagated -- including
+  //: where the vector is shorter, as it is in data built by hand: reading it
+  //: unguarded, the error model's tests ran off the end of an empty one.
+  double scale_term_at(std::size_t i) const {
+    return i < scale_term.size() ? scale_term[i] : 0.0;
+  }
   std::size_t size() const { return intensity.size(); }
 };
 
@@ -92,6 +103,32 @@ struct ScaleFitResult {
 ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
                                const ScaleFitOptions &options = {},
                                const std::vector<std::size_t> &use = {});
+
+//: The covariance of the model's parameters at a fit, from the normal
+//: equations of the variable-projection Jacobian and the restraints. Two
+//: directions are fixed by the model's normalisation -- the scale's mean at one
+//: and the relative B's at zero -- and the covariance is that of the parameters
+//: under those constraints, Z (Z^T N Z)^-1 Z^T for Z spanning them: the first
+//: of those directions is exactly null in N, and without the constraints
+//: nothing can be inverted. Scaled by the goodness of fit, chi^2 over the
+//: degrees of freedom, which count every merged <I> as a parameter fitted.
+struct ParameterCovariance {
+  std::vector<double> matrix; //: n x n, row major
+  double goodness_of_fit = 1.0;
+  std::size_t degrees_of_freedom = 0;
+  bool ok = false;
+};
+ParameterCovariance parameter_covariance(const ScaleModel &model,
+                                         const ScaleData &data,
+                                         const ScaleFitOptions &options,
+                                         const std::vector<std::size_t> &use);
+//: var(g) for every observation: grad_g^T C grad_g.
+std::vector<double>
+inverse_scale_variances(const ScaleModel &model, const ScaleData &data,
+                        const ParameterCovariance &covariance);
+//: Set each observation's scale_term, I^2 var(g) / g^2.
+void propagate_scale_variances(ScaleData &data, const std::vector<double> &g,
+                               const std::vector<double> &g_variance);
 
 //: Observations whose normalised deviation from their group's weighted mean,
 //: excluding themselves, exceeds zmax (Evans 2006), flagged in data.outlier.
@@ -165,6 +202,8 @@ struct ScaleRun {
   ErrorModel error_model;
   double i_mid = 0.0; //: 0 profile alone, infinity summation alone
   std::vector<ScaleFitResult> fits;
+  std::vector<double> g_variance; //: var(g) for every observation
+  ParameterCovariance covariance;
   std::size_t outliers = 0;
   std::size_t fitted_on =
       0; //: observations in the subset the model was fitted to
@@ -189,9 +228,11 @@ constexpr std::int64_t kScaled = 1 << 26;
 //: inverse_scale_factor and its variance, intensity.scale.value and variance
 //: (corrected and combined, the error model's variance), and the flags --
 //: scaled, an outlier in scaling, or excluded -- ADDED to those already there.
-//: Rows not scaled get an inverse scale of 1. The variance of the inverse scale
-//: is written as zero: the parameters' uncertainties are not yet determined.
+//: Rows not scaled get an inverse scale of 1 and a variance of 0. The
+//: intensity's variance already carries the scale's, as dials.scale's does, so
+//: nothing downstream should add inverse_scale_factor_variance to it again.
 void write_scaling(Table &reflections, const ScaleData &data,
-                   const std::vector<double> &g);
+                   const std::vector<double> &g,
+                   const std::vector<double> &g_variance);
 
 } // namespace mxi

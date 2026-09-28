@@ -2,7 +2,6 @@
 
 STATUS: mxi_scale is built for one sweep: `mxi_scale INTEGRATED_EXPT
 INTEGRATED_REFL --space-group "I 2 3" --change-of-basis "b+c,a+c,a+b"`. Not yet:
-parameter uncertainties (the variance of the inverse scale is written as zero),
 more than one sweep, free-set validation, and mxi_symmetry. Decided: gemmi, a
 submodule at v0.7.5, behind `src/symmetry.hh`.
 
@@ -159,3 +158,24 @@ overall:
   those in the first two and last five images -- partials over-corrected -- and
   those with less than 95 per cent of the profile measured, near a module gap,
   3.4 per cent low. These are integration's to fix.
+
+## The scale's uncertainty, before the error model
+
+The covariance of the parameters is the inverse of the normal matrix of the
+variable-projection Jacobian and the restraints, under the two constraints the
+model's normalisation fixes -- the scale's mean at one, the relative B's at
+zero -- and scaled by the goodness of fit, whose degrees of freedom count every
+merged intensity as a parameter. Tested against the thing it claims: the
+geometry fixed and the noise drawn forty times, the spread of the fitted g at
+five places across the scan over the variance predicted is 1.023, each between
+0.89 and 1.19.
+
+Each observation's var(g) goes into its variance as I^2 var(g) / g^2 BEFORE the
+error model is refined and applied, so that a and b correct what remains after
+it. dials.scale does the reverse, and applies it as a factor (1 + sigma_g / g)
+on the variance after the error model: linear in the fractional error, and the
+same at every intensity. On the 300 image sweep the scale is well determined --
+sigma(g)/g 0.22 per cent on average, 0.68 at most, three times as large at the
+ends of the scan -- and b moves only from 0.0237 to 0.0236: the term goes as
+I^2, as (b I)^2 does, and a b fitted without it spreads the uncertainty of the
+worst-determined parts of a scan over every observation.

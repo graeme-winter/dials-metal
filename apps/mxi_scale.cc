@@ -128,6 +128,25 @@ int run_program(int argc, char **argv) {
       std::printf(
           "Intensities: profile fitted, crossing to summation at I = %.0f\n",
           run.i_mid);
+    if (run.covariance.ok) {
+      double big = 0.0, total = 0.0;
+      for (std::size_t k = 0; k < run.g_variance.size(); ++k) {
+        const double f = std::sqrt(run.g_variance[k]) / run.g[k];
+        big = std::fmax(big, f);
+        total += f;
+      }
+      std::printf("Scale uncertainties: sigma(g)/g %.4f on average, %.4f at "
+                  "most; goodness of "
+                  "fit %.3f on %zu degrees of freedom; carried into each "
+                  "variance before the "
+                  "error model\n",
+                  total / static_cast<double>(run.g_variance.size()), big,
+                  run.covariance.goodness_of_fit,
+                  run.covariance.degrees_of_freedom);
+    } else {
+      std::printf("Scale uncertainties: the normal matrix could not be "
+                  "inverted; none carried\n");
+    }
     std::printf("Error model: a = %.4f, b = %.4f, from %zu observations\n",
                 run.error_model.a, run.error_model.b, run.error_model.used);
     std::printf("%zu outliers\n", run.outliers);
@@ -153,7 +172,7 @@ int run_program(int argc, char **argv) {
 
     // dials.scale's columns and flags, so that dials.merge and dials.export
     // take the table on.
-    write_scaling(reflections, data, run.g);
+    write_scaling(reflections, data, run.g, run.g_variance);
     const std::string out_refl = args.value("-o", "scaled.refl");
     const std::string out_expt = args.value("--output-expt", "scaled.expt");
     write_reflections(out_refl, reflections);

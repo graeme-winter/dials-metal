@@ -90,6 +90,7 @@ ScaleData build_scale_data(const ExperimentList &experiments,
     data.intensity.push_back(value.reals[i] * factor);
     data.variance.push_back(v * factor * factor);
     data.variance_before.push_back(v * factor * factor);
+    data.scale_term.push_back(0.0);
     const Column &pv = reflections.at("intensity.prf.value");
     const Column &pvar = reflections.at("intensity.prf.variance");
     const Column &sv = reflections.at("intensity.sum.value");
@@ -203,6 +204,89 @@ double target(const ScaleModel &model, const ScaleData &data,
 
 } // namespace
 
+namespace {
+
+//: The normal equations of the fit at the model's current parameters, over the
+//: groups in `members`: J^T J and -J^T r, with J the variable-projection
+//: Jacobian of the residuals sqrt(w)(I - g <I>), and the restraints. `g` and
+//: `merged` are the model's scales and merged intensities over the same
+//: observations. The fit steps with these; the covariance inverts them.
+void normal_equations(const ScaleModel &model, const ScaleData &data,
+                      const std::vector<std::vector<std::size_t>> &members,
+                      const std::vector<double> &g,
+                      const std::vector<double> &merged,
+                      const ScaleFitOptions &options, std::vector<double> &N,
+                      std::vector<double> &b) {
+  const std::size_t n = model.size();
+  N.assign(n * n, 0.0);
+  b.assign(n, 0.0);
+  std::vector<std::pair<std::size_t, double>> grad;
+  std::vector<double> G(n, 0.0), row(n, 0.0);
+  std::vector<std::vector<std::pair<std::size_t, double>>> grads;
+  std::vector<std::size_t> touched;
+  for (const std::vector<std::size_t> &obs : members) {
+    if (obs.empty())
+      continue;
+    const std::size_t h = data.group[obs.front()];
+    const double m = merged[h];
+    grads.resize(obs.size());
+    std::fill(G.begin(), G.end(), 0.0);
+    touched.clear();
+    double den = 0.0;
+    for (std::size_t k = 0; k < obs.size(); ++k) {
+      const std::size_t i = obs[k];
+      const double w = 1.0 / data.variance[i];
+      model.inverse_scale(data.observation[i], &grads[k]);
+      den += w * g[i] * g[i];
+      for (const auto &[a, da] : grads[k]) {
+        if (G[a] == 0.0)
+          touched.push_back(a);
+        G[a] += w * g[i] * da;
+      }
+    }
+    if (!(den > 0.0))
+      continue;
+    std::sort(touched.begin(), touched.end());
+    touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
+    for (std::size_t a : touched)
+      G[a] /= den;
+    for (std::size_t k = 0; k < obs.size(); ++k) {
+      const std::size_t i = obs[k];
+      const double w = 1.0 / data.variance[i];
+      for (std::size_t a : touched)
+        row[a] = -g[i] * G[a];
+      for (const auto &[a, da] : grads[k])
+        row[a] += da;
+      const double r = data.intensity[i] - g[i] * m;
+      // J = -sqrt(w) m row; accumulate J^T J and -J^T r.
+      for (std::size_t a : touched) {
+        if (row[a] == 0.0)
+          continue;
+        b[a] += w * m * row[a] * r;
+        for (std::size_t c : touched)
+          N[a * n + c] += w * m * m * row[a] * row[c];
+      }
+      for (std::size_t a : touched)
+        row[a] = 0.0;
+    }
+    for (std::size_t a : touched)
+      G[a] = 0.0;
+  }
+  const ScaleModelShape &s = model.shape();
+  for (std::size_t k = 0; k < s.decay_points; ++k) {
+    const std::size_t a = model.first_decay() + k;
+    N[a * n + a] += options.decay_restraint;
+    b[a] -= options.decay_restraint * model.parameters[a];
+  }
+  for (std::size_t k = 0; k < harmonic_count(s.lmax); ++k) {
+    const std::size_t a = model.first_absorption() + k;
+    N[a * n + a] += options.absorption_restraint;
+    b[a] -= options.absorption_restraint * model.parameters[a];
+  }
+}
+
+} // namespace
+
 ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
                                const ScaleFitOptions &options,
                                const std::vector<std::size_t> &given) {
@@ -225,10 +309,6 @@ ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
   std::vector<std::vector<std::size_t>> members(data.unique.size());
   for (std::size_t i : use)
     members[data.group[i]].push_back(i);
-  std::vector<std::pair<std::size_t, double>> grad;
-  std::vector<double> G(n, 0.0), row(n, 0.0);
-  std::vector<std::vector<std::pair<std::size_t, double>>> grads;
-  std::vector<std::size_t> touched;
   for (int it = 0; it < options.max_iterations; ++it) {
     result.iterations = it + 1;
     // Normal equations of the residuals sqrt(w)(I - g <I>), differentiated
@@ -238,66 +318,8 @@ ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
     // curvature in every direction <I> can partly follow, so the steps come
     // out short: three fits of 50 steps on a 300 image sweep ended still
     // creeping. The row for observation i is dg_i/dp - g_i G_h.
-    std::vector<double> N(n * n, 0.0), b(n, 0.0);
-    for (const std::vector<std::size_t> &obs : members) {
-      if (obs.empty())
-        continue;
-      const std::size_t h = data.group[obs.front()];
-      const double m = merged[h];
-      grads.resize(obs.size());
-      std::fill(G.begin(), G.end(), 0.0);
-      touched.clear();
-      double den = 0.0;
-      for (std::size_t k = 0; k < obs.size(); ++k) {
-        const std::size_t i = obs[k];
-        const double w = 1.0 / data.variance[i];
-        model.inverse_scale(data.observation[i], &grads[k]);
-        den += w * g[i] * g[i];
-        for (const auto &[a, da] : grads[k]) {
-          if (G[a] == 0.0)
-            touched.push_back(a);
-          G[a] += w * g[i] * da;
-        }
-      }
-      if (!(den > 0.0))
-        continue;
-      std::sort(touched.begin(), touched.end());
-      touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
-      for (std::size_t a : touched)
-        G[a] /= den;
-      for (std::size_t k = 0; k < obs.size(); ++k) {
-        const std::size_t i = obs[k];
-        const double w = 1.0 / data.variance[i];
-        for (std::size_t a : touched)
-          row[a] = -g[i] * G[a];
-        for (const auto &[a, da] : grads[k])
-          row[a] += da;
-        const double r = data.intensity[i] - g[i] * m;
-        // J = -sqrt(w) m row; accumulate J^T J and -J^T r.
-        for (std::size_t a : touched) {
-          if (row[a] == 0.0)
-            continue;
-          b[a] += w * m * row[a] * r;
-          for (std::size_t c : touched)
-            N[a * n + c] += w * m * m * row[a] * row[c];
-        }
-        for (std::size_t a : touched)
-          row[a] = 0.0;
-      }
-      for (std::size_t a : touched)
-        G[a] = 0.0;
-    }
-    const ScaleModelShape &s = model.shape();
-    for (std::size_t k = 0; k < s.decay_points; ++k) {
-      const std::size_t a = model.first_decay() + k;
-      N[a * n + a] += options.decay_restraint;
-      b[a] -= options.decay_restraint * model.parameters[a];
-    }
-    for (std::size_t k = 0; k < harmonic_count(s.lmax); ++k) {
-      const std::size_t a = model.first_absorption() + k;
-      N[a * n + a] += options.absorption_restraint;
-      b[a] -= options.absorption_restraint * model.parameters[a];
-    }
+    std::vector<double> N, b;
+    normal_equations(model, data, members, g, merged, options, N, b);
     bool improved = false;
     for (int tries = 0; tries < 12 && !improved; ++tries) {
       std::vector<double> A = N, step = b;
@@ -452,7 +474,8 @@ ErrorModel refine_error_model(const ScaleData &data,
   std::vector<double> ratio(data.unique.size(), 0.0);
   for (std::size_t i = 0; i < data.size(); ++i)
     if (!data.outlier[i])
-      ratio[data.group[i]] += data.intensity[i] / data.variance_before[i];
+      ratio[data.group[i]] +=
+          data.intensity[i] / (data.variance_before[i] + data.scale_term_at(i));
   std::vector<std::size_t> use;
   for (std::size_t i = 0; i < data.size(); ++i) {
     const std::size_t h = data.group[i];
@@ -485,7 +508,7 @@ ErrorModel refine_error_model(const ScaleData &data,
     std::fill(spread.begin(), spread.end(), 0.0);
     for (std::size_t i : use) {
       v[i] = a * a *
-             (data.variance_before[i] +
+             (data.variance_before[i] + data.scale_term_at(i) +
               b * b * data.intensity[i] * data.intensity[i]) /
              (g[i] * g[i]);
       spread[data.group[i]] += c[i] * c[i] * v[i];
@@ -586,7 +609,7 @@ void apply_error_model(ScaleData &data, const ErrorModel &model) {
   for (std::size_t i = 0; i < data.size(); ++i)
     data.variance[i] =
         model.a * model.a *
-        (data.variance_before[i] +
+        (data.variance_before[i] + data.scale_term_at(i) +
          model.b * model.b * data.intensity[i] * data.intensity[i]);
 }
 
@@ -843,6 +866,16 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
   run.error_model = refine_error_model(data, run.g);
   apply_error_model(data, run.error_model);
   fit();
+  // The scale's uncertainty into each observation's variance BEFORE the final
+  // error model, so that a and b correct what remains after it rather than
+  // absorbing it. (dials.scale applies its error model first and then
+  // multiplies each variance by 1 + sigma_g / g, a factor linear in the
+  // fractional error and the same at every intensity; propagated, the term is
+  // I^2 var(g) / g^2.)
+  run.covariance = parameter_covariance(run.model, data, options.fit,
+                                        select_for_fitting(data));
+  run.g_variance = inverse_scale_variances(run.model, data, run.covariance);
+  propagate_scale_variances(data, run.g, run.g_variance);
   run.outliers = reject_outliers(data, run.g);
   run.error_model = refine_error_model(data, run.g);
   apply_error_model(data, run.error_model);
@@ -850,7 +883,8 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
 }
 
 void write_scaling(Table &reflections, const ScaleData &data,
-                   const std::vector<double> &g) {
+                   const std::vector<double> &g,
+                   const std::vector<double> &g_variance) {
   const std::size_t n = reflections.nrows;
   Column &isf = reflections.real_column("inverse_scale_factor", "double", 1);
   Column &isf_var =
@@ -874,6 +908,7 @@ void write_scaling(Table &reflections, const ScaleData &data,
     const std::size_t r = data.row[i];
     scaled[r] = true;
     isf.reals[r] = g[i];
+    isf_var.reals[r] = i < g_variance.size() ? g_variance[i] : 0.0;
     value.reals[r] = data.intensity[i];
     variance.reals[r] = data.variance[i];
     flags.ints[r] |= data.outlier[i] ? flag::kOutlierInScaling : flag::kScaled;
@@ -882,6 +917,131 @@ void write_scaling(Table &reflections, const ScaleData &data,
     if (!scaled[r])
       flags.ints[r] |= flag::kExcludedForScaling;
   reflections.set("flags", std::move(flags));
+}
+
+ParameterCovariance
+parameter_covariance(const ScaleModel &model, const ScaleData &data,
+                     const ScaleFitOptions &options,
+                     const std::vector<std::size_t> &given) {
+  ParameterCovariance out;
+  std::vector<std::size_t> use = given;
+  if (use.empty())
+    for (std::size_t i = 0; i < data.size(); ++i)
+      if (!data.outlier[i])
+        use.push_back(i);
+  const std::size_t n = model.size();
+  if (use.empty() || n == 0)
+    return out;
+  std::vector<std::vector<std::size_t>> members(data.unique.size());
+  for (std::size_t i : use)
+    members[data.group[i]].push_back(i);
+  std::vector<double> g, merged;
+  const double phi = target(model, data, use, options, &g, &merged);
+  std::vector<double> N, b;
+  normal_equations(model, data, members, g, merged, options, N, b);
+
+  // Z: the directions keeping the scale's sum and the relative B's sum fixed,
+  // e_i - e_last within each block; the absorption terms are free.
+  const ScaleModelShape &s = model.shape();
+  std::vector<std::vector<double>> Z;
+  const auto block = [&](std::size_t first, std::size_t count) {
+    for (std::size_t i = 0; i + 1 < count; ++i) {
+      std::vector<double> z(n, 0.0);
+      z[first + i] = 1.0;
+      z[first + count - 1] = -1.0;
+      Z.push_back(std::move(z));
+    }
+  };
+  block(0, s.scale_points);
+  block(model.first_decay(), s.decay_points);
+  for (std::size_t k = 0; k < harmonic_count(s.lmax); ++k) {
+    std::vector<double> z(n, 0.0);
+    z[model.first_absorption() + k] = 1.0;
+    Z.push_back(std::move(z));
+  }
+  const std::size_t m = Z.size();
+  if (m == 0)
+    return out;
+  std::vector<double> NZ(n * m, 0.0), M(m * m, 0.0);
+  for (std::size_t a = 0; a < n; ++a)
+    for (std::size_t j = 0; j < m; ++j)
+      for (std::size_t c = 0; c < n; ++c)
+        NZ[a * m + j] += N[a * n + c] * Z[j][c];
+  for (std::size_t i = 0; i < m; ++i)
+    for (std::size_t j = 0; j < m; ++j)
+      for (std::size_t a = 0; a < n; ++a)
+        M[i * m + j] += Z[i][a] * NZ[a * m + j];
+  std::vector<double> Minv(m * m, 0.0);
+  for (std::size_t j = 0; j < m; ++j) {
+    std::vector<double> A = M, e(m, 0.0);
+    e[j] = 1.0;
+    if (!solve_spd(A.data(), e.data(), m))
+      return out;
+    for (std::size_t i = 0; i < m; ++i)
+      Minv[i * m + j] = e[i];
+  }
+  // The degrees of freedom: observations, less the merged intensities, less
+  // the free parameters.
+  std::size_t groups = 0;
+  for (const auto &group_members : members)
+    if (!group_members.empty())
+      ++groups;
+  const std::size_t fitted = groups + m;
+  out.degrees_of_freedom = use.size() > fitted ? use.size() - fitted : 1;
+  double restraint = 0.0;
+  for (std::size_t k = 0; k < s.decay_points; ++k)
+    restraint += options.decay_restraint *
+                 model.parameters[model.first_decay() + k] *
+                 model.parameters[model.first_decay() + k];
+  for (std::size_t k = 0; k < harmonic_count(s.lmax); ++k)
+    restraint += options.absorption_restraint *
+                 model.parameters[model.first_absorption() + k] *
+                 model.parameters[model.first_absorption() + k];
+  out.goodness_of_fit =
+      (phi - restraint) / static_cast<double>(out.degrees_of_freedom);
+  out.matrix.assign(n * n, 0.0);
+  for (std::size_t i = 0; i < m; ++i)
+    for (std::size_t j = 0; j < m; ++j) {
+      const double v = out.goodness_of_fit * Minv[i * m + j];
+      if (v == 0.0)
+        continue;
+      for (std::size_t a = 0; a < n; ++a) {
+        if (Z[i][a] == 0.0)
+          continue;
+        for (std::size_t c = 0; c < n; ++c)
+          out.matrix[a * n + c] += Z[i][a] * v * Z[j][c];
+      }
+    }
+  out.ok = true;
+  return out;
+}
+
+std::vector<double>
+inverse_scale_variances(const ScaleModel &model, const ScaleData &data,
+                        const ParameterCovariance &covariance) {
+  std::vector<double> out(data.size(), 0.0);
+  if (!covariance.ok)
+    return out;
+  const std::size_t n = model.size();
+  std::vector<std::pair<std::size_t, double>> grad;
+  for (std::size_t i = 0; i < data.size(); ++i) {
+    model.inverse_scale(data.observation[i], &grad);
+    double v = 0.0;
+    for (const auto &[a, da] : grad)
+      for (const auto &[c, dc] : grad)
+        v += da * covariance.matrix[a * n + c] * dc;
+    out[i] = std::fmax(v, 0.0);
+  }
+  return out;
+}
+
+void propagate_scale_variances(ScaleData &data, const std::vector<double> &g,
+                               const std::vector<double> &g_variance) {
+  data.scale_term.resize(data.size(), 0.0);
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data.scale_term[i] = g[i] > 0.0 ? data.intensity[i] * data.intensity[i] *
+                                          g_variance[i] / (g[i] * g[i])
+                                    : 0.0;
 }
 
 } // namespace mxi

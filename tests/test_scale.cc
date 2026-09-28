@@ -265,7 +265,7 @@ TEST(writing_the_scaling_keeps_every_flag_already_there) {
   data.intensity = {10.0, 20.0};
   data.variance = {1.0, 4.0};
   data.outlier = {false, true};
-  write_scaling(t, data, {2.0, 0.5});
+  write_scaling(t, data, {2.0, 0.5}, {0.01, 0.04});
   const Column &out = t.at("flags");
   check::is_true(out.ints[0] == (flag::kIntegratedSum | flag::kIntegratedPrf |
                                  flag::kScaled),
@@ -280,6 +280,92 @@ TEST(writing_the_scaling_keeps_every_flag_already_there) {
                "the scale written");
   check::close(t.at("inverse_scale_factor").real(2, 0), 1.0, 0.0,
                "one where not scaled");
+}
+
+TEST(the_scale_uncertainties_are_what_repeating_the_experiment_gives) {
+  // The geometry fixed and the noise drawn afresh forty times: the spread of
+  // the fitted g at five places across the scan, against the variance the
+  // covariance predicts for it. Forty repeats know a variance to about 22 per
+  // cent, so the ratio averaged over the five must lie within [0.7, 1.4].
+  ScaleModel truth({6, 5, 0});
+  const double c[6] = {0.9, 1.05, 1.15, 1.0, 0.85, 1.05};
+  for (std::size_t i = 0; i < 6; ++i)
+    truth.parameters[i] = c[i];
+  for (std::size_t i = 0; i < 5; ++i)
+    truth.parameters[truth.first_decay() + i] =
+        0.5 - 0.25 * static_cast<double>(i);
+  truth.normalise();
+  std::mt19937 geometry(4);
+  std::uniform_real_distribution<double> uni(0.0, 1.0);
+  std::exponential_distribution<double> strength(1.0 / 1000.0);
+  std::vector<ScaleObservation> where;
+  std::vector<std::size_t> group;
+  std::vector<double> truth_i;
+  for (std::size_t h = 0; h < 800; ++h) {
+    const double inv_d2 =
+        1.0 / 64.0 + uni(geometry) * (1.0 / 2.25 - 1.0 / 64.0);
+    truth_i.push_back(50.0 + strength(geometry));
+    const int seen = 6 + static_cast<int>(uni(geometry) * 5.0);
+    for (int k = 0; k < seen; ++k) {
+      ScaleObservation o;
+      o.rotation = uni(geometry);
+      o.time = o.rotation;
+      o.inv_2d2 = 0.5 * inv_d2;
+      where.push_back(o);
+      group.push_back(h);
+    }
+  }
+  ScaleData probes;
+  for (double r : {0.05, 0.3, 0.5, 0.7, 0.95}) {
+    ScaleObservation o;
+    o.rotation = r;
+    o.time = r;
+    o.inv_2d2 = 1.0 / 8.0; // 2 A
+    probes.observation.push_back(o);
+  }
+  const std::size_t np = probes.observation.size();
+  probes.intensity.assign(np, 0.0); // size() counts these
+  std::vector<double> sum(np, 0.0), sum2(np, 0.0), predicted(np, 0.0);
+  const int repeats = 40;
+  for (int rep = 0; rep < repeats; ++rep) {
+    std::mt19937 rng(100 + static_cast<unsigned>(rep));
+    std::normal_distribution<double> noise(0.0, 1.0);
+    ScaleData data;
+    for (std::size_t h = 0; h < 800; ++h)
+      data.unique.push_back(Miller{static_cast<int>(h), 3, 0});
+    for (std::size_t i = 0; i < where.size(); ++i) {
+      const double g = truth.inverse_scale(where[i]);
+      const double sigma = 0.02 * g * truth_i[group[i]];
+      data.intensity.push_back(g * truth_i[group[i]] + sigma * noise(rng));
+      data.variance.push_back(sigma * sigma);
+      data.observation.push_back(where[i]);
+      data.group.push_back(group[i]);
+      data.outlier.push_back(false);
+    }
+    ScaleModel fit({6, 5, 0});
+    fit_scale_model(fit, data);
+    const ParameterCovariance cov = parameter_covariance(fit, data, {}, {});
+    check::is_true(cov.ok, "the covariance could be formed");
+    const std::vector<double> v = inverse_scale_variances(fit, probes, cov);
+    for (std::size_t p = 0; p < np; ++p) {
+      const double g = fit.inverse_scale(probes.observation[p]);
+      sum[p] += g;
+      sum2[p] += g * g;
+      predicted[p] += v[p] / repeats;
+    }
+  }
+  double ratio = 0.0;
+  std::string each;
+  for (std::size_t p = 0; p < np; ++p) {
+    const double mean = sum[p] / repeats;
+    const double empirical =
+        (sum2[p] / repeats - mean * mean) * repeats / (repeats - 1.0);
+    ratio += empirical / predicted[p] / static_cast<double>(np);
+    each += " " + std::to_string(empirical / predicted[p]).substr(0, 5);
+  }
+  check::is_true(ratio > 0.7 && ratio < 1.4,
+                 "repeated over predicted variance " + std::to_string(ratio) +
+                     ", each" + each);
 }
 
 } // namespace mxi
