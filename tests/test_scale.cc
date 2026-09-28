@@ -368,4 +368,42 @@ TEST(the_scale_uncertainties_are_what_repeating_the_experiment_gives) {
                      ", each" + each);
 }
 
+TEST(merging_statistics_with_friedel_mates_apart_are_what_the_hand_says) {
+  // One acentric reflection, I+ = {10, 12} and I- = {20, 22}, and one centric,
+  // {5, 7}, which stays one group with mates apart. Unit scales and variances.
+  ScaleData data;
+  data.unique = {Miller{1, 2, 3}, Miller{0, 0, 2}};
+  data.centric = {false, true};
+  data.intensity = {10, 12, 20, 22, 5, 7};
+  data.variance.assign(6, 1.0);
+  data.group = {0, 0, 0, 0, 1, 1};
+  data.plus = {true, true, false, false, true, false};
+  data.outlier.assign(6, false);
+  data.observation.resize(6);
+  const MergingShell m =
+      merge_groups(data, std::vector<double>(6, 1.0), {0, 1});
+  check::equal(static_cast<long long>(m.observations), 6, "six observations");
+  check::equal(static_cast<long long>(m.unique), 2, "of two reflections");
+  // Merged: means 16 and 6. Deviations 6+4+4+6 = 20 and 1+1 = 2, over 64 + 12.
+  check::close(m.rmerge, 22.0 / 76.0, 1e-14, "Rmerge(I) = 22/76");
+  // Apart: 1+1 and 1+1 for the pair, the centric's 2 unchanged.
+  check::close(m.rmerge_anom, 6.0 / 76.0, 1e-14, "Rmerge(I+/-) = 6/76");
+  check::close(m.rmeas_anom,
+               (std::sqrt(2.0) * 4.0 + std::sqrt(2.0) * 2.0) / 76.0, 1e-14,
+               "Rmeas(I+/-), sqrt(n/(n-1)) = sqrt 2 for each pair");
+  check::close(m.anom_multiplicity, 2.0, 1e-14,
+               "six observations over three groups apart");
+  check::equal(static_cast<long long>(m.anomalous_pairs), 1,
+               "one acentric pair");
+  // dI = 11 - 21, sigma(dI) = sqrt(1/2 + 1/2) = 1.
+  check::close(m.di_over_sig_di, 10.0, 1e-14, "dI / sigma(dI) = 10");
+  const double df = std::sqrt(11.0) - std::sqrt(21.0);
+  check::close(m.df_over_f, std::sqrt(2.0 * df * df / 32.0), 1e-14,
+               "dF/F = sqrt(2 (F+ - F-)^2 / (F+^2 + F-^2))");
+  check::close(m.mean_i, (16.0 + 6.0) / 2.0, 1e-14,
+               "the mean merged intensity");
+  check::close(m.i_over_sigma, (16.0 / 0.5 + 6.0 / std::sqrt(0.5)) / 2.0, 1e-12,
+               "and I/sigma, sigma(<I>) = 1/sqrt(n) at unit variance");
+}
+
 } // namespace mxi

@@ -102,6 +102,9 @@ ScaleData build_scale_data(const ExperimentList &experiments,
     data.sum.push_back(sv.reals[i] * factor);
     data.sum_variance.push_back(svar.reals[i] * factor * factor);
     data.has_sum.push_back(summed);
+    data.plus.push_back(group.friedel_plus(h));
+    if (fresh)
+      data.centric.push_back(group.centric(u));
     data.observation.push_back(std::move(o));
     data.group.push_back(it->second);
     data.row.push_back(i);
@@ -668,25 +671,216 @@ double choose_intensity_combination(ScaleData &data,
   return best;
 }
 
+namespace {
+
+//: Plain and weighted means of scaled observations x = I/g.
+struct Merged {
+  std::size_t n = 0;
+  double sum = 0.0;           //: sum of x
+  double sw = 0.0, swx = 0.0; //: sum of w = g^2 / var, and of w x
+  double mean() const { return n ? sum / static_cast<double>(n) : 0.0; }
+  double weighted() const { return sw > 0.0 ? swx / sw : 0.0; }
+  double sigma() const { return sw > 0.0 ? 1.0 / std::sqrt(sw) : 0.0; }
+};
+
+double pearson_of(const std::vector<std::pair<double, double>> &pairs) {
+  if (pairs.size() < 3)
+    return 0.0;
+  const double n = static_cast<double>(pairs.size());
+  double ma = 0.0, mb = 0.0;
+  for (const auto &[a, b] : pairs) {
+    ma += a / n;
+    mb += b / n;
+  }
+  double sab = 0.0, saa = 0.0, sbb = 0.0;
+  for (const auto &[a, b] : pairs) {
+    sab += (a - ma) * (b - mb);
+    saa += (a - ma) * (a - ma);
+    sbb += (b - mb) * (b - mb);
+  }
+  return saa > 0.0 && sbb > 0.0 ? sab / std::sqrt(saa * sbb) : 0.0;
+}
+
+//: R factor sums over one set of observations of a group, plain mean.
+void r_sums(const ScaleData &data, const std::vector<double> &g,
+            const std::vector<std::size_t> &o, double *merge, double *meas,
+            double *pim, double *denominator) {
+  if (o.size() < 2)
+    return;
+  const double n = static_cast<double>(o.size());
+  double mean = 0.0;
+  for (std::size_t i : o)
+    mean += data.intensity[i] / g[i] / n;
+  double dev = 0.0, sum = 0.0;
+  for (std::size_t i : o) {
+    dev += std::abs(data.intensity[i] / g[i] - mean);
+    sum += data.intensity[i] / g[i];
+  }
+  *merge += dev;
+  *meas += std::sqrt(n / (n - 1.0)) * dev;
+  *pim += std::sqrt(1.0 / (n - 1.0)) * dev;
+  *denominator += sum;
+}
+
+//: The mean of a random half of o, and of the rest.
+std::pair<double, double> halves(const ScaleData &data,
+                                 const std::vector<double> &g,
+                                 std::vector<std::size_t> o,
+                                 std::mt19937 &rng) {
+  std::shuffle(o.begin(), o.end(), rng);
+  const std::size_t split = o.size() / 2;
+  double a = 0.0, b = 0.0;
+  for (std::size_t k = 0; k < o.size(); ++k)
+    (k < split ? a : b) += data.intensity[o[k]] / g[o[k]];
+  return {a / static_cast<double>(split),
+          b / static_cast<double>(o.size() - split)};
+}
+
+} // namespace
+
+MergingShell merge_groups(const ScaleData &data, const std::vector<double> &g,
+                          const std::vector<std::size_t> &groups) {
+  MergingShell m;
+  std::vector<std::vector<std::size_t>> all(data.unique.size()),
+      plus(data.unique.size()), minus(data.unique.size());
+  std::vector<bool> wanted(data.unique.size(), false);
+  for (std::size_t h : groups)
+    wanted[h] = true;
+  for (std::size_t i = 0; i < data.size(); ++i) {
+    const std::size_t h = data.group[i];
+    if (data.outlier[i] || !wanted[h])
+      continue;
+    all[h].push_back(i);
+    const bool centric = h < data.centric.size() && data.centric[h];
+    const bool p = i < data.plus.size() ? data.plus[i] : true;
+    (centric || p ? plus : minus)[h].push_back(i);
+  }
+  std::mt19937 rng(20);
+  double denominator = 0.0, denominator_anom = 0.0;
+  std::size_t anomalous_groups = 0;
+  std::vector<std::pair<double, double>> cc_pairs, anom_pairs;
+  std::vector<double> deltas; // dI / sigma(dI)
+  double sum_abs_di = 0.0, sum_sig_di = 0.0, sum_df2 = 0.0, sum_f2 = 0.0;
+  std::size_t n_df = 0;
+  const auto merged_of = [&](const std::vector<std::size_t> &o) {
+    Merged r;
+    for (std::size_t i : o) {
+      const double x = data.intensity[i] / g[i];
+      const double w = g[i] * g[i] / data.variance[i];
+      ++r.n;
+      r.sum += x;
+      r.sw += w;
+      r.swx += w * x;
+    }
+    return r;
+  };
+  for (std::size_t h : groups) {
+    if (all[h].empty())
+      continue;
+    const Merged mg = merged_of(all[h]);
+    m.observations += mg.n;
+    ++m.unique;
+    m.mean_i += mg.weighted();
+    m.i_over_sigma += mg.weighted() / mg.sigma();
+    r_sums(data, g, all[h], &m.rmerge, &m.rmeas, &m.rpim, &denominator);
+    if (all[h].size() >= 2)
+      cc_pairs.push_back(halves(data, g, all[h], rng));
+    // With Friedel mates apart: a centric reflection is one group, an acentric
+    // one two.
+    for (const std::vector<std::size_t> *side : {&plus[h], &minus[h]}) {
+      if (side->empty())
+        continue;
+      ++anomalous_groups;
+      r_sums(data, g, *side, &m.rmerge_anom, &m.rmeas_anom, &m.rpim_anom,
+             &denominator_anom);
+    }
+    const bool centric = h < data.centric.size() && data.centric[h];
+    if (centric || plus[h].empty() || minus[h].empty())
+      continue;
+    ++m.anomalous_pairs;
+    const Merged p = merged_of(plus[h]), q = merged_of(minus[h]);
+    const double di = p.weighted() - q.weighted();
+    const double sdi = std::sqrt(p.sigma() * p.sigma() + q.sigma() * q.sigma());
+    sum_abs_di += std::abs(di);
+    sum_sig_di += sdi;
+    if (sdi > 0.0)
+      deltas.push_back(di / sdi);
+    if (p.weighted() > 0.0 && q.weighted() > 0.0) {
+      const double fp = std::sqrt(p.weighted()), fm = std::sqrt(q.weighted());
+      sum_df2 += (fp - fm) * (fp - fm);
+      sum_f2 += fp * fp + fm * fm;
+      ++n_df;
+    }
+    if (plus[h].size() >= 2 && minus[h].size() >= 2) {
+      const auto a = halves(data, g, plus[h], rng),
+                 b = halves(data, g, minus[h], rng);
+      anom_pairs.emplace_back(a.first - b.first, a.second - b.second);
+    }
+  }
+  if (m.unique) {
+    m.multiplicity = static_cast<double>(m.observations) / m.unique;
+    m.mean_i /= m.unique;
+    m.i_over_sigma /= m.unique;
+  }
+  if (denominator > 0.0) {
+    m.rmerge /= denominator;
+    m.rmeas /= denominator;
+    m.rpim /= denominator;
+  }
+  if (denominator_anom > 0.0) {
+    m.rmerge_anom /= denominator_anom;
+    m.rmeas_anom /= denominator_anom;
+    m.rpim_anom /= denominator_anom;
+  }
+  m.cc_half = pearson_of(cc_pairs);
+  m.cc_anom = pearson_of(anom_pairs);
+  m.anom_multiplicity =
+      anomalous_groups ? static_cast<double>(m.observations) / anomalous_groups
+                       : 0.0;
+  m.di_over_sig_di = sum_sig_di > 0.0 ? sum_abs_di / sum_sig_di : 0.0;
+  m.df_over_f = n_df && sum_f2 > 0.0 ? std::sqrt(2.0 * sum_df2 / sum_f2) : 0.0;
+  // The slope of the normal probability plot over |x| < 0.9, as dials.scale.
+  if (deltas.size() >= 10) {
+    std::sort(deltas.begin(), deltas.end());
+    const double n = static_cast<double>(deltas.size());
+    double sxx = 0.0, sxy = 0.0, sx = 0.0, sy = 0.0, k = 0.0;
+    for (std::size_t i = 0; i < deltas.size(); ++i) {
+      const double x = normal_quantile((static_cast<double>(i) + 0.5) / n);
+      if (std::abs(x) < 0.9) {
+        sx += x;
+        sy += deltas[i];
+        sxx += x * x;
+        sxy += x * deltas[i];
+        k += 1.0;
+      }
+    }
+    const double den = sxx - sx * sx / k;
+    m.anom_slope = k > 2.0 && den > 0.0 ? (sxy - sx * sy / k) / den : 0.0;
+  }
+  return m;
+}
+
 std::vector<MergingShell> merging_statistics(const ScaleData &data,
                                              const std::vector<double> &g,
                                              const SpaceGroup &group,
                                              const Crystal &crystal, int shells,
                                              MergingShell *overall) {
   shells = std::max(shells, 1);
-  // The range from the same d as the shells and the possible reflections: the
-  // crystal's, at each group's unique index.
+  // One d for everything: the crystal's, at each group's unique index. The d
+  // column is the scan-varying crystal's at each observation, and mixing the
+  // two put a shell at 100.2 per cent.
   std::vector<bool> seen(data.unique.size(), false);
   for (std::size_t i = 0; i < data.size(); ++i)
     if (!data.outlier[i])
       seen[data.group[i]] = true;
+  std::vector<double> d_of(data.unique.size(), 0.0);
   double lo = HUGE_VAL, hi = 0.0; // 1/d^3
   for (std::size_t h = 0; h < data.unique.size(); ++h) {
+    const Miller &u = data.unique[h];
+    d_of[h] = crystal.d_spacing(u[0], u[1], u[2]);
     if (!seen[h])
       continue;
-    const Miller &u = data.unique[h];
-    const double d = crystal.d_spacing(u[0], u[1], u[2]);
-    const double v = 1.0 / (d * d * d);
+    const double v = 1.0 / (d_of[h] * d_of[h] * d_of[h]);
     lo = std::fmin(lo, v);
     hi = std::fmax(hi, v);
   }
@@ -699,129 +893,64 @@ std::vector<MergingShell> merging_statistics(const ScaleData &data,
         hi > lo ? static_cast<int>((v - lo) / (hi - lo) * shells) : 0;
     return static_cast<std::size_t>(std::min(std::max(s, 0), shells - 1));
   };
-  for (int s = 0; s < shells; ++s) {
-    out[static_cast<std::size_t>(s)].d_max =
-        std::cbrt(1.0 / (lo + (hi - lo) * s / shells));
-    out[static_cast<std::size_t>(s)].d_min =
-        std::cbrt(1.0 / (lo + (hi - lo) * (s + 1) / shells));
-  }
-  const double d_min = out.back().d_min, d_max = out.front().d_max;
-
-  // Per group: the scaled observations x = I/g, their variances, and a random
-  // half for CC half.
-  std::vector<std::vector<std::size_t>> members(data.unique.size());
-  for (std::size_t i = 0; i < data.size(); ++i)
-    if (!data.outlier[i])
-      members[data.group[i]].push_back(i);
-  std::mt19937 rng(20);
-  std::vector<std::vector<std::pair<double, double>>> halves(out.size() + 1);
-  const auto accumulate = [&](MergingShell &m, std::size_t h,
-                              std::size_t slot) {
-    const std::vector<std::size_t> &o = members[h];
-    if (o.empty())
-      return;
-    m.observations += o.size();
-    ++m.unique;
-    double sw = 0.0, swx = 0.0, sx = 0.0;
-    for (std::size_t i : o) {
-      const double x = data.intensity[i] / g[i];
-      const double w = g[i] * g[i] / data.variance[i];
-      sw += w;
-      swx += w * x;
-      sx += x;
-    }
-    m.mean_i += swx / sw;
-    m.i_over_sigma +=
-        (swx / sw) * std::sqrt(sw); // <I> / sigma(<I>), summed for now
-    if (o.size() < 2)
-      return;
-    const double n = static_cast<double>(o.size()), mean = sx / n;
-    double dev = 0.0;
-    for (std::size_t i : o)
-      dev += std::abs(data.intensity[i] / g[i] - mean);
-    m.rmerge += dev;
-    m.rmeas += std::sqrt(n / (n - 1.0)) * dev;
-    m.rpim += std::sqrt(1.0 / (n - 1.0)) * dev;
-    m.cc_half += sx; // the denominator, summed for now
-    std::vector<std::size_t> shuffled = o;
-    std::shuffle(shuffled.begin(), shuffled.end(), rng);
-    double a = 0.0, b = 0.0;
-    const std::size_t split = shuffled.size() / 2;
-    for (std::size_t k = 0; k < shuffled.size(); ++k)
-      (k < split ? a : b) += data.intensity[shuffled[k]] / g[shuffled[k]];
-    halves[slot].emplace_back(a / static_cast<double>(split),
-                              b / static_cast<double>(shuffled.size() - split));
-  };
-  MergingShell all;
-  for (std::size_t h = 0; h < members.size(); ++h) {
-    if (members[h].empty())
+  std::vector<std::vector<std::size_t>> in_shell(out.size());
+  std::vector<std::size_t> everything;
+  for (std::size_t h = 0; h < data.unique.size(); ++h) {
+    if (!seen[h])
       continue;
-    // The group's d from the crystal and its unique index, the same function
-    // the possible reflections are counted with: the d column is from the
-    // scan-varying crystal at each observation, and near a shell's edge the two
-    // disagreed enough to put one shell at 100.2 per cent.
-    const Miller &u = data.unique[h];
-    const std::size_t s = shell_of(crystal.d_spacing(u[0], u[1], u[2]));
-    accumulate(out[s], h, s);
-    accumulate(all, h, out.size());
+    in_shell[shell_of(d_of[h])].push_back(h);
+    everything.push_back(h);
   }
-  // Possible reflections: every index the cell allows to d_min, in the
-  // asymmetric unit and not absent.
-  std::vector<std::size_t> possible(out.size(), 0);
+  for (std::size_t s = 0; s < out.size(); ++s) {
+    out[s] = merge_groups(data, g, in_shell[s]);
+    out[s].d_max =
+        std::cbrt(1.0 / (lo + (hi - lo) * static_cast<double>(s) / shells));
+    out[s].d_min =
+        std::cbrt(1.0 / (lo + (hi - lo) * static_cast<double>(s + 1) / shells));
+  }
+  MergingShell all = merge_groups(data, g, everything);
+  all.d_max = out.front().d_max;
+  all.d_min = out.back().d_min;
+  // Possible reflections, and the acentric ones among them.
   const UnitCell cell = crystal.cell();
-  const int hmax = static_cast<int>(std::ceil(cell.a / d_min)),
-            kmax = static_cast<int>(std::ceil(cell.b / d_min)),
-            lmax = static_cast<int>(std::ceil(cell.c / d_min));
+  const int hmax = static_cast<int>(std::ceil(cell.a / all.d_min)),
+            kmax = static_cast<int>(std::ceil(cell.b / all.d_min)),
+            lmax = static_cast<int>(std::ceil(cell.c / all.d_min));
   for (int hh = -hmax; hh <= hmax; ++hh)
     for (int kk = -kmax; kk <= kmax; ++kk)
       for (int ll = -lmax; ll <= lmax; ++ll) {
         if (hh == 0 && kk == 0 && ll == 0)
           continue;
         const double d = crystal.d_spacing(hh, kk, ll);
-        if (d < d_min || d > d_max)
+        if (d < all.d_min || d > all.d_max)
           continue;
         const Miller m{hh, kk, ll};
         if (group.absent(m) || group.unique(m) != m)
           continue;
-        ++possible[shell_of(d)];
+        const std::size_t s = shell_of(d);
+        const bool acentric = !group.centric(m);
+        ++out[s].possible;
         ++all.possible;
+        if (acentric) {
+          ++out[s].possible_acentric;
+          ++all.possible_acentric;
+        }
       }
-  const auto finish = [&](MergingShell &m,
-                          const std::vector<std::pair<double, double>> &pairs) {
-    const double denominator = m.cc_half;
-    m.multiplicity =
-        m.unique ? static_cast<double>(m.observations) / m.unique : 0.0;
-    m.completeness =
-        m.possible ? static_cast<double>(m.unique) / m.possible : 0.0;
-    m.i_over_sigma = m.unique ? m.i_over_sigma / m.unique : 0.0;
-    m.mean_i = m.unique ? m.mean_i / m.unique : 0.0;
-    m.rmerge = denominator > 0.0 ? m.rmerge / denominator : 0.0;
-    m.rmeas = denominator > 0.0 ? m.rmeas / denominator : 0.0;
-    m.rpim = denominator > 0.0 ? m.rpim / denominator : 0.0;
-    // Pearson over the half-dataset means.
-    const double n = static_cast<double>(pairs.size());
-    double ma = 0.0, mb = 0.0;
-    for (const auto &[a, b] : pairs) {
-      ma += a / n;
-      mb += b / n;
-    }
-    double sab = 0.0, saa = 0.0, sbb = 0.0;
-    for (const auto &[a, b] : pairs) {
-      sab += (a - ma) * (b - mb);
-      saa += (a - ma) * (a - ma);
-      sbb += (b - mb) * (b - mb);
-    }
-    m.cc_half = pairs.size() > 2 && saa > 0.0 && sbb > 0.0
-                    ? sab / std::sqrt(saa * sbb)
-                    : 0.0;
-  };
-  for (std::size_t s = 0; s < out.size(); ++s) {
-    out[s].possible = possible[s];
-    finish(out[s], halves[s]);
+  for (MergingShell *m : [&] {
+         std::vector<MergingShell *> v;
+         for (MergingShell &s : out)
+           v.push_back(&s);
+         v.push_back(&all);
+         return v;
+       }()) {
+    m->completeness =
+        m->possible ? static_cast<double>(m->unique) / m->possible : 0.0;
+    m->anom_completeness =
+        m->possible_acentric
+            ? std::fmin(1.0, static_cast<double>(m->anomalous_pairs) /
+                                 m->possible_acentric)
+            : 0.0;
   }
-  all.d_max = d_max;
-  all.d_min = d_min;
-  finish(all, halves[out.size()]);
   if (overall)
     *overall = all;
   return out;

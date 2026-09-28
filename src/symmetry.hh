@@ -34,6 +34,9 @@ public:
   //: The symmetry-unique index of hkl, Friedel mates merged: the index that
   //: groups every observation of one reflection for scaling.
   Miller unique(const Miller &hkl) const;
+  //: Whether hkl is the I+ of its Friedel pair -- an odd MTZ ISYM -- or
+  //: centric, where the two are one reflection.
+  bool friedel_plus(const Miller &hkl) const;
   //: Whether hkl is forbidden by centring or a screw axis or glide.
   bool absent(const Miller &hkl) const;
   bool centric(const Miller &hkl) const;

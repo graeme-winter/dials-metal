@@ -170,6 +170,53 @@ int run_program(int argc, char **argv) {
       row(m);
     row(all);
 
+    // The summary dials.scale ends with: overall, the lowest shell and the
+    // highest.
+    {
+      const MergingShell &low = table.front(), &high = table.back();
+      std::printf("\n            -------------Summary of merging "
+                  "statistics--------------\n\n");
+      std::printf("%-44s %8s %7s %7s\n", "", "Overall", "Low", "High");
+      const auto line = [&](const char *what, double MergingShell::*f,
+                            const char *fmt, double scale) {
+        char x[3][32];
+        const MergingShell *m[3] = {&all, &low, &high};
+        for (int k = 0; k < 3; ++k)
+          std::snprintf(x[k], sizeof x[k], fmt, scale * (m[k]->*f));
+        std::printf("%-44s %8s %7s %7s\n", what, x[0], x[1], x[2]);
+      };
+      const auto count = [&](const char *what, std::size_t MergingShell::*f) {
+        std::printf("%-44s %8zu %7zu %7zu\n", what, all.*f, low.*f, high.*f);
+      };
+      const auto only = [&](const char *what, double v, const char *fmt) {
+        char x[32];
+        std::snprintf(x, sizeof x, fmt, v);
+        std::printf("%-44s %8s\n", what, x);
+      };
+      line("High resolution limit", &MergingShell::d_min, "%.2f", 1.0);
+      line("Low resolution limit", &MergingShell::d_max, "%.2f", 1.0);
+      line("Completeness", &MergingShell::completeness, "%.1f", 100.0);
+      line("Multiplicity", &MergingShell::multiplicity, "%.1f", 1.0);
+      line("I/sigma", &MergingShell::i_over_sigma, "%.1f", 1.0);
+      line("Rmerge(I)", &MergingShell::rmerge, "%.3f", 1.0);
+      line("Rmerge(I+/-)", &MergingShell::rmerge_anom, "%.3f", 1.0);
+      line("Rmeas(I)", &MergingShell::rmeas, "%.3f", 1.0);
+      line("Rmeas(I+/-)", &MergingShell::rmeas_anom, "%.3f", 1.0);
+      line("Rpim(I)", &MergingShell::rpim, "%.3f", 1.0);
+      line("Rpim(I+/-)", &MergingShell::rpim_anom, "%.3f", 1.0);
+      line("CC half", &MergingShell::cc_half, "%.3f", 1.0);
+      line("Anomalous completeness", &MergingShell::anom_completeness, "%.1f",
+           100.0);
+      line("Anomalous multiplicity", &MergingShell::anom_multiplicity, "%.1f",
+           1.0);
+      line("Anomalous correlation", &MergingShell::cc_anom, "%.3f", 1.0);
+      only("Anomalous slope", all.anom_slope, "%.3f");
+      only("dF/F", all.df_over_f, "%.3f");
+      only("dI/s(dI)", all.di_over_sig_di, "%.3f");
+      count("Total observations", &MergingShell::observations);
+      count("Total unique", &MergingShell::unique);
+    }
+
     // dials.scale's columns and flags, so that dials.merge and dials.export
     // take the table on.
     write_scaling(reflections, data, run.g, run.g_variance);

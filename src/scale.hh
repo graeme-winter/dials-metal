@@ -38,6 +38,10 @@ struct ScaleData {
   //: where summation failed, as it does across a module gap.
   std::vector<double> prf, prf_variance, sum, sum_variance;
   std::vector<bool> has_sum;
+  //: Which half of its Friedel pair each observation is (true for I+ and
+  //: for centric reflections), and whether each group is centric.
+  std::vector<bool> plus;
+  std::vector<bool> centric;
   //: The variances as integration gave them, corrected, before an error model.
   std::vector<double> variance_before;
   //: I^2 var(g) / g^2, the uncertainty of the scale carried into the
@@ -168,20 +172,35 @@ double choose_intensity_combination(ScaleData &data,
 //: One resolution shell of merging statistics, or all of them.
 struct MergingShell {
   double d_max = 0.0, d_min = 0.0;
-  std::size_t observations = 0, unique = 0, possible = 0;
+  std::size_t observations = 0, unique = 0, possible = 0, possible_acentric = 0;
   double multiplicity = 0.0, completeness = 0.0; //: completeness as a fraction
   double mean_i = 0.0;       //: mean over merged reflections of <I>
   double i_over_sigma = 0.0; //: mean over merged reflections of <I>/sigma(<I>)
+  //: With Friedel mates merged, and with them apart ("I+/-").
   double rmerge = 0.0, rmeas = 0.0, rpim = 0.0;
+  double rmerge_anom = 0.0, rmeas_anom = 0.0, rpim_anom = 0.0;
   double cc_half = 0.0;
+  //: As iotbx.merging_statistics, which dials.scale reports: acentric
+  //: reflections with both mates measured over the acentric ones possible; the
+  //: observations over the groups with mates apart; the correlation of
+  //: I+ - I- between random halves; the slope of the normal probability plot
+  //: of dI / sigma(dI) over |x| < 0.9; sqrt(2 <(F+ - F-)^2> / <F+^2 + F-^2>);
+  //: and mean |dI| over mean sigma(dI).
+  double anom_completeness = 0.0, anom_multiplicity = 0.0, cc_anom = 0.0;
+  double anom_slope = 0.0, df_over_f = 0.0, di_over_sig_di = 0.0;
+  std::size_t anomalous_pairs = 0;
 };
 
-//: Merging statistics of the scaled observations that are not outliers, in
-//: shells of equal volume in reciprocal space, highest resolution LAST; and
-//: overall. Completeness counts every reflection the crystal's cell allows to
-//: d_min in the asymmetric unit, absences excepted. R factors use each group's
-//: plain mean, over groups of two or more; CC half splits each group at random
-//: into halves.
+//: Everything for the groups given except what needs the cell -- possible
+//: reflections, completeness, the resolution limits -- over their observations
+//: that are not outliers. The random halves are drawn with a fixed seed.
+MergingShell merge_groups(const ScaleData &data, const std::vector<double> &g,
+                          const std::vector<std::size_t> &groups);
+
+//: merge_groups for each resolution shell -- equal volume in reciprocal
+//: space, highest resolution LAST -- and overall, with completeness: every
+//: reflection the crystal's cell allows to d_min, in the asymmetric unit and
+//: not absent, and the acentric ones among them.
 std::vector<MergingShell> merging_statistics(const ScaleData &data,
                                              const std::vector<double> &g,
                                              const SpaceGroup &group,

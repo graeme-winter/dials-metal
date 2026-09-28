@@ -179,3 +179,31 @@ sigma(g)/g 0.22 per cent on average, 0.68 at most, three times as large at the
 ends of the scan -- and b moves only from 0.0237 to 0.0236: the term goes as
 I^2, as (b I)^2 does, and a b fitted without it spreads the uncertainty of the
 worst-determined parts of a scan over every observation.
+
+## The summary, and what the error model does to it
+
+mxi_scale ends with dials.scale's summary -- overall, lowest shell, highest --
+with iotbx.merging_statistics' definitions, which dials.scale reports: R factors
+with Friedel mates merged and apart, anomalous completeness against the complete
+acentric set, anomalous multiplicity over the groups with mates apart, the
+correlation of I+ - I- between random halves, the slope of the normal
+probability plot of dI / sigma(dI) over |x| < 0.9, dF/F as
+sqrt(2 <(F+ - F-)^2> / <F+^2 + F-^2>), and dI/s(dI) as mean |dI| over mean
+sigma(dI). On the 300 image sweep, overall:
+
+                              here     dials.scale
+    Completeness              71.4     71.0
+    Rmerge(I), (I+/-)         0.034    0.038, 0.032
+                              0.031
+    Rpim(I), (I+/-)           0.022    0.024, 0.029
+                              0.027
+    Anomalous completeness    51.2     50.2
+    Anomalous multiplicity    1.7      1.7
+    Anomalous slope           0.955    1.890
+    dI/s(dI)                  0.787    1.476
+
+What depends on the intensities alone agrees. The two that differ are ratios to
+sigma, and dials.scale's sigmas are shrunk by its a of 0.531: ours scaled by
+1.017 / 0.531 are 1.83 and 1.51. An anomalous slope of 1.89 reads as anomalous
+signal; this sweep's is 0.955 -- none measurable, as insulin's sulphur at
+0.95 A would lead one to expect -- and the 1.89 is the error model's bias.

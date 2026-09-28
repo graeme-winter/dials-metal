@@ -51,6 +51,12 @@ Miller SpaceGroup::unique(const Miller &hkl) const {
   return {a.first[0], a.first[1], a.first[2]};
 }
 
+bool SpaceGroup::friedel_plus(const Miller &hkl) const {
+  if (impl_->ops.is_reflection_centric(hkl))
+    return true;
+  return impl_->asu.to_asu(hkl, impl_->ops).second % 2 == 1;
+}
+
 bool SpaceGroup::absent(const Miller &hkl) const {
   return impl_->ops.is_systematically_absent(hkl);
 }
