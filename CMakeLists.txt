@@ -159,6 +159,10 @@ add_executable(mxi_scale apps/mxi_scale.cc)
 target_link_libraries(mxi_scale PRIVATE mxi)
 target_compile_options(mxi_scale PRIVATE -Wall -Wextra)
 
+add_executable(mxi_symmetry apps/mxi_symmetry.cc)
+target_link_libraries(mxi_symmetry PRIVATE mxi)
+target_compile_options(mxi_symmetry PRIVATE -Wall -Wextra)
+
 add_executable(mxi_residuals apps/mxi_residuals.cc)
 target_link_libraries(mxi_residuals PRIVATE mxi)
 target_compile_options(mxi_residuals PRIVATE -Wall -Wextra)
@@ -272,6 +276,7 @@ add_executable(mxi_tests
   tests/test_symmetry.cc
   tests/test_lattice.cc
   tests/test_laue.cc
+  tests/test_space_group.cc
   tests/test_scale_model.cc
   tests/test_scale.cc
   tests/test_mask.cc

@@ -494,4 +494,34 @@ double d_spacing(const UnitCell &cell, const Miller &hkl) {
   return to_gemmi(cell).calculate_d(gemmi::Miller{hkl[0], hkl[1], hkl[2]});
 }
 
+std::vector<SpaceGroup>
+space_groups_with_patterson(const SpaceGroup &patterson) {
+  gemmi::GroupOps target = gemmi::symops_from_hall(patterson.hall().c_str());
+  std::vector<SpaceGroup> out;
+  for (const gemmi::SpaceGroup &sg : gemmi::spacegroup_tables::main) {
+    if (!sg.is_reference_setting())
+      continue;
+    // Macromolecules are chiral, so their crystals are in groups of proper
+    // rotations only (the Sohncke groups), as dials.symmetry assumes: a
+    // centrosymmetric group is its own Patterson group, and would otherwise
+    // be offered for every crystal of a centric Laue class.
+    const gemmi::GroupOps full = sg.operations();
+    bool proper = true;
+    for (const gemmi::Op &op : full.sym_ops)
+      if (op.det_rot() < 0)
+        proper = false;
+    if (!proper)
+      continue;
+    gemmi::GroupOps ops = full.derive_symmorphic();
+    ops.add_inversion();
+    if (ops.is_same_as(target))
+      out.push_back(SpaceGroup::from_hall(std::string(" ") + sg.hall));
+  }
+  std::stable_sort(out.begin(), out.end(),
+                   [](const SpaceGroup &a, const SpaceGroup &b) {
+                     return a.number() < b.number();
+                   });
+  return out;
+}
+
 } // namespace mxi

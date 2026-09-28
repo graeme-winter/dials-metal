@@ -1,5 +1,7 @@
 #include "laue.hh"
 
+#include "scale.hh"
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -329,6 +331,65 @@ LaueScores score_laue_groups(const P1Intensities &data,
                    [](const GroupScore &a, const GroupScore &b) {
                      return a.likelihood > b.likelihood;
                    });
+  return out;
+}
+
+SpaceGroupChoice choose_space_group(const std::vector<Miller> &hkl,
+                                    const std::vector<double> &intensity,
+                                    const std::vector<double> &sigma,
+                                    const SpaceGroup &patterson) {
+  const std::vector<SpaceGroup> groups = space_groups_with_patterson(patterson);
+  SpaceGroupChoice out{groups.empty() ? patterson : groups.front(), {}, {}};
+  for (const SpaceGroup &g : groups) {
+    AbsenceTest t{g, 0, 0.0, true};
+    double sum = 0.0;
+    for (std::size_t k = 0; k < hkl.size(); ++k) {
+      if (patterson.absent(hkl[k]) || !g.absent(hkl[k]) || !(sigma[k] > 0.0))
+        continue; // forbidden by the centring every candidate shares, or
+                  // allowed
+      sum += intensity[k] / sigma[k];
+      ++t.tested;
+    }
+    t.mean_i_over_sigma = t.tested ? sum / static_cast<double>(t.tested) : 0.0;
+    t.consistent = t.tested == 0 || t.mean_i_over_sigma <= 3.0;
+    out.candidates.push_back(t);
+  }
+  std::size_t best = 0;
+  bool any = false;
+  for (const AbsenceTest &t : out.candidates)
+    if (t.consistent && (!any || t.tested > best)) {
+      best = t.tested;
+      out.chosen = t.group;
+      any = true;
+    }
+  for (const AbsenceTest &t : out.candidates)
+    if (t.consistent && t.tested == best && t.group.name() != out.chosen.name())
+      out.indistinguishable.push_back(t.group.name());
+  return out;
+}
+
+P1Intensities merge_in_p1(const ExperimentList &experiments,
+                          const Table &reflections) {
+  const ScaleData data =
+      build_scale_data(experiments, reflections, SpaceGroup::from_name("P 1"),
+                       ScaleModelShape{1, 0, 0});
+  std::vector<double> sw(data.unique.size(), 0.0), swx(data.unique.size(), 0.0),
+      d(data.unique.size(), 0.0);
+  for (std::size_t i = 0; i < data.size(); ++i) {
+    const double w = 1.0 / data.variance[i];
+    sw[data.group[i]] += w;
+    swx[data.group[i]] += w * data.intensity[i];
+    d[data.group[i]] = data.d[i];
+  }
+  P1Intensities out;
+  for (std::size_t h = 0; h < data.unique.size(); ++h) {
+    if (!(sw[h] > 0.0))
+      continue;
+    out.hkl.push_back(data.unique[h]);
+    out.i.push_back(swx[h] / sw[h]);
+    out.sigma.push_back(1.0 / std::sqrt(sw[h]));
+    out.d.push_back(d[h]);
+  }
   return out;
 }
 

@@ -1,9 +1,10 @@
 # Symmetry and scaling: a plan
 
-STATUS: mxi_scale is built for one sweep: `mxi_scale INTEGRATED_EXPT
-INTEGRATED_REFL --space-group "I 2 3" --change-of-basis "b+c,a+c,a+b"`. Not yet:
-more than one sweep, free-set validation, and mxi_symmetry. Decided: gemmi, a
-submodule at v0.7.5, behind `src/symmetry.hh`.
+STATUS: mxi_symmetry and mxi_scale are built for one sweep:
+`mxi_symmetry integrated.expt integrated.refl` writes symmetrized.expt and .refl,
+which `mxi_scale` takes with no options. Not yet: more than one sweep, free-set
+validation, a resolution estimate, and constraining the cell to the lattice's
+symmetry. Decided: gemmi, a submodule at v0.7.5, behind `src/symmetry.hh`.
 
 The pipeline ends at integration. What follows it in DIALS is dials.symmetry,
 choosing the point group and space group, and dials.scale, putting every
@@ -207,3 +208,40 @@ sigma, and dials.scale's sigmas are shrunk by its a of 0.531: ours scaled by
 1.017 / 0.531 are 1.83 and 1.51. An anomalous slope of 1.89 reads as anomalous
 signal; this sweep's is 0.955 -- none measurable, as insulin's sulphur at
 0.95 A would lead one to expect -- and the 1.89 is the error model's bias.
+
+## mxi_symmetry, against dials.symmetry
+
+1. **The lattice's symmetry**, by gemmi's implementation of Le Page's method,
+   within 2 degrees; its subgroups, from the closures of every pair of
+   rotations; each named in its reference setting by a search over short
+   lattice vectors along the group's axes -- and for a group of one axis those
+   it reverses or that lie perpendicular to it -- since gemmi names a group
+   only in a tabulated setting.
+2. **Each element and each subgroup scored** as Evans (2011) A1 and A2, read
+   from dials.symmetry's source: elements counted as it counts them, 17 for
+   m-3m; E(CC; S) and sigma(CC) estimated as it does. Intensities merged in P1
+   and quasi-normalised by resolution, where dials.symmetry fits an anisotropic
+   maximum-likelihood model.
+3. **The space group** from the absences, among the chiral groups with that
+   Patterson group: consistent if what it forbids beyond its centring has mean
+   I/sigma of 3 or less, and of those the one explaining most; a tie to the
+   lowest number, the others reported as indistinguishable.
+
+On the 300 image sweep, integrated here:
+
+                          here              dials.symmetry
+    Patterson group       I m -3            I m -3
+      likelihood          1.000             0.879
+      NetZcc              9.42              6.79
+      CC, CC-             0.99, 0.04        0.89, 0.18
+    reindex operator      b+c,a+c,a+b       b+c,a+c,a+b
+    space group           I 2 3             I 2 3
+                          (I 21 3 indistinguishable by absences under I)
+
+The candidates are the same Patterson groups with the same multiplicities as
+dials.symmetry lists; monoclinic ones are named C 1 2/m 1, the reference
+setting, where dials.symmetry gives I 1 2/m 1. mxi_scale on symmetrized.expt
+with no options gives merging statistics identical, and scaled.refl
+byte-identical, to mxi_scale given the space group and change of basis by hand.
+The cell is written reindexed but not constrained: 77.93 77.90 77.89 A where
+dials.symmetry reports 77.898.

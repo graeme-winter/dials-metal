@@ -107,4 +107,10 @@ double d_spacing(const UnitCell &cell, const Miller &hkl);
 std::optional<Setting> reference_setting(const std::vector<Rotation> &rotations,
                                          const UnitCell &cell);
 
+//: The space groups of proper rotations -- macromolecules being chiral -- in
+//: their reference settings, whose Patterson group is `patterson`: the
+//: candidates once the Laue group and lattice are known, lowest number first.
+std::vector<SpaceGroup>
+space_groups_with_patterson(const SpaceGroup &patterson);
+
 } // namespace mxi

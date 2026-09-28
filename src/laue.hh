@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "expt.hh"
+#include "refl.hh"
 #include "symmetry.hh"
 
 namespace mxi {
@@ -19,6 +21,13 @@ struct P1Intensities {
   std::vector<double> i, sigma, d;
   std::size_t size() const { return hkl.size(); }
 };
+
+//: One sweep's integrated reflections merged in P1, Friedel mates merged, by
+//: inverse variance: the observations as scaling takes them (profile fitted,
+//: corrected by lp / qe / partiality, partiality at 0.4 or more) with no
+//: scaling applied.
+P1Intensities merge_in_p1(const ExperimentList &experiments,
+                          const Table &reflections);
 
 //: Divided by <I> in shells of equal count by resolution -- the
 //: quasi-normalisation E^2, where dials.symmetry fits an anisotropic
@@ -64,5 +73,33 @@ LaueScores score_laue_groups(const P1Intensities &normalised,
 //: both truncated to [-1, 1].
 double p_cc_given_present(double cc, double sigma_cc, double expected);
 double p_cc_given_absent(double cc, double sigma_cc);
+
+//: One candidate space group judged by its absences.
+struct AbsenceTest {
+  SpaceGroup group;
+  //: Reflections measured that it forbids beyond its lattice centring, which
+  //: every candidate shares, and their mean I/sigma.
+  std::size_t tested = 0;
+  double mean_i_over_sigma = 0.0;
+  bool consistent = true;
+};
+
+struct SpaceGroupChoice {
+  SpaceGroup chosen;
+  std::vector<AbsenceTest> candidates;
+  //: Consistent candidates the absences cannot tell from the one chosen --
+  //: I 2 3 and I 21 3 under I centring, or an enantiomorphic pair.
+  std::vector<std::string> indistinguishable;
+};
+
+//: Of the space groups whose Patterson group is `patterson`, the one the
+//: absences support: consistent -- what it forbids beyond its centring has mean
+//: I/sigma of 3 or less, or it forbids nothing more -- and among those, the one
+//: explaining the most absences; a tie to the lowest number. `hkl` are in the
+//: Patterson group's setting.
+SpaceGroupChoice choose_space_group(const std::vector<Miller> &hkl,
+                                    const std::vector<double> &intensity,
+                                    const std::vector<double> &sigma,
+                                    const SpaceGroup &patterson);
 
 } // namespace mxi
