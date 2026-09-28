@@ -221,22 +221,71 @@ ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
   double phi = target(model, data, use, options, &g, &merged);
   result.target_start = phi;
   double mu = 1e-3;
+  // The observations of each group being fitted.
+  std::vector<std::vector<std::size_t>> members(data.unique.size());
+  for (std::size_t i : use)
+    members[data.group[i]].push_back(i);
   std::vector<std::pair<std::size_t, double>> grad;
+  std::vector<double> G(n, 0.0), row(n, 0.0);
+  std::vector<std::vector<std::pair<std::size_t, double>>> grads;
+  std::vector<std::size_t> touched;
   for (int it = 0; it < options.max_iterations; ++it) {
     result.iterations = it + 1;
-    // Normal equations of the residuals sqrt(w)(I - g <I>), <I> held.
+    // Normal equations of the residuals sqrt(w)(I - g <I>), differentiated
+    // with <I> as a function of the parameters (variable projection, in
+    // Kaufman's form): d<I>/dp = -<I> G_h, G_h = sum w g dg/dp / sum w g^2.
+    // Holding <I> instead gives the right gradient but overstates the
+    // curvature in every direction <I> can partly follow, so the steps come
+    // out short: three fits of 50 steps on a 300 image sweep ended still
+    // creeping. The row for observation i is dg_i/dp - g_i G_h.
     std::vector<double> N(n * n, 0.0), b(n, 0.0);
-    for (std::size_t i : use) {
-      const double m = merged[data.group[i]];
-      const double w = 1.0 / data.variance[i];
-      model.inverse_scale(data.observation[i], &grad);
-      const double r = data.intensity[i] - g[i] * m;
-      // J = -m dg/dp; accumulate J^T J and -J^T r (the descent direction).
-      for (const auto &[a, da] : grad) {
-        b[a] += w * m * da * r;
-        for (const auto &[c, dc] : grad)
-          N[a * n + c] += w * m * m * da * dc;
+    for (const std::vector<std::size_t> &obs : members) {
+      if (obs.empty())
+        continue;
+      const std::size_t h = data.group[obs.front()];
+      const double m = merged[h];
+      grads.resize(obs.size());
+      std::fill(G.begin(), G.end(), 0.0);
+      touched.clear();
+      double den = 0.0;
+      for (std::size_t k = 0; k < obs.size(); ++k) {
+        const std::size_t i = obs[k];
+        const double w = 1.0 / data.variance[i];
+        model.inverse_scale(data.observation[i], &grads[k]);
+        den += w * g[i] * g[i];
+        for (const auto &[a, da] : grads[k]) {
+          if (G[a] == 0.0)
+            touched.push_back(a);
+          G[a] += w * g[i] * da;
+        }
       }
+      if (!(den > 0.0))
+        continue;
+      std::sort(touched.begin(), touched.end());
+      touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
+      for (std::size_t a : touched)
+        G[a] /= den;
+      for (std::size_t k = 0; k < obs.size(); ++k) {
+        const std::size_t i = obs[k];
+        const double w = 1.0 / data.variance[i];
+        for (std::size_t a : touched)
+          row[a] = -g[i] * G[a];
+        for (const auto &[a, da] : grads[k])
+          row[a] += da;
+        const double r = data.intensity[i] - g[i] * m;
+        // J = -sqrt(w) m row; accumulate J^T J and -J^T r.
+        for (std::size_t a : touched) {
+          if (row[a] == 0.0)
+            continue;
+          b[a] += w * m * row[a] * r;
+          for (std::size_t c : touched)
+            N[a * n + c] += w * m * m * row[a] * row[c];
+        }
+        for (std::size_t a : touched)
+          row[a] = 0.0;
+      }
+      for (std::size_t a : touched)
+        G[a] = 0.0;
     }
     const ScaleModelShape &s = model.shape();
     for (std::size_t k = 0; k < s.decay_points; ++k) {
@@ -272,7 +321,7 @@ ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
         phi = phi2;
         mu = std::fmax(mu / 10.0, 1e-9);
         improved = true;
-        if (gain < 1e-10 * std::fmax(1.0, phi)) {
+        if (gain < 1e-8 * std::fmax(1.0, phi)) {
           result.converged = true;
           result.target_end = phi;
           return result;
@@ -594,6 +643,245 @@ double choose_intensity_combination(ScaleData &data,
   }
   combine_intensities(data, best);
   return best;
+}
+
+std::vector<MergingShell> merging_statistics(const ScaleData &data,
+                                             const std::vector<double> &g,
+                                             const SpaceGroup &group,
+                                             const Crystal &crystal, int shells,
+                                             MergingShell *overall) {
+  shells = std::max(shells, 1);
+  // The range from the same d as the shells and the possible reflections: the
+  // crystal's, at each group's unique index.
+  std::vector<bool> seen(data.unique.size(), false);
+  for (std::size_t i = 0; i < data.size(); ++i)
+    if (!data.outlier[i])
+      seen[data.group[i]] = true;
+  double lo = HUGE_VAL, hi = 0.0; // 1/d^3
+  for (std::size_t h = 0; h < data.unique.size(); ++h) {
+    if (!seen[h])
+      continue;
+    const Miller &u = data.unique[h];
+    const double d = crystal.d_spacing(u[0], u[1], u[2]);
+    const double v = 1.0 / (d * d * d);
+    lo = std::fmin(lo, v);
+    hi = std::fmax(hi, v);
+  }
+  std::vector<MergingShell> out(static_cast<std::size_t>(shells));
+  if (!(hi > 0.0))
+    return out;
+  const auto shell_of = [&](double d) {
+    const double v = 1.0 / (d * d * d);
+    const auto s =
+        hi > lo ? static_cast<int>((v - lo) / (hi - lo) * shells) : 0;
+    return static_cast<std::size_t>(std::min(std::max(s, 0), shells - 1));
+  };
+  for (int s = 0; s < shells; ++s) {
+    out[static_cast<std::size_t>(s)].d_max =
+        std::cbrt(1.0 / (lo + (hi - lo) * s / shells));
+    out[static_cast<std::size_t>(s)].d_min =
+        std::cbrt(1.0 / (lo + (hi - lo) * (s + 1) / shells));
+  }
+  const double d_min = out.back().d_min, d_max = out.front().d_max;
+
+  // Per group: the scaled observations x = I/g, their variances, and a random
+  // half for CC half.
+  std::vector<std::vector<std::size_t>> members(data.unique.size());
+  for (std::size_t i = 0; i < data.size(); ++i)
+    if (!data.outlier[i])
+      members[data.group[i]].push_back(i);
+  std::mt19937 rng(20);
+  std::vector<std::vector<std::pair<double, double>>> halves(out.size() + 1);
+  const auto accumulate = [&](MergingShell &m, std::size_t h,
+                              std::size_t slot) {
+    const std::vector<std::size_t> &o = members[h];
+    if (o.empty())
+      return;
+    m.observations += o.size();
+    ++m.unique;
+    double sw = 0.0, swx = 0.0, sx = 0.0;
+    for (std::size_t i : o) {
+      const double x = data.intensity[i] / g[i];
+      const double w = g[i] * g[i] / data.variance[i];
+      sw += w;
+      swx += w * x;
+      sx += x;
+    }
+    m.mean_i += swx / sw;
+    m.i_over_sigma +=
+        (swx / sw) * std::sqrt(sw); // <I> / sigma(<I>), summed for now
+    if (o.size() < 2)
+      return;
+    const double n = static_cast<double>(o.size()), mean = sx / n;
+    double dev = 0.0;
+    for (std::size_t i : o)
+      dev += std::abs(data.intensity[i] / g[i] - mean);
+    m.rmerge += dev;
+    m.rmeas += std::sqrt(n / (n - 1.0)) * dev;
+    m.rpim += std::sqrt(1.0 / (n - 1.0)) * dev;
+    m.cc_half += sx; // the denominator, summed for now
+    std::vector<std::size_t> shuffled = o;
+    std::shuffle(shuffled.begin(), shuffled.end(), rng);
+    double a = 0.0, b = 0.0;
+    const std::size_t split = shuffled.size() / 2;
+    for (std::size_t k = 0; k < shuffled.size(); ++k)
+      (k < split ? a : b) += data.intensity[shuffled[k]] / g[shuffled[k]];
+    halves[slot].emplace_back(a / static_cast<double>(split),
+                              b / static_cast<double>(shuffled.size() - split));
+  };
+  MergingShell all;
+  for (std::size_t h = 0; h < members.size(); ++h) {
+    if (members[h].empty())
+      continue;
+    // The group's d from the crystal and its unique index, the same function
+    // the possible reflections are counted with: the d column is from the
+    // scan-varying crystal at each observation, and near a shell's edge the two
+    // disagreed enough to put one shell at 100.2 per cent.
+    const Miller &u = data.unique[h];
+    const std::size_t s = shell_of(crystal.d_spacing(u[0], u[1], u[2]));
+    accumulate(out[s], h, s);
+    accumulate(all, h, out.size());
+  }
+  // Possible reflections: every index the cell allows to d_min, in the
+  // asymmetric unit and not absent.
+  std::vector<std::size_t> possible(out.size(), 0);
+  const UnitCell cell = crystal.cell();
+  const int hmax = static_cast<int>(std::ceil(cell.a / d_min)),
+            kmax = static_cast<int>(std::ceil(cell.b / d_min)),
+            lmax = static_cast<int>(std::ceil(cell.c / d_min));
+  for (int hh = -hmax; hh <= hmax; ++hh)
+    for (int kk = -kmax; kk <= kmax; ++kk)
+      for (int ll = -lmax; ll <= lmax; ++ll) {
+        if (hh == 0 && kk == 0 && ll == 0)
+          continue;
+        const double d = crystal.d_spacing(hh, kk, ll);
+        if (d < d_min || d > d_max)
+          continue;
+        const Miller m{hh, kk, ll};
+        if (group.absent(m) || group.unique(m) != m)
+          continue;
+        ++possible[shell_of(d)];
+        ++all.possible;
+      }
+  const auto finish = [&](MergingShell &m,
+                          const std::vector<std::pair<double, double>> &pairs) {
+    const double denominator = m.cc_half;
+    m.multiplicity =
+        m.unique ? static_cast<double>(m.observations) / m.unique : 0.0;
+    m.completeness =
+        m.possible ? static_cast<double>(m.unique) / m.possible : 0.0;
+    m.i_over_sigma = m.unique ? m.i_over_sigma / m.unique : 0.0;
+    m.mean_i = m.unique ? m.mean_i / m.unique : 0.0;
+    m.rmerge = denominator > 0.0 ? m.rmerge / denominator : 0.0;
+    m.rmeas = denominator > 0.0 ? m.rmeas / denominator : 0.0;
+    m.rpim = denominator > 0.0 ? m.rpim / denominator : 0.0;
+    // Pearson over the half-dataset means.
+    const double n = static_cast<double>(pairs.size());
+    double ma = 0.0, mb = 0.0;
+    for (const auto &[a, b] : pairs) {
+      ma += a / n;
+      mb += b / n;
+    }
+    double sab = 0.0, saa = 0.0, sbb = 0.0;
+    for (const auto &[a, b] : pairs) {
+      sab += (a - ma) * (b - mb);
+      saa += (a - ma) * (a - ma);
+      sbb += (b - mb) * (b - mb);
+    }
+    m.cc_half = pairs.size() > 2 && saa > 0.0 && sbb > 0.0
+                    ? sab / std::sqrt(saa * sbb)
+                    : 0.0;
+  };
+  for (std::size_t s = 0; s < out.size(); ++s) {
+    out[s].possible = possible[s];
+    finish(out[s], halves[s]);
+  }
+  all.d_max = d_max;
+  all.d_min = d_min;
+  finish(all, halves[out.size()]);
+  if (overall)
+    *overall = all;
+  return out;
+}
+
+ScaleRun scale_sweep(const ExperimentList &experiments,
+                     const Table &reflections, const SpaceGroup &group,
+                     const ScaleRunOptions &options) {
+  ScaleRun run;
+  const Experiment &e = experiments[0];
+  const double degrees = std::abs(e.scan.osc_width) * e.scan.num_images();
+  ScaleModelShape shape = default_shape(degrees);
+  if (!options.absorption)
+    shape.lmax = 0;
+  ScaleDataOptions data_options;
+  data_options.d_min = options.d_min;
+  run.data =
+      build_scale_data(experiments, reflections, group, shape, data_options);
+  ScaleData &data = run.data;
+  run.model = ScaleModel(shape);
+  if (data.size() == 0)
+    return run;
+
+  const auto fit = [&]() {
+    const std::vector<std::size_t> use = select_for_fitting(data);
+    run.fitted_on = use.size();
+    run.fits.push_back(fit_scale_model(run.model, data, options.fit, use));
+    run.g = inverse_scales(run.model, data);
+  };
+  run.g.assign(data.size(), 1.0);
+  reject_outliers(data, run.g); // on the unscaled intensities
+  fit();
+  reject_outliers(data, run.g);
+  if (options.combine) {
+    run.i_mid = choose_intensity_combination(data, run.g);
+    reject_outliers(data, run.g);
+  }
+  run.error_model = refine_error_model(data, run.g);
+  apply_error_model(data, run.error_model);
+  fit();
+  reject_outliers(data, run.g);
+  run.error_model = refine_error_model(data, run.g);
+  apply_error_model(data, run.error_model);
+  fit();
+  run.outliers = reject_outliers(data, run.g);
+  run.error_model = refine_error_model(data, run.g);
+  apply_error_model(data, run.error_model);
+  return run;
+}
+
+void write_scaling(Table &reflections, const ScaleData &data,
+                   const std::vector<double> &g) {
+  const std::size_t n = reflections.nrows;
+  Column &isf = reflections.real_column("inverse_scale_factor", "double", 1);
+  Column &isf_var =
+      reflections.real_column("inverse_scale_factor_variance", "double", 1);
+  Column &value = reflections.real_column("intensity.scale.value", "double", 1);
+  Column &variance =
+      reflections.real_column("intensity.scale.variance", "double", 1);
+  // A copy of the flags, changed and set back. int_column() makes a new column
+  // of zeroes: used here, it wiped every flag integration had set.
+  Column flags = reflections.at("flags");
+  std::vector<bool> scaled(n, false);
+  for (std::size_t r = 0; r < n; ++r) {
+    isf.reals[r] = 1.0;
+    isf_var.reals[r] = 0.0;
+    value.reals[r] = 0.0;
+    variance.reals[r] = 0.0;
+    flags.ints[r] &=
+        ~(flag::kOutlierInScaling | flag::kExcludedForScaling | flag::kScaled);
+  }
+  for (std::size_t i = 0; i < data.size(); ++i) {
+    const std::size_t r = data.row[i];
+    scaled[r] = true;
+    isf.reals[r] = g[i];
+    value.reals[r] = data.intensity[i];
+    variance.reals[r] = data.variance[i];
+    flags.ints[r] |= data.outlier[i] ? flag::kOutlierInScaling : flag::kScaled;
+  }
+  for (std::size_t r = 0; r < n; ++r)
+    if (!scaled[r])
+      flags.ints[r] |= flag::kExcludedForScaling;
+  reflections.set("flags", std::move(flags));
 }
 
 } // namespace mxi

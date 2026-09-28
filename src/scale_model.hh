@@ -62,9 +62,13 @@ public:
       const ScaleObservation &o,
       std::vector<std::pair<std::size_t, double>> *gradient = nullptr) const;
 
-  //: The scale's control points divided by their mean. g and the merged
-  //: intensities trade a common factor freely, so this changes no fit; it keeps
-  //: the degenerate direction from wandering.
+  //: The scale's control points divided by their mean, and the relative B
+  //: less its mean. g and the merged intensities trade a common factor freely,
+  //: so the first changes no fit. A constant B offset they trade almost as
+  //: freely -- exactly, if every observation of a reflection had the same d --
+  //: and with the curvature of the fit right, it wandered: to a mean of -2 A^2
+  //: on a 300 image sweep, the weak restraint toward zero all that held it.
+  //: Both are reported relative to their means, as B always is.
   void normalise();
 
 private:

@@ -145,4 +145,16 @@ TEST(normalising_the_scale_changes_no_ratio_between_observations) {
                "and every ratio, which is all a fit sees, is unchanged");
 }
 
+TEST(normalising_centres_the_relative_b) {
+  ScaleModel model({4, 3, 0});
+  model.parameters[model.first_decay() + 0] = -1.0;
+  model.parameters[model.first_decay() + 1] = -2.0;
+  model.parameters[model.first_decay() + 2] = -3.0;
+  model.normalise();
+  check::close(model.parameters[model.first_decay() + 0], 1.0, 1e-15,
+               "B less its mean of -2");
+  check::close(model.parameters[model.first_decay() + 2], -1.0, 1e-15,
+               "at both ends");
+}
+
 } // namespace mxi

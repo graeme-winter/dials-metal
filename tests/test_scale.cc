@@ -252,4 +252,34 @@ TEST(the_intensity_combination_chosen_is_better_than_either_alone) {
                      std::to_string(r_sum));
 }
 
+TEST(writing_the_scaling_keeps_every_flag_already_there) {
+  // int_column() makes a column of zeroes; used for the flags, it wiped every
+  // flag integration had set from a scaled table.
+  Table t;
+  t.nrows = 3;
+  Column &f = t.int_column("flags", "std::size_t", 1);
+  f.ints = {flag::kIntegratedSum | flag::kIntegratedPrf, flag::kIntegratedPrf,
+            flag::kIntegratedSum};
+  ScaleData data;
+  data.row = {0, 1};
+  data.intensity = {10.0, 20.0};
+  data.variance = {1.0, 4.0};
+  data.outlier = {false, true};
+  write_scaling(t, data, {2.0, 0.5});
+  const Column &out = t.at("flags");
+  check::is_true(out.ints[0] == (flag::kIntegratedSum | flag::kIntegratedPrf |
+                                 flag::kScaled),
+                 "integration's flags kept, and scaled added");
+  check::is_true(out.ints[1] ==
+                     (flag::kIntegratedPrf | flag::kOutlierInScaling),
+                 "an outlier in scaling, its flags kept");
+  check::is_true(out.ints[2] ==
+                     (flag::kIntegratedSum | flag::kExcludedForScaling),
+                 "a row not scaled is excluded, its flags kept");
+  check::close(t.at("inverse_scale_factor").real(0, 0), 2.0, 0.0,
+               "the scale written");
+  check::close(t.at("inverse_scale_factor").real(2, 0), 1.0, 0.0,
+               "one where not scaled");
+}
+
 } // namespace mxi

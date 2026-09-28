@@ -128,6 +128,14 @@ void ScaleModel::normalise() {
   if (mean > 0.0)
     for (std::size_t i = 0; i < shape_.scale_points; ++i)
       parameters[i] /= mean;
+  if (shape_.decay_points > 0) {
+    double b = 0.0;
+    for (std::size_t i = 0; i < shape_.decay_points; ++i)
+      b += parameters[first_decay() + i];
+    b /= static_cast<double>(shape_.decay_points);
+    for (std::size_t i = 0; i < shape_.decay_points; ++i)
+      parameters[first_decay() + i] -= b;
+  }
 }
 
 } // namespace mxi

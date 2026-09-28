@@ -128,4 +128,70 @@ double rmeas(const ScaleData &data, const std::vector<double> &g);
 double choose_intensity_combination(ScaleData &data,
                                     const std::vector<double> &g);
 
+//: One resolution shell of merging statistics, or all of them.
+struct MergingShell {
+  double d_max = 0.0, d_min = 0.0;
+  std::size_t observations = 0, unique = 0, possible = 0;
+  double multiplicity = 0.0, completeness = 0.0; //: completeness as a fraction
+  double mean_i = 0.0;       //: mean over merged reflections of <I>
+  double i_over_sigma = 0.0; //: mean over merged reflections of <I>/sigma(<I>)
+  double rmerge = 0.0, rmeas = 0.0, rpim = 0.0;
+  double cc_half = 0.0;
+};
+
+//: Merging statistics of the scaled observations that are not outliers, in
+//: shells of equal volume in reciprocal space, highest resolution LAST; and
+//: overall. Completeness counts every reflection the crystal's cell allows to
+//: d_min in the asymmetric unit, absences excepted. R factors use each group's
+//: plain mean, over groups of two or more; CC half splits each group at random
+//: into halves.
+std::vector<MergingShell> merging_statistics(const ScaleData &data,
+                                             const std::vector<double> &g,
+                                             const SpaceGroup &group,
+                                             const Crystal &crystal, int shells,
+                                             MergingShell *overall);
+
+struct ScaleRunOptions {
+  bool combine = true;    //: choose profile, summation or a mix by Rmeas
+  bool absorption = true; //: when the sweep is wide enough for it
+  double d_min = 0.0;
+  ScaleFitOptions fit;
+};
+
+struct ScaleRun {
+  ScaleData data;
+  ScaleModel model{ScaleModelShape{}};
+  std::vector<double> g;
+  ErrorModel error_model;
+  double i_mid = 0.0; //: 0 profile alone, infinity summation alone
+  std::vector<ScaleFitResult> fits;
+  std::size_t outliers = 0;
+  std::size_t fitted_on =
+      0; //: observations in the subset the model was fitted to
+};
+
+//: Scale one sweep as the paper's figure 2: outliers on the unscaled data; fit;
+//: outliers; the intensity combination; outliers; error model; fit; outliers;
+//: error model; a final fit, outlier rejection and error model.
+ScaleRun scale_sweep(const ExperimentList &experiments,
+                     const Table &reflections, const SpaceGroup &group,
+                     const ScaleRunOptions &options = {});
+
+namespace flag {
+//: dials.scale's, from dials/array_family/reflection_table.h, which is what
+//: dials.merge selects by.
+constexpr std::int64_t kOutlierInScaling = 1 << 23;
+constexpr std::int64_t kExcludedForScaling = 1 << 24;
+constexpr std::int64_t kScaled = 1 << 26;
+} // namespace flag
+
+//: The scaling written into the table as dials.scale writes it:
+//: inverse_scale_factor and its variance, intensity.scale.value and variance
+//: (corrected and combined, the error model's variance), and the flags --
+//: scaled, an outlier in scaling, or excluded -- ADDED to those already there.
+//: Rows not scaled get an inverse scale of 1. The variance of the inverse scale
+//: is written as zero: the parameters' uncertainties are not yet determined.
+void write_scaling(Table &reflections, const ScaleData &data,
+                   const std::vector<double> &g);
+
 } // namespace mxi

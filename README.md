@@ -198,6 +198,7 @@ The pipeline:
 | `mxi_index` | FFT indexing with assign, refine and reassign macrocycles |
 | `mxi_refine` | scan-static and scan-varying refinement, analytical derivatives |
 | `mxi_integrate` | summation and profile fitting; see `docs/integration.md` |
+| `mxi_scale` | scaling one sweep, the error model, merging statistics; see `docs/scaling_plan.md` |
 
 For looking inside it:
 
@@ -232,10 +233,11 @@ module gap come out better here than in DIALS. The 16M sweep -- 1.08 million
 reflections -- integrates in 37 seconds on 16 threads. `docs/integration.md` is
 the reference, and lists what is still open.
 
-**Symmetry and scaling are planned, not written.** `docs/scaling_plan.md`: the
-scaling after Beilsten-Edmands et al. (2020), with cubic B-splines for the scale
-and decay and spherical harmonics for absorption, and the symmetry analysis as
-dials.symmetry does it; two decisions in it are open.
+**Scaling is written for one sweep; symmetry is not.** `docs/scaling_plan.md`:
+the scaling after Beilsten-Edmands et al. (2020), with cubic B-splines for the
+scale and decay and spherical harmonics for absorption, compared there with
+dials.scale on the same sweep. The space group and change of basis are given on
+the command line until there is a symmetry program to choose them.
 
 **A device port is designed but not written.** `docs/gpu.md`. The target
 evaluation is 88 to 106 per cent of refinement time, the work is one

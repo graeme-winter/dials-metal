@@ -1,9 +1,10 @@
 # Symmetry and scaling: a plan
 
-STATUS: a plan, being built. Decided: gemmi as the dependency for space groups
-(a submodule at v0.7.5, wrapped in `src/symmetry.hh`), and mxi_scale first.
-Built so far: space groups and changes of basis. Program names here are in plain
-text, not code, while they do not exist yet.
+STATUS: mxi_scale is built for one sweep: `mxi_scale INTEGRATED_EXPT
+INTEGRATED_REFL --space-group "I 2 3" --change-of-basis "b+c,a+c,a+b"`. Not yet:
+parameter uncertainties (the variance of the inverse scale is written as zero),
+more than one sweep, free-set validation, and mxi_symmetry. Decided: gemmi, a
+submodule at v0.7.5, behind `src/symmetry.hh`.
 
 The pipeline ends at integration. What follows it in DIALS is dials.symmetry,
 choosing the point group and space group, and dials.scale, putting every
@@ -126,3 +127,35 @@ resolves them -- comes after, and has its own prior work to build on.
   a later mxi_report. mxi_scale prints its summary tables, as the others do.
 * **MTZ and mmCIF** go in a later mxi_export. mxi_scale writes a scaled,
   unmerged reflection table and the models.
+
+## Against dials.scale, on the 300 image sweep
+
+Integrated here and scaled here, against dials.scale on DIALS' own integration,
+overall:
+
+    ours   20007 obs  7183 uniq  mult 2.79  71.4 %  <I> 131.7  <I/sI> 18.9
+           Rmerge 0.034  Rmeas 0.041  Rpim 0.022  CC half 0.987
+    DIALS  19737 obs  7268 uniq  mult 2.72  71.0 %  <I> 130.0  <I/sI> 31.4
+           Rmerge 0.038  Rmeas 0.045  Rpim 0.024  CC half 0.999
+
+* **The error model.** a = 1.017, b = 0.024 here; dials.scale reported 0.531 and
+  0.0246. dials.scale normalises its deviations with eqn 12's sqrt((n-1)/n)
+  (`calc_deltahl`), which leaves their spread at (n-1)/n and a low by that
+  factor -- a planted 1.3 comes back 1.158 in groups of eight and 0.662 in
+  pairs -- and this sweep's multiplicity is 2.7. The deviations here take the
+  exact variance of a difference from a mean the observation is part of.
+  That one factor accounts for most of the difference in <I/sI>: 18.9 scaled by
+  1.017 / 0.531 is about 36.
+* **The fit.** Levenberg-Marquardt with the variable-projection Jacobian in
+  Kaufman's form converges in three or four steps. Holding <I> fixed instead --
+  right gradient, curvature overstated -- left three fits of fifty steps each
+  still creeping. With the curvature right, a constant offset in B, degenerate
+  with the merged intensities but for small differences of d within a group,
+  wandered to -2 A^2; B is now centred on its mean, as the scale is on its.
+* **CC half in the lowest shell,** 0.975 against 0.999: a few groups, and
+  without the three widest 0.9990. What they share is two things scaling has
+  found in the integration, both judged by symmetry equivalents: observations
+  with partiality below 0.9 are 10.5 per cent high, as are, by 4 to 5 per cent,
+  those in the first two and last five images -- partials over-corrected -- and
+  those with less than 95 per cent of the profile measured, near a module gap,
+  3.4 per cent low. These are integration's to fix.
