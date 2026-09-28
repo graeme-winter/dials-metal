@@ -431,6 +431,11 @@ json::Value experiments_to_json(const ExperimentList &list) {
       // element of a list that may well be empty.
       x["crystal"] = json::Value();
     }
+    // The profile model this list carries, as the one block every experiment
+    // refers to: this package has one profile model, not one per experiment.
+    if (list.profile.present)
+      x["profile"] =
+          json::Value(static_cast<long>(0)); // an index, as DIALS reads it
 
     // Carry through this experiment's references to models this package does
     // not have: the imageset above all, since it is the only link from the
@@ -465,6 +470,17 @@ json::Value experiments_to_json(const ExperimentList &list) {
   out["goniometer"] = pool(goniometers);
   out["scan"] = pool(scans);
   out["crystal"] = pool(crystals);
+  // The profile model, in DIALS' form, when this list has one: what the
+  // integration used, so that what follows it -- or a later integration --
+  // reads the same. A source's profile block is otherwise carried unchanged.
+  if (list.profile.present) {
+    json::Object p;
+    p["__id__"] = json::Value("gaussian_rs");
+    p["n_sigma"] = json::Value(list.profile.n_sigma);
+    p["sigma_b"] = json::Value(list.profile.sigma_b);
+    p["sigma_m"] = json::Value(list.profile.sigma_m);
+    out["profile"] = json::Value(json::Array{json::Value(std::move(p))});
+  }
   // `imageset` is deliberately NOT written here: whatever the source had is
   // already in `out`, and a list built in memory has none, in which case the
   // experiments reference it as null.

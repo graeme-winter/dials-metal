@@ -171,13 +171,15 @@ void usage(const char *program) {
       "usage: %s [options] EXPT [INDEXED_REFL]\n"
       "\n"
       "  -o FILE           where to write (integrated.refl)\n"
+      "  --output-expt PATH   the models integrated with, and the profile\n"
+      "                    model used (integrated.expt)\n"
       "  --images PATH     the image file; by default the .expt's own\n"
       "                    imageset template is used\n"
       "  --postrefine      integrate, refine against the centres integration\n"
       "                    measured, and integrate again with the refined\n"
-      "                    models, which are written to --output-expt\n"
-      "                    (integrated.expt). Removes the z offset the spot\n"
-      "                    finder's centres leave in a refined model\n"
+      "                    models, which are what --output-expt then holds.\n"
+      "                    Removes the z offset the spot finder's centres\n"
+      "                    leave in a refined model\n"
       "  --postrefine-points N   control points for its scan-varying pass;\n"
       "                    default one per 36 degrees and two more, at least "
       "5\n"
@@ -240,6 +242,7 @@ int integrate_with_postrefinement(const Arguments &args, const char *program,
   const std::string out_refl = args.value("-o", "integrated.refl");
   const std::string out_expt = args.value("--output-expt", "integrated.expt");
   const std::string first_refl = out_refl + ".before-postrefinement.refl";
+  const std::string first_expt = out_expt + ".before-postrefinement.expt";
   std::size_t points = 0;
   if (args.has("--postrefine-points")) {
     const double n = args.number("--postrefine-points", 0.0);
@@ -271,6 +274,11 @@ int integrate_with_postrefinement(const Arguments &args, const char *program,
     }
     words.push_back("-o");
     words.push_back(refl);
+    // Every run writes its models: the first to a file of its own, removed
+    // with its reflections; the second to --output-expt, over the post-refined
+    // models it read, now with the profile model it used.
+    words.push_back("--output-expt");
+    words.push_back(first ? first_expt : out_expt);
     return words;
   };
   const auto run = [](std::vector<std::string> words) {
@@ -304,6 +312,7 @@ int integrate_with_postrefinement(const Arguments &args, const char *program,
                    "mxi_integrate: post-refinement fitted nothing, so there "
                    "is nothing to integrate again with\n");
       std::remove(first_refl.c_str());
+      std::remove(first_expt.c_str());
       return 1;
     }
     std::printf(
@@ -322,9 +331,11 @@ int integrate_with_postrefinement(const Arguments &args, const char *program,
   } catch (const std::exception &error) {
     std::fprintf(stderr, "mxi_integrate: post-refinement: %s\n", error.what());
     std::remove(first_refl.c_str());
+    std::remove(first_expt.c_str());
     return 1;
   }
   std::remove(first_refl.c_str());
+  std::remove(first_expt.c_str());
 
   std::printf("=== Integration with the post-refined models ===\n");
   return run(command(out_expt, out_refl, false));
@@ -386,7 +397,7 @@ int run_program(int argc, char **argv) {
     return integrate_with_postrefinement(args, argv[0], takes_value);
   // Refused rather than ignored: a run that silently drops an option has used
   // settings nobody chose.
-  for (const char *needs : {"--postrefine-points", "--output-expt"}) {
+  for (const char *needs : {"--postrefine-points"}) {
     if (args.has(needs)) {
       std::fprintf(stderr, "mxi_integrate: %s is for --postrefine\n", needs);
       return 2;
@@ -1454,6 +1465,20 @@ int run_program(int argc, char **argv) {
     write_reflections(path, out);
     t_write = now_wall() - t_write_start;
     std::printf("Wrote %zu reflections to %s\n", planned.size(), path.c_str());
+    // And the models integrated with, carrying the profile model used -- what
+    // the next program reads: mxi_symmetry integrated.expt integrated.refl.
+    {
+      ExperimentList written = experiments;
+      written.profile.present = true;
+      written.profile.sigma_b = sigma_b;
+      written.profile.sigma_m = sigma_m;
+      written.profile.n_sigma = mask_options.n_sigma;
+      const std::string expt_path =
+          args.value("--output-expt", "integrated.expt");
+      write_experiments(expt_path, written);
+      std::printf("Wrote the models, with the profile model, to %s\n",
+                  expt_path.c_str());
+    }
 
     if (args.has("--timing")) {
       const double total = now_wall() - t_start;

@@ -11,6 +11,7 @@
 
 #include "../src/derivatives.hh"
 #include "../src/expt.hh"
+#include "../src/json.hh"
 #include "../src/predict.hh"
 #include "../src/refine.hh"
 #include "../src/refl.hh"
@@ -951,6 +952,29 @@ TEST(a_crystal_with_the_wrong_number_of_samples_is_refused) {
                  "a crystal of five samples for a long scan is refused");
   check::is_true(said.find("one more point than images") != std::string::npos,
                  "and says what is wrong");
+}
+
+TEST(the_profile_model_is_written_as_dials_reads_it) {
+  // What an integration used goes into its models file: DIALS' gaussian_rs
+  // block, each experiment referring to it by index, read back the same.
+  Experiment e = base_experiment();
+  ExperimentList list;
+  list.experiments.push_back(e);
+  list.profile.present = true;
+  list.profile.sigma_b = 0.0273;
+  list.profile.sigma_m = 0.1286;
+  list.profile.n_sigma = 3.0;
+  const json::Value v = experiments_to_json(list);
+  check::is_true(v["profile"][0]["__id__"].as_string() == "gaussian_rs",
+                 "a gaussian_rs block");
+  check::is_true(
+      v["experiment"][0]["profile"].is_integral() &&
+          v["experiment"][0]["profile"].as_number() == 0.0,
+      "referred to by the integer 0: Python's json must read a list index");
+  const ExperimentList back = experiments_from_json(v);
+  check::is_true(back.profile.present, "and read back");
+  check::close(back.profile.sigma_b, 0.0273, 1e-15, "sigma_b");
+  check::close(back.profile.sigma_m, 0.1286, 1e-15, "sigma_m");
 }
 
 } // namespace mxi

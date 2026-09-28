@@ -45,6 +45,12 @@ be INDEXED reflections -- the estimate needs each spot's predicted diffracted
 beam -- so the spot finder's `strong.refl` will not do, and says so. The images
 are found from the `.expt`'s imageset template, or named with `--images`.
 
+Every run writes `integrated.refl` and `integrated.expt` (`-o`, `--output-expt`):
+the models integrated with, and the profile model used as DIALS' `gaussian_rs`
+block -- what `mxi_symmetry` and anything after it read. Integrating again from
+that `.expt` alone takes the profile model from its block, and reproduces the
+first integration byte for byte.
+
 `mxi_integrate --help` is the authority on options and defaults. By purpose:
 
 | purpose | options |
@@ -70,8 +76,8 @@ Choosing a few of them:
   256; the default keeps the open boxes few.
 * **`--postrefine`** integrates, refines against the centres integration
   measured -- scan-static, then scan-varying with the detector held -- and
-  integrates again with the refined models, which go to `--output-expt`
-  (`integrated.expt`). It uses only reflections that were summed and have a
+  integrates again with the refined models, which are then what `--output-expt`
+  holds. It uses only reflections that were summed and have a
   centre of mass: an undetected one's observed position is its prediction, and
   a residual of exactly zero pulls the refinement back to where it began.
   `--postrefine-points` sets the scan-varying control points; the default is

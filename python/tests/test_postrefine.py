@@ -36,7 +36,7 @@ needs_data = pytest.mark.skipif(
 def test_its_options_are_refused_without_it(tmp_path):
     # Refused rather than ignored: a run that silently drops an option has used
     # settings nobody chose.
-    for flag, value in (("--output-expt", "x.expt"), ("--postrefine-points", "5")):
+    for flag, value in (("--postrefine-points", "5"),):
         run = subprocess.run(
             [BINARY, "any.expt", flag, value],
             capture_output=True,
@@ -70,7 +70,13 @@ def integrate(tmp_path, *extra):
 
 @needs_data
 def test_post_refinement_removes_the_z_offset(tmp_path):
-    integrate(tmp_path, "-o", "plain.refl")
+    integrate(tmp_path, "-o", "plain.refl", "--output-expt", "plain.expt")
+    # Every integration writes its models, with the profile model it used, as
+    # DIALS' gaussian_rs block referred to by index.
+    plain = json.load(open(tmp_path / "plain.expt"))
+    assert plain["profile"][0]["__id__"] == "gaussian_rs"
+    assert plain["profile"][0]["sigma_m"] > 0
+    assert plain["experiment"][0]["profile"] == 0
     integrate(tmp_path, "-o", "post.refl", "--postrefine", "--output-expt", "post.expt")
     before = z_offset(tmp_path / "plain.refl")
     after = z_offset(tmp_path / "post.refl")
@@ -85,7 +91,7 @@ def test_post_refinement_removes_the_z_offset(tmp_path):
     assert len(points) == last - first + 2
 
     # And the first integration, which was only a means, is not left behind.
-    assert not list(tmp_path.glob("*.before-postrefinement.refl"))
+    assert not list(tmp_path.glob("*.before-postrefinement.*"))
 
     # The cell a post-refinement settles on is the cell it began from, near
     # enough: what it corrects is where spots are in rotation, not their size.
