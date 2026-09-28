@@ -269,6 +269,7 @@ add_executable(mxi_tests
   tests/test_summary.cc
   tests/test_postrefine.cc
   tests/test_symmetry.cc
+  tests/test_lattice.cc
   tests/test_scale_model.cc
   tests/test_scale.cc
   tests/test_mask.cc
