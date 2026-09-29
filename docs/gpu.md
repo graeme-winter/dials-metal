@@ -29,6 +29,34 @@ thousands -- but it is now a third of a much shorter run, and the case for
 moving it should be made from a profile of this version, not the old one.
 Reading is decompression on the CPU and would not move with it.
 
+### Measured again, with one pass over the images
+
+On 1800 frames on a MacBook, 16 threads, one pass: 6.6 s, of which profile
+fitting is 2.4 (36.5 per cent), reading frames 1.1, writing 0.7, the profile
+model, background and summation, and opening shoeboxes about 0.45 each. Fitting,
+split by `mxi_integrate --timing` on the 300 image sweep: carrying the reference
+profile onto the pixels 86 per cent of its thread-seconds, the least squares 14,
+interpolating the reference 1. And of the carrying, a throwaway probe put 90 per
+cent in `pixel_cells`: for each subdivision of each pixel -- 5 x 5 a pixel, some
+10000 a box -- where it falls in the grid, from e1 and e2 interpolated between
+the pixel's corners and computed exactly within a thousandth of a cell boundary.
+Geometry alone: no pixel value enters it.
+
+That is a device's kind of work -- independent across boxes and within them, its
+inputs a box's extent, s1 and phi -- with two obstacles. Metal has no double
+precision and the RTX 4060 runs it at a sixty-fourth of single, while the
+geometry and its boundary test are written in double; in single a subdivision
+near a boundary can land in the other cell, so a device's fit would differ from
+the CPU's by that, and the byte-for-byte comparisons this code has been held to
+would become tolerances. And fitting is a third of the run, so a device can take
+at most that. Before a device: `pixel_cells` does twice some work it could do
+once -- (e + span) / step and its floor, for the boundary test and again for the
+cell -- recomputes the four bilinear weights for every pixel where they depend
+only on the subdivision, and grows each pixel's cell list with vector pushes;
+and a strong reflection's cells are computed twice, for learning and for
+fitting. Those can be removed with the arithmetic unchanged, on the CPU, for
+every platform.
+
 ## Scan-varying refinement, where the normal equations were the cost
 
 The static case below is not the command anyone actually runs. This is:

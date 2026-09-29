@@ -1057,6 +1057,9 @@ int run_program(int argc, char **argv) {
     // One reflection's profile fit, which both ways of reading the images
     // call: against its own pixels, with the reference profile interpolated
     // between the neighbouring cells and carried onto them.
+    // The fit's time, summed across threads, by stage: interpolating the
+    // reference, carrying it onto the pixels, and the least squares.
+    ThreadSeconds t_fit_interpolate, t_fit_onto, t_fit_solve;
     const auto fit_one = [&](std::size_t row, Shoebox &box) {
       if (box.data.empty())
         return;
@@ -1072,9 +1075,12 @@ int run_program(int argc, char **argv) {
       // A weighted average of the nearby profiles, not the nearest one:
       // taking the nearest makes the model jump at a cell boundary, so two
       // reflections either side of one are fitted with different profiles.
+      const double f0 = Timing::now();
       const std::vector<double> local =
           profile_at(reference, panel, static_cast<std::size_t>(q.panel),
                      q.px_fast, q.px_slow, q.z);
+      const double f1 = Timing::now();
+      t_fit_interpolate.add(f1 - f0);
       // Fitted against the PIXELS, with the profile carried onto them,
       // rather than against the grid with the pixels carried onto it. The
       // two give the same intensity and very different variances: the grid
@@ -1086,10 +1092,13 @@ int run_program(int argc, char **argv) {
       // by them wrong.
       const std::vector<double> on_pixels =
           profile_on_pixels(e, box, q.s1, q.phi, grid_spec, local);
+      const double f2 = Timing::now();
+      t_fit_onto.add(f2 - f1);
       if (on_pixels.empty())
         return;
       const ProfileFit fit =
           fit_on_pixels(box, on_pixels, integrate_options.gain);
+      t_fit_solve.add(Timing::now() - f2);
       if (!fit.valid)
         return;
       // A fit is an extrapolation when part of the reflection is missing,
@@ -1708,6 +1717,12 @@ int run_program(int argc, char **argv) {
           "decompressing %.3f s (%.2f x), filling shoeboxes %.3f s (%.2f x)\n",
           t_fetch, per(t_fetch), t_decompress, per(t_decompress), t_fill,
           per(t_fill));
+      std::printf(
+          "  profile fitting, in thread-seconds: interpolating the reference "
+          "%.3f s, "
+          "carrying it onto the pixels %.3f s, the least squares %.3f s\n",
+          t_fit_interpolate.seconds(), t_fit_onto.seconds(),
+          t_fit_solve.seconds());
       if (single_pass)
         std::printf("  one pass: at most %zu shoeboxes held for fitting, %.2f "
                     "GB of pixels and "
