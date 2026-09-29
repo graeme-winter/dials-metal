@@ -1379,7 +1379,7 @@ int run_program(int argc, char **argv) {
         }
         std::printf(
             "Reference profiles: %zu learned from %zu reflections (%zu of %zu "
-            "regions borrowed the detector average)\n",
+            "regions borrowed their scan block's detector average)\n",
             reference.region_count() - empty, references_used, empty,
             reference.region_count());
         if (references_used == 0) {

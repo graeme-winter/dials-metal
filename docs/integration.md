@@ -103,6 +103,12 @@ Choosing a few of them:
    et al. 2016), summation with Leslie's variance (1999, equation 11), the
    centroid, and -- for strong, nearly whole reflections -- a contribution to
    the reference profile of its detector region and scan block.
+   A cell with too few spots borrows its own scan block's average across the
+   detector: the profile drifts along the scan, and a block's average is known
+   once its reflections have been seen. (It borrowed the whole scan's until
+   29 September 2026. On the 300 image sweep with 5 x 5 regions and ten blocks,
+   28 of 250 cells borrow; 21 of 21031 fitted intensities moved by more than 0.1
+   sigma, none by more than 0.31, and the merging statistics not at all.)
 5. **The second pass.** The frames again, each box fitted by weighted least
    squares against its own pixels, with the reference profile interpolated
    between the neighbouring cells and carried onto the pixels. The variance is

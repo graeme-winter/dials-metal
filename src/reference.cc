@@ -870,47 +870,83 @@ bool add_reference(ReferenceProfiles *reference, std::size_t region,
   return true;
 }
 
-void finalise_reference(ReferenceProfiles *reference, std::size_t least) {
-  if (reference == nullptr)
-    return;
-  const std::size_t n = reference->spec.size();
+int block_of_cell(const ReferenceProfiles &reference, std::size_t cell) {
+  const std::size_t d =
+      static_cast<std::size_t>(std::max(reference.divisions, 1));
+  const std::size_t b = static_cast<std::size_t>(std::max(reference.blocks, 1));
+  return static_cast<int>((cell / (d * d)) % b);
+}
 
-  // The whole-detector average, for regions that saw too few spots to have a
-  // profile of their own. A region at the corner of a detector may have almost
-  // nothing in it, and an empty profile fits nothing at all.
-  std::vector<double> everything(n, 0.0);
-  std::size_t everything_spots = 0;
-  for (std::size_t r = 0; r < reference->profile.size(); ++r) {
-    if (reference->spots[r] == 0)
+bool block_average(const ReferenceProfiles &reference, int block,
+                   std::vector<double> *average) {
+  const std::size_t n = reference.spec.size();
+  average->assign(n, 0.0);
+  bool any = false;
+  for (std::size_t r = 0; r < reference.profile.size(); ++r) {
+    if (block_of_cell(reference, r) != block || reference.spots[r] == 0)
       continue;
     for (std::size_t i = 0; i < n; ++i)
-      everything[i] += reference->profile[r][i];
-    everything_spots += reference->spots[r];
+      (*average)[i] += reference.profile[r][i];
+    any = true;
   }
   double whole = 0.0;
-  for (double v : everything)
+  for (double v : *average)
     whole += v;
-  if (whole > 0.0) {
-    for (double &v : everything)
-      v /= whole;
-  }
+  if (!(whole > 0.0))
+    return false;
+  for (double &v : *average)
+    v /= whole;
+  return any;
+}
 
+void finalise_block(ReferenceProfiles *reference, int block, std::size_t least,
+                    const std::vector<double> &average) {
   for (std::size_t r = 0; r < reference->profile.size(); ++r) {
+    if (block_of_cell(*reference, r) != block)
+      continue;
     if (reference->spots[r] < least) {
-      reference->profile[r] = everything;
+      reference->profile[r] = average;
       continue;
     }
     double sum = 0.0;
     for (double v : reference->profile[r])
       sum += v;
     if (!(sum > 0.0)) {
-      reference->profile[r] = everything;
+      reference->profile[r] = average;
       continue;
     }
     for (double &v : reference->profile[r])
       v /= sum;
   }
-  (void)everything_spots;
+}
+
+void finalise_reference(ReferenceProfiles *reference, std::size_t least) {
+  if (reference == nullptr)
+    return;
+  const int blocks = std::max(reference->blocks, 1);
+  // Every block's average first, from the counts as learned, before any cell is
+  // normalised.
+  std::vector<std::vector<double>> average(static_cast<std::size_t>(blocks));
+  std::vector<bool> has(static_cast<std::size_t>(blocks), false);
+  for (int b = 0; b < blocks; ++b)
+    has[static_cast<std::size_t>(b)] =
+        block_average(*reference, b, &average[static_cast<std::size_t>(b)]);
+  for (int b = 0; b < blocks; ++b) {
+    // An empty block borrows the nearest earlier block with spots, else the
+    // nearest later one: earlier first, so that a block finalised as the
+    // images stream past never waits for more than its own reflections, unless
+    // every block before it is empty.
+    int from = -1;
+    for (int k = b; k >= 0 && from < 0; --k)
+      if (has[static_cast<std::size_t>(k)])
+        from = k;
+    for (int k = b + 1; k < blocks && from < 0; ++k)
+      if (has[static_cast<std::size_t>(k)])
+        from = k;
+    const std::vector<double> none(reference->spec.size(), 0.0);
+    finalise_block(reference, b, least,
+                   from >= 0 ? average[static_cast<std::size_t>(from)] : none);
+  }
   reference->finalised = true;
 }
 

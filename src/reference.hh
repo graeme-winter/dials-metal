@@ -181,9 +181,27 @@ ReferenceProfiles make_reference(const GridSpec &spec, int divisions,
 bool add_reference(ReferenceProfiles *reference, std::size_t region,
                    const Transformed &t);
 
-//: Normalise every region's profile. Regions with too few spots borrow from
-//: the whole-detector average rather than being left empty, and say so.
+//: Normalise every region's profile. A region with too few spots borrows the
+//: average of its OWN SCAN BLOCK across the whole detector, rather than being
+//: left empty: the profile drifts along the scan, which is why there are blocks
+//: at all, so the whole scan's average is the wrong stand-in -- and a block's
+//: average is known as soon as the block's reflections have all been seen,
+//: which lets integration fit in one pass over the images. A block with no
+//: spots at all borrows the nearest earlier block's average, or failing that
+//: the nearest later one's.
 void finalise_reference(ReferenceProfiles *reference, std::size_t least = 10);
+
+//: The scan block a cell is in.
+int block_of_cell(const ReferenceProfiles &reference, std::size_t cell);
+
+//: The pieces finalise_reference is made of, for finalising a block at a time:
+//: the average over one block's cells across the detector, normalised, before
+//: any of them is normalised (false if the block saw no spots); and one
+//: block's cells finalised against the average it borrows from.
+bool block_average(const ReferenceProfiles &reference, int block,
+                   std::vector<double> *average);
+void finalise_block(ReferenceProfiles *reference, int block, std::size_t least,
+                    const std::vector<double> &average);
 
 //: The reference profile evaluated at each voxel of a shoebox.
 //:

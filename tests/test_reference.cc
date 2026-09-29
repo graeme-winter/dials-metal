@@ -188,7 +188,7 @@ TEST(the_profile_is_the_average_shape_not_the_average_spot) {
   check::close(sum, 1.0, 1e-9, "and the profile is normalised");
 }
 
-TEST(a_region_with_too_few_spots_borrows_the_whole_detector_average) {
+TEST(a_region_with_too_few_spots_borrows_its_blocks_detector_average) {
   const GridSpec spec = small_spec();
   ReferenceProfiles reference = make_reference(spec, 3, 1, 1, 0.0, 100.0);
   for (int i = 0; i < 40; ++i) {
@@ -740,6 +740,55 @@ TEST(the_fast_transform_is_the_direct_one) {
   // difference, measured at 1.8e-12.
   check::is_true(worst_outside < 1e-10,
                  "and so does the fraction outside the grid");
+}
+
+TEST(a_sparse_region_borrows_its_own_blocks_average_not_the_scans) {
+  // Two scan blocks with different profiles: a sparse cell in each takes its
+  // own block's average. The whole scan's would be neither.
+  const GridSpec spec = small_spec();
+  ReferenceProfiles reference = make_reference(spec, 3, 2, 1, 0.0, 100.0);
+  const std::size_t a = reference.index_of(0, 0, 1, 1),
+                    b = reference.index_of(0, 1, 1, 1);
+  // Block 1's reflections are a different shape: more of them at the centre.
+  Transformed other = planted_grid(spec, 100.0, 0.0);
+  other.data[spec.at(3, 3, 3)] *= 3.0;
+  for (int i = 0; i < 40; ++i) {
+    add_reference(&reference, a, planted_grid(spec, 100.0, 0.0));
+    add_reference(&reference, b, other);
+  }
+  const std::size_t sparse0 = reference.index_of(0, 0, 0, 0),
+                    sparse1 = reference.index_of(0, 1, 0, 0);
+  finalise_reference(&reference, 10);
+  for (std::size_t k = 0; k < spec.size(); ++k) {
+    check::close(reference.profile[sparse0][k], reference.profile[a][k], 1e-12,
+                 "block 0's sparse cell is block 0's average");
+    check::close(reference.profile[sparse1][k], reference.profile[b][k], 1e-12,
+                 "block 1's is block 1's");
+  }
+  check::is_true(block_of_cell(reference, sparse1) == 1 &&
+                     block_of_cell(reference, a) == 0,
+                 "and a cell knows its block");
+  check::is_true(std::abs(reference.profile[a][spec.at(3, 3, 3)] -
+                          reference.profile[b][spec.at(3, 3, 3)]) > 1e-3,
+                 "the two blocks' profiles do differ, so the test can tell");
+}
+
+TEST(an_empty_block_borrows_the_nearest_earlier_block) {
+  const GridSpec spec = small_spec();
+  ReferenceProfiles reference = make_reference(spec, 3, 3, 1, 0.0, 100.0);
+  const std::size_t in0 = reference.index_of(0, 0, 1, 1),
+                    in2 = reference.index_of(0, 2, 1, 1);
+  Transformed other = planted_grid(spec, 100.0, 0.0);
+  other.data[spec.at(3, 3, 3)] *= 3.0;
+  for (int i = 0; i < 40; ++i) {
+    add_reference(&reference, in0, planted_grid(spec, 100.0, 0.0));
+    add_reference(&reference, in2, other);
+  }
+  finalise_reference(&reference, 10);
+  const std::size_t empty = reference.index_of(0, 1, 1, 1);
+  for (std::size_t k = 0; k < spec.size(); ++k)
+    check::close(reference.profile[empty][k], reference.profile[in0][k], 1e-12,
+                 "block 1, empty, borrows block 0, before block 2");
 }
 
 } // namespace mxi
