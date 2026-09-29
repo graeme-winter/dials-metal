@@ -1,7 +1,7 @@
 // mxi_scale: put every observation of one sweep on one scale, refine an error
 // model, and report merging statistics. The physical model of Beilsten-Edmands
 // et al. (2020), with B-splines for the scale and decay; see
-// docs/scaling_plan.md.
+// docs/scaling.md.
 
 #include <cmath>
 #include <cstdio>

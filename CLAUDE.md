@@ -37,6 +37,13 @@ Two overlaps, neither resolved:
   is not trying to be dxtbx. The geometry conventions still live in one place,
   `src/geometry.hh`.
 
+## The documents, and what is open
+
+`docs/README.md` says what each document is for -- reference, notes or history
+-- and `docs/outstanding.md` is the one list of open work. When something on
+that list is done, it leaves the list, and the document it concerns says what
+was found.
+
 ## Hard constraints
 
 **No third-party dependencies.** Same rule as the spot finder's hand-rolled
@@ -658,6 +665,16 @@ code that interns the crystal and appends the experiment: the file came out
 with no experiments at all. **Every test passed**, because not one of them wrote
 a scan-varying model. There are now three that do.
 
+**The flag was only half the rule.** Later found: `A_at` re-smoothed samples as
+control points on every READ, whatever the flag said (predictions from DIALS'
+model 0.0003 images from DIALS' own); refinement replaced samples with control
+points without clearing the flag, so a model refined twice was written with
+five scan points for three hundred images; and a static refinement of a
+scan-varying crystal refined an A that predicted nothing. The rules now: samples
+are interpolated linearly between image boundaries, a scan-varying refinement
+always converts to control points and clears the flag, a static refinement of
+the crystal makes it static, and the reader refuses any count but N + 1.
+
 ## What we cannot decode is not ours to drop
 
 Shoeboxes were read as opaque bytes and thrown away on write. The argument was
@@ -1022,6 +1039,39 @@ of 3000 boxes, which a test with a flat profile could not have seen.
 **A number measured is a number attributed.** Performance and agreement figures
 in the documents name their dataset. The documents that said "integration not
 started" were accurate when written; nothing marked them as dated.
+
+## Symmetry and scaling: what has to stay true
+
+Each of these was got wrong once, or had to be found. `docs/symmetry.md` and
+`docs/scaling.md` have the measurements.
+
+* **Score symmetry to a resolution limit, with Friedel mates apart.** Without
+  the limit, noise beyond the diffraction pulled every element's CC toward zero
+  and a cubic sweep came out P -1; with mates merged, the identity compared each
+  reflection with itself, gave CC 1, and set the expected CC of every true
+  element too high.
+* **Candidate space groups are the chiral ones.** A centrosymmetric group is its
+  own Patterson group; without the rule I m -3 is offered for I m -3.
+* **gemmi names a group only in a tabulated setting.** The change of basis to a
+  reference setting is searched for (`reference_setting`); for a group with one
+  axis the conventional a and b lie perpendicular to it, where no rotation of
+  the group fixes them.
+* **The error model's deviations take the exact variance** of a difference from
+  a mean the observation is part of, v_i (1 - 2 c_i) + sum c_j^2 v_j -- not
+  sqrt((n-1)/n), which biases a low by (n-1)/n. The tests fail with that form.
+* **The scale's uncertainty goes into the variance before the error model**,
+  I^2 var(g) / g^2, so that a and b correct what remains after it.
+* **Differentiate with <I_h> following the parameters** (variable projection):
+  held fixed, the gradient is right and the curvature too large, and fits crept
+  for fifty steps. With the curvature right, a nearly free constant in B
+  wandered, so B is centred on its mean as the scale is on its.
+* **One d for completeness**: observed and possible reflections both from the
+  crystal at the unique index, or a shell comes out above 100 per cent.
+* **Change a column by copying it and setting it back.** `int_column` makes a
+  column of zeroes; used on the flags, it wiped every flag integration had set.
+* **A model reference is an integer.** `json::Value(0.0)` writes a float that
+  Python's json reads as one, and a float does not index a list. See also
+  "`0` is not `0.0`" above.
 
 ## Style
 

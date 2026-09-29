@@ -108,7 +108,7 @@ Filtered 48 of 48 spots by peak-centroid distance
 Wrote 48 reflections to strong.refl (0.1 MB, most of it shoeboxes)
 ```
 
--- which is the synthetic fixture from `tests/make_test_nxmx.py`, twelve frames
+-- which is the synthetic fixture from `python/src/mxeq/fixtures/nxmx.py`, twelve frames
 with forty-eight reflections planted in them, so the numbers are small and every
 one of them is checkable. A real sweep says the same things with six digits in
 them.
@@ -503,14 +503,14 @@ threadgroup shape and the scheduler and would break quietly if relied on.
   believing any number it produces.
 * `dext_cuda.cu` is verified for 16-bit data; its 32-bit instantiation, and its
   `stage0_tile` and `stage2_direct` kernels, have not been run.
-* **The output has never been through `dials.index`, and nothing here has seen
-  real diffraction.** The whole path is tested against reflections planted at
-  known positions in synthetic HDF5, which recovers every centroid to better
-  than a pixel; that tests the conventions and the arithmetic and is not the
-  same claim. The first real run should be `dials.find_spots` and this over the
-  same images, compared with `tests/check_refl.py`.
-* **The reflection table format was written from the DIALS source, not from a
-  file DIALS wrote.** If DIALS refuses the file, the column type names and
+* **Real diffraction, since.** On a 300 image insulin sweep every filtering count
+  matches `dials.find_spots` exactly -- 18755 extracted, 5683 and 5 removed for
+  size, 13067 centroids, 12915 kept -- and this pipeline indexes, refines and
+  integrates what it writes. `docs/spotfinder.md`.
+* **This writer's tables have not been read by DIALS.** The spot finder writes
+  through a writer of its own (`refl::Options`), not the pipeline's, whose tables
+  dials.scale has scaled. The format was written from the DIALS source, not from a
+  file DIALS wrote. If DIALS refuses the file, the column type names and
   `Shoebox<>` being `float` rather than `double` are where to look first.
 * The pixel mask is not read; see the list of differences above.
 

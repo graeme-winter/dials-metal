@@ -270,6 +270,8 @@ look entirely reasonable.
 
 ## Open questions
 
+The whole list of open work, integration's among it, is `docs/outstanding.md`.
+
 What is known not to be right yet, with what is known about each.
 
 * **Gap-crossing reflections are 3 per cent low** where a tenth to a third is

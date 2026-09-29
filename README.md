@@ -168,11 +168,15 @@ mxi_index     imported.expt strong.refl                         # -> indexed.*
 mxi_refine    indexed.expt indexed.refl --analytic              # -> refined.*
               # static by default; --scan-varying N for a crystal that moves,
               # which on real data is nearly every crystal
-mxi_integrate refined.expt refined.refl -o integrated.refl --scan-blocks 36
+mxi_integrate refined.expt refined.refl --scan-blocks 36         # -> integrated.*
 # or, refining against the centres integration measures and integrating again:
-mxi_integrate refined.expt refined.refl -o integrated.refl --scan-blocks 36 --postrefine
-dials.scale   refined.expt integrated.refl
+mxi_integrate refined.expt refined.refl --scan-blocks 36 --postrefine
+mxi_symmetry  integrated.expt integrated.refl                   # -> symmetrized.*
+mxi_scale     symmetrized.expt symmetrized.refl                 # -> scaled.*
 ```
+
+`dials.symmetry` and `dials.scale` take `integrated.*` as readily, at either of the
+last two steps.
 
 Each program prints its report to standard output and writes the same report
 to `mxi_<program>.log` where it runs -- `mxi_find.log`, `mxi_integrate.log` --
@@ -198,8 +202,8 @@ The pipeline:
 | `mxi_index` | FFT indexing with assign, refine and reassign macrocycles |
 | `mxi_refine` | scan-static and scan-varying refinement, analytical derivatives |
 | `mxi_integrate` | summation and profile fitting; see `docs/integration.md` |
-| `mxi_symmetry` | the Laue group and space group, and the data reindexed into them; see `docs/scaling_plan.md` |
-| `mxi_scale` | scaling one sweep, the error model, merging statistics; see `docs/scaling_plan.md` |
+| `mxi_symmetry` | the Laue group and space group, and the data reindexed into them; see `docs/symmetry.md` |
+| `mxi_scale` | scaling one sweep, the error model, merging statistics; see `docs/scaling.md` |
 
 For looking inside it:
 
@@ -234,11 +238,13 @@ module gap come out better here than in DIALS. The 16M sweep -- 1.08 million
 reflections -- integrates in 37 seconds on 16 threads. `docs/integration.md` is
 the reference, and lists what is still open.
 
-**Symmetry and scaling are written for one sweep.** `docs/scaling_plan.md`:
-`mxi_symmetry` chooses the Laue group as dials.symmetry does and the space group
-from the absences, and reindexes; `mxi_scale` scales after Beilsten-Edmands et
-al. (2020), with cubic B-splines for the scale and decay and spherical harmonics
-for absorption. Both are compared there with DIALS on the same sweep.
+**Symmetry and scaling are written for one sweep.** `mxi_symmetry`
+(`docs/symmetry.md`) chooses the Laue group as dials.symmetry does and the space
+group from the absences, and reindexes; `mxi_scale` (`docs/scaling.md`) scales
+after Beilsten-Edmands et al. (2020), with cubic B-splines for the scale and
+decay and spherical harmonics for absorption. Each is compared with DIALS on the
+same sweeps; the error model's differences from dials.scale's are findings
+about dials.scale, listed in `docs/outstanding.md`.
 
 ```sh
 mxi_symmetry integrated.expt integrated.refl     # symmetrized.expt, .refl
@@ -250,6 +256,10 @@ evaluation is 88 to 106 per cent of refinement time, the work is one
 independent thread per reflection and parameter, and float32 holds seven digits
 in an analytical derivative and none at all in a finite difference -- which is
 why the analytical ones exist.
+
+**What is open is one list**, `docs/outstanding.md`, grouped by where the work
+is and marked where a number is known to be wrong; `docs/README.md` says what
+every document is for.
 
 ## Two things this repository is really about
 

@@ -29,7 +29,13 @@ DOCUMENTS = [
     "docs/integration_history.md",
     "docs/gpu.md",
     "docs/spotfinder.md",
-    "docs/scaling_plan.md",
+    "docs/scaling.md",
+    "docs/symmetry.md",
+    "docs/outstanding.md",
+    "docs/README.md",
+    "docs/conventions.md",
+    "docs/spots.md",
+    "docs/spots_notes.md",
 ]
 PATH = re.compile(
     r"`([A-Za-z0-9_./-]+/[A-Za-z0-9_.-]+\.(?:md|cc|h|hh|py|cmake|txt|json))`"

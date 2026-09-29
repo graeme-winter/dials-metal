@@ -1,7 +1,9 @@
-# CLAUDE.md
+# The spot finder: notes for working on it
 
-Notes for working in this repository. `README.md` is the document for people
-building and running the tool; this one records the conventions, the invariants
+STATUS: the notes of the spot finder when it was a repository of its own,
+kept as they were and brought up to date where they name files. Its reference
+is `docs/spots.md`; `docs/spotfinder.md` is how it came into this tree. This one
+records the conventions, the invariants
 that are expensive to rediscover, and what is not yet proven.
 
 ## The .expt says where the images are
@@ -46,26 +48,26 @@ one implementation of them.
 
 | Path | What it is |
 | --- | --- |
-| `src/find_spots.cc` | `main`: option parsing, the thread pool, the chunked ordering |
-| `src/series.hh` | `Series`, `Reader`, `Frame`: what the tool reads, above HDF5 |
-| `src/nxmx.cc` | VDS unpacking and `H5Dread_chunk`; the only file including hdf5.h |
+| `src/spots/find_spots.cc` | `main`: option parsing, the thread pool, the chunked ordering |
+| `src/spots/series.hh` | `Series`, `Reader`, `Frame`: what the tool reads, above HDF5 |
+| `src/spots/nxmx.cc` | VDS unpacking and `H5Dread_chunk`; the only file including hdf5.h |
 | `src/decompress.{hh,cc}` | bslz4, lz4 and uncompressed chunks, via bitshuffle |
 | `src/dext.{hh,cc}` | Extended dispersion threshold, CPU. **Given code** |
-| `src/dext_gpu.hh` | The device interface. One header, two implementations, one linked |
-| `src/dext_gpu.cc` | The backend-agnostic half: window choice, profiling, splits |
-| `src/dext_gpu_internal.hh` | What a backend calls into that, and a caller does not |
+| `src/spots/dext_gpu.hh` | The device interface. One header, two implementations, one linked |
+| `src/spots/dext_gpu.cc` | The backend-agnostic half: window choice, profiling, splits |
+| `src/spots/dext_gpu_internal.hh` | What a backend calls into that, and a caller does not |
 | `src/dext_cuda.cu` | The same on CUDA, typed from dext.hh's traits |
 | `src/dext_metal.{cc,metal}` | The same on Apple silicon, 16-bit only, via metal-cpp |
-| `src/signal_pixel.hh` | What the threshold emits: 16 bytes a surviving pixel |
+| `src/spots/signal_pixel.hh` | What the threshold emits: 16 bytes a surviving pixel |
 | `src/signal_order.{hh,cc}` | Signal pixels into index order, O(n). Host, shared |
 | `src/dials_spots.{hh,cc}` | Six-connected grouping in 3D, DIALS' centroids, streaming |
 | `src/refl.{hh,cc}` | A DIALS reflection table: msgpack, written by hand |
 | `src/expt.{hh,cc}` | The scan range, panel size and identifier out of an .expt |
-| `src/queue.hh` | Bounded blocking queue, the backpressure between threads |
-| `tests/make_test_nxmx.py` | A synthetic series with reflections planted across frames |
-| `tests/check_spots.py` | That series' manifest against the table it produced |
-| `tests/check_refl.py` | Validates a .refl, and diffs two of them by centroid |
-| `tests/synthetic_frame.hh` | The frames the device test and the benchmark share |
+| `src/spots/queue.hh` | Bounded blocking queue, the backpressure between threads |
+| `python/src/mxeq/fixtures/nxmx.py` | A synthetic series with reflections planted across frames |
+| `python/src/mxeq/checks/spotfinder_spots.py` | That series' manifest against the table it produced |
+| `python/src/mxeq/checks/spotfinder_refl.py` | Validates a .refl, and diffs two of them by centroid |
+| `tests/spots/synthetic_frame.hh` | The frames the device test and the benchmark share |
 | `third_party/bitshuffle` | Submodule; lz4 comes with it |
 
 ## Commands
@@ -84,7 +86,7 @@ is no device.
 
 **There are no recorded baselines here, deliberately.** The fixture plants
 reflections at known positions, so the expectation is the plant rather than a
-previous run: `tests/check_spots.py` compares the table against the manifest.
+previous run: `python/src/mxeq/checks/spotfinder_spots.py` compares the table against the manifest.
 That is worth more than a baseline, because a baseline records what the code did
 and this records what it should do -- and it means no `--record` step that can be
 run without reading the diff.
@@ -142,7 +144,7 @@ could.
   factor of 30 short. Saturated pixels never enter the sums at all, being masked
   at `>= max() - 1`, which is what keeps the top of the range out of it.
 
-  `tests/test_dext_squares.cc` measures that factor rather than asserting it, so
+  `tests/spots/test_dext_squares.cc` measures that factor rather than asserting it, so
   a change to the kernel size or to the masking fails there. **Do not widen the
   accumulator.** Metal has no 64-bit integer arithmetic, the tile variant's three
   threadgroup tables would grow by a third of the 32 KB an Apple threadgroup
@@ -174,7 +176,7 @@ could.
 * **`src/dext_metal.metal` is compiled with `-fno-fast-math`.** Fast math is on
   by default in the Metal compiler and the entire claim this backend makes is
   that it agrees with `dext.cc` bit for bit. `precise::sqrt` is used for the same
-  reason. If `tests/test_dext_gpu.cc` starts failing on the `background` field by
+  reason. If `tests/spots/test_dext_gpu.cc` starts failing on the `background` field by
   a bit or two, that flag is the first thing to check.
 * **`-DENABLE_FAST_MATH=ON` is how to ask for the other one**, for measuring what
   it costs and what it buys, and it reaches the device kernels only: `dext.cc` is
@@ -184,7 +186,7 @@ could.
   changed; `bench_dext_gpu` reports the difference and prints its timings
   regardless. `--version` says so, because a table from such a build is not
   comparable with DIALS without knowing. The comparison itself is
-  `tests/compare_signal.hh`, shared by both so the test's verdict and the
+  `tests/spots/compare_signal.hh`, shared by both so the test's verdict and the
   benchmark's caveat are about the same measurement.
 * **The shader is compiled at build time and embedded**, not compiled from source
   at run time. `newLibraryWithSource` needs the Metal compiler present on the
@@ -216,7 +218,7 @@ could.
   than a clean failure.
 * **Everything after the window sums lives in `emit_signal`**, shared by both
   stage2 variants, so a change to the Poisson test or to the compacted emit
-  cannot land in one and not the other. `tests/test_dext_gpu.cc` runs its whole
+  cannot land in one and not the other. `tests/spots/test_dext_gpu.cc` runs its whole
   comparison under both variants for the same reason.
 * **Both backends have all four window kernels**, chosen at run time by
   `SPOTFINDER_GPU_STAGE0` and `SPOTFINDER_GPU_STAGE2`, and the two devices do not
@@ -232,7 +234,7 @@ could.
   all four combinations against the CPU is a real cross-check on the tiles' index
   arithmetic that nothing else provides.
 * **The window choice, the profiling flag and the last frame's split live in
-  `src/dext_gpu.cc`, not in either backend.** None of them is about a device:
+  `src/spots/dext_gpu.cc`, not in either backend.** None of them is about a device:
   they are configuration, and two copies is how "tile" ends up spelled two ways.
 * **The per-stage split is trustworthy on CUDA and only indicative on Metal.**
   CUDA records events around each kernel in the one stream, which costs nothing
@@ -240,7 +242,7 @@ could.
   `MTLCounterSampleBuffer`, so it submits each stage in its own command buffer and
   gives up whatever was overlapping -- there, read the shares and not the sum.
 * **A benchmark must hand `find()` the memory the tool hands it.** The
-  single-frame and profiling paths in `tests/bench_dext_gpu.cc` passed an
+  single-frame and profiling paths in `tests/spots/bench_dext_gpu.cc` passed an
   ordinary `std::vector`, so `Registry::lookup` missed and every frame paid a
   staging copy -- 0.45 ms of a 4.55 ms Metal frame, reported as if the tool
   spent it. `time_threaded` had always used `gpu::host_alloc` and said in its
@@ -425,7 +427,7 @@ is an error in disguise, throw instead.
   internal and documented there.
 * **dxtbx writes `image_size` fast then slow**, which is the opposite way round
   from every frame dimension here. `expt.cc` converts at the read and
-  `tests/test_expt.cc` checks it, because getting it the wrong way round on a
+  `tests/spots/test_expt.cc` checks it, because getting it the wrong way round on a
   square detector is invisible.
 * **Fixed-width and size types are `std::`-qualified**, everywhere. The one
   exception is `nxmx.cc`, where bare `size_t` sits in the signature of an HDF5
