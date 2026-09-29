@@ -90,3 +90,10 @@ cubic lattice. For one sweep either is right and scales the same; symmetrized.re
 is not index for index the same as dials.symmetry's, and sweeps -- or a sweep
 and a reference -- must be put on the same side before they are merged. That
 wants a reference, or dials.cosym's method.
+
+## The resolution limit
+
+The CC half limit is the scaling's own (`docs/scaling.md`): the tanh fit of
+dials.estimate_resolution, at 0.6 as dials.symmetry sets it -- 2.14 A on the
+300 image sweep. The <I>/<sigma> limit, above 4, is still the last of 20 shells
+above it, where dials.symmetry fits a curve: 1.85 A there, against 2.46.

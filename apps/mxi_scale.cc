@@ -12,6 +12,7 @@
 #include "expt.hh"
 #include "log_mirror.hh"
 #include "refl.hh"
+#include "resolution.hh"
 #include "scale.hh"
 #include "symmetry.hh"
 
@@ -170,23 +171,62 @@ int run_program(int argc, char **argv) {
       row(m);
     row(all);
 
+    // The resolution limit, as dials.estimate_resolution finds it: a tanh in
+    // d*^2 through CC half in 50 bins of equal count, where it crosses 0.3;
+    // and where CC half stops being significant at the 0.1 level.
+    std::size_t wilson = 0;
+    const std::vector<ResolutionBin> bins = cc_half_bins(
+        data, run.g, *experiments[0].crystal, 50, 10, 0.1, &wilson);
+    const ResolutionEstimate res = estimate_resolution(bins, 0.3);
+    std::printf("\nRemoving %zu Wilson outliers with E^2 >= 16.0\n", wilson);
+    if (res.d_min_cc_half > 0.0)
+      std::printf("Resolution cc_half:       %.2f\n", res.d_min_cc_half);
+    else
+      std::printf("Resolution cc_half:       none found\n");
+    if (res.d_min_significance > 0.0)
+      std::printf("Resolution cc_half_significance_level:    %.2f\n",
+                  res.d_min_significance);
+    else
+      std::printf("Resolution cc_half_significance_level:    none found\n");
+
+    // "Suggested": the same summary, cut at the CC half limit.
+    MergingShell suggested;
+    const bool cut = res.d_min_cc_half > 0.0;
+    if (cut) {
+      ScaleData to_limit = data;
+      for (std::size_t i = 0; i < to_limit.size(); ++i) {
+        const Miller &m = to_limit.unique[to_limit.group[i]];
+        if (experiments[0].crystal->d_spacing(m[0], m[1], m[2]) <
+            res.d_min_cc_half)
+          to_limit.outlier[i] = true;
+      }
+      merging_statistics(to_limit, run.g, group, *experiments[0].crystal,
+                         shells, &suggested);
+    }
+
     // The summary dials.scale ends with: overall, the lowest shell and the
-    // highest.
+    // highest, and the data cut at the suggested limit.
     {
       const MergingShell &low = table.front(), &high = table.back();
       std::printf("\n            -------------Summary of merging "
                   "statistics--------------\n\n");
-      std::printf("%-44s %8s %7s %7s\n", "", "Overall", "Low", "High");
+      std::printf("%-44s %8s %7s %7s %9s\n", "", "Overall", "Low", "High",
+                  "Suggested");
       const auto line = [&](const char *what, double MergingShell::*f,
                             const char *fmt, double scale) {
-        char x[3][32];
-        const MergingShell *m[3] = {&all, &low, &high};
-        for (int k = 0; k < 3; ++k)
+        char x[4][32];
+        const MergingShell *m[4] = {&all, &low, &high, &suggested};
+        for (int k = 0; k < 4; ++k)
           std::snprintf(x[k], sizeof x[k], fmt, scale * (m[k]->*f));
-        std::printf("%-44s %8s %7s %7s\n", what, x[0], x[1], x[2]);
+        std::printf("%-44s %8s %7s %7s %9s\n", what, x[0], x[1], x[2],
+                    cut ? x[3] : "");
       };
       const auto count = [&](const char *what, std::size_t MergingShell::*f) {
-        std::printf("%-44s %8zu %7zu %7zu\n", what, all.*f, low.*f, high.*f);
+        if (cut)
+          std::printf("%-44s %8zu %7zu %7zu %9zu\n", what, all.*f, low.*f,
+                      high.*f, suggested.*f);
+        else
+          std::printf("%-44s %8zu %7zu %7zu\n", what, all.*f, low.*f, high.*f);
       };
       const auto only = [&](const char *what, double v, const char *fmt) {
         char x[32];

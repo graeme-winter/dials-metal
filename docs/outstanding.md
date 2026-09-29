@@ -64,9 +64,9 @@ where something is missing.
 * **17.** **difference -- Normalisation is by resolution shells**, where DIALS fits an
     anisotropic maximum-likelihood model; the identity CC is 0.858 against
     0.931 on one sweep. The first thing to revisit if a harder case disagrees.
-* **18.** **difference -- The resolution limit takes the last shell above the
-    threshold**, where DIALS fits a curve: 1.85 A against 2.46 from <I>/<sigma>
-    on one sweep.
+* **18.** **difference -- The <I>/<sigma> limit takes the last shell above
+  the threshold**, where dials.symmetry fits a curve: 1.85 A against 2.46 on
+  one sweep. The CC half limit is now dials.estimate_resolution's tanh fit.
 * **19.** **decision -- Monoclinic candidates are named C 1 2/m 1**, the reference
     setting, where DIALS chooses the setting with beta nearest 90, I 1 2/m 1.
 * **20.** **capability -- No obliquity (delta) column** in the table of subgroups.
@@ -75,7 +75,6 @@ where something is missing.
 
 * **21.** **capability -- One sweep only.**
 * **22.** **capability -- No free-set validation**, the check for overfitting.
-* **23.** **capability -- No resolution estimate**, and so no "Suggested" column.
 * **24.** **capability -- Friedel mates are always merged in scaling**; there is no
     anomalous option.
 * **26.** **capability -- The scaling model is not written** to `scaled.expt`, as
@@ -113,6 +112,9 @@ where something is missing.
 ## Closed
 
 * **25.** dials.merge on `scaled.refl`: it takes it, run by Graeme.
+* **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
+  CC half, at 0.3, and its significance limit, with the "Suggested" column.
+  `docs/scaling.md`.
 * **29.** The Metal backend of the spot finder: it works. 1800 images of 3108 x
   3262 pixels thresholded in 3.6 seconds, 502 a second, on a Mac with 16
   threads; 146118 spots. `docs/spots.md`.

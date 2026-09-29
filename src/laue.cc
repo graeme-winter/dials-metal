@@ -1,5 +1,6 @@
 #include "laue.hh"
 
+#include "resolution.hh"
 #include "scale.hh"
 
 #include <algorithm>
@@ -454,49 +455,15 @@ P1Intensities merge_in_p1(const ExperimentList &experiments,
       data.outlier[i] = true;
       ++sel.negative;
     }
-  // CC half by resolution, Friedel mates merged, random halves of each
-  // reflection's observations: the finest shell from low resolution before
-  // the first below 0.6.
+  // CC half above 0.6, as dials.symmetry finds it: the tanh fit of
+  // dials.estimate_resolution through 50 bins of equal count, where it crosses
+  // 0.6 -- no longer the last of 20 shells above 0.6, which took whole shells'
+  // steps and differed from dials.symmetry's limits.
   {
-    std::vector<std::vector<std::size_t>> members(data.unique.size());
-    for (std::size_t i = 0; i < data.size(); ++i)
-      if (!data.outlier[i])
-        members[data.group[i]].push_back(i);
-    std::vector<std::size_t> groups;
-    for (std::size_t h = 0; h < members.size(); ++h)
-      if (members[h].size() >= 2)
-        groups.push_back(h);
-    std::sort(groups.begin(), groups.end(), [&](std::size_t a, std::size_t b) {
-      return data.d[members[a][0]] > data.d[members[b][0]];
-    });
-    std::mt19937 rng(20);
-    const std::size_t shells = 20,
-                      per = std::max<std::size_t>(1, groups.size() / shells);
-    sel.d_min_cc_half =
-        groups.empty() ? 0.0 : data.d[members[groups.back()][0]];
-    for (std::size_t s = 0; s < shells && !groups.empty(); ++s) {
-      const std::size_t a = s * per, b = s + 1 == shells
-                                             ? groups.size()
-                                             : std::min(groups.size(), a + per);
-      if (a >= b)
-        break;
-      Accumulator acc;
-      for (std::size_t k = a; k < b; ++k) {
-        std::vector<std::size_t> o = members[groups[k]];
-        std::shuffle(o.begin(), o.end(), rng);
-        const std::size_t split = o.size() / 2;
-        double x = 0.0, y = 0.0;
-        for (std::size_t j = 0; j < o.size(); ++j)
-          (j < split ? x : y) += data.intensity[o[j]];
-        acc.add(x / static_cast<double>(split),
-                y / static_cast<double>(o.size() - split));
-      }
-      if (acc.cc() < 0.6) {
-        sel.d_min_cc_half =
-            s == 0 ? sel.d_min_cc_half : data.d[members[groups[a - 1]][0]];
-        break;
-      }
-    }
+    const std::vector<double> ones(data.size(), 1.0);
+    const std::vector<ResolutionBin> bins =
+        cc_half_bins(data, ones, *experiments[0].crystal, 50, 10, 0.1);
+    sel.d_min_cc_half = estimate_resolution(bins, 0.6).d_min_cc_half;
   }
   // Merged by inverse variance, Friedel mates apart: I+ at the unique index,
   // I- at its negative.

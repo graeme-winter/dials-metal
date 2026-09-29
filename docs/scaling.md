@@ -1,7 +1,7 @@
 # Scaling
 
 STATUS: `mxi_scale` scales one sweep. Not yet: more than one sweep, free-set
-validation, a resolution estimate. `docs/outstanding.md` has the whole list.
+validation. `docs/outstanding.md` has the whole list.
 
 `mxi_scale` puts every observation of a sweep on one scale, refines an error
 model, and reports merging statistics -- the physical model of Beilsten-Edmands
@@ -166,6 +166,29 @@ sigma, and dials.scale's sigmas are shrunk by its a of 0.531: ours scaled by
 1.017 / 0.531 are 1.83 and 1.51. An anomalous slope of 1.89 reads as anomalous
 signal; this sweep's is 0.955 -- none measurable, as insulin's sulphur at
 0.95 A would lead one to expect -- and the 1.89 is the error model's bias.
+
+## The resolution limit
+
+As `dials.estimate_resolution` finds it, read from its source
+(`dials/util/resolution_analysis.py`): CC half in 50 bins of equal count of
+unique reflections, Wilson outliers (E^2 of 16 or more) left out; a tanh in
+d*^2, CC half = (1 - tanh((d*^2 - s0) / r)) / 2, fitted by weighted least
+squares with sigma 1/sqrt(n - 3) from r = 0.2 and s0 = 0.4; and the limit where
+the fitted values cross 0.3. The second limit is where CC half stops being
+significant: a bin is significant where CC half exceeds t / sqrt(n - 2 + t^2),
+t Student's at the upper 0.1 on n - 2 degrees of freedom, and a logistic
+1 - expit(r (d*^2 - res)) through which bins are gives 1/sqrt(res). The summary
+gains dials.scale's "Suggested" column: the same statistics cut at the CC half
+limit.
+
+One difference, deliberately: only bins with pairs enough to fit (n > 3) decide
+whether CC half is above the limit everywhere. A detector's corners hold
+reflections seen once, with no halves and a CC half of zero, and under
+dials.estimate_resolution's rule a sweep whose CC half stays near one to its
+last bin was given no limit at all. On the 300 image sweep that is the case: the
+limit is the last bin with pairs, 1.73 A, where the data are 83.5 per cent
+complete with CC half 0.987, and dials.scale suggested 1.63, the edge. The
+significance limit is 1.68.
 
 ## Decisions
 

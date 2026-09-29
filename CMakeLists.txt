@@ -127,6 +127,7 @@ add_library(mxi
   src/laue.cc
   src/scale_model.cc
   src/scale.cc
+  src/resolution.cc
 )
 
 target_link_libraries(mxi PUBLIC mxi_gemmi)
@@ -277,6 +278,7 @@ add_executable(mxi_tests
   tests/test_lattice.cc
   tests/test_laue.cc
   tests/test_space_group.cc
+  tests/test_resolution.cc
   tests/test_scale_model.cc
   tests/test_scale.cc
   tests/test_mask.cc
