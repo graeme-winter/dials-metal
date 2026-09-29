@@ -246,6 +246,7 @@ ResolutionEstimate estimate_resolution(const std::vector<ResolutionBin> &bins,
                                           (f[j] - f[j - 1]);
           out.d_min_cc_half = 1.0 / std::sqrt(s);
           crossed = true;
+          out.reached = true;
           break;
         }
     }

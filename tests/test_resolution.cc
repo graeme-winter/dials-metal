@@ -46,6 +46,7 @@ TEST(the_tanh_fitted_crosses_the_limit_where_the_curve_does) {
   check::close(e.s0, 0.4, 1e-4, "s0");
   const double expected = 1.0 / std::sqrt(0.4 + 0.05 * std::atanh(0.4));
   check::close(e.d_min_cc_half, expected, 2e-3, "the limit at CC half 0.3");
+  check::is_true(e.reached, "and it says the curve reached the limit");
   // Significance: the bins switch from significant to not where the curve
   // crosses the critical value of about 0.06; the logistic finds it.
   const double critical = bins.front().critical;
@@ -59,6 +60,7 @@ TEST(a_curve_above_the_limit_everywhere_gives_the_last_bin) {
   const ResolutionEstimate e = estimate_resolution(bins);
   check::close(e.d_min_cc_half, bins.back().d_min, 1e-12,
                "the highest resolution measured");
+  check::is_true(!e.reached, "and says the data reach the limit nowhere");
   check::close(e.d_min_significance, bins.back().d_min, 1e-12,
                "and all significant");
 }

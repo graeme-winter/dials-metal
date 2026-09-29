@@ -182,6 +182,18 @@ gains dials.scale's "Suggested" column: the same statistics cut at the CC half
 limit -- unless `--d-min` was given, when the cut is already chosen and the
 column is left out; the estimate itself is still printed.
 
+`--d-min-auto` makes the cut itself: everything is scaled once, the limit is
+estimated, and the sweep is scaled again to it -- again, not filtered, since the
+outliers, the error model and the fit all depend on what is in. The limit is
+rounded to a hundredth of an angstrom and reported as the `--d-min` it is
+equivalent to, and the table is that run's, byte for byte
+(`python/tests/test_d_min_auto.py`). It cuts only if the fitted CC half comes down
+to the limit within the data: where it never does, as on the 300 image sweep at
+0.3, the estimate is only the last bin with pairs, a cut there would drop good
+data, and nothing is applied. `--cc-half-limit C` sets the CC half both the
+estimate and the cut use (0.3); `--d-min` and `--d-min-auto` together are
+refused.
+
 One difference, deliberately: only bins with pairs enough to fit (n > 3) decide
 whether CC half is above the limit everywhere. A detector's corners hold
 reflections seen once, with no halves and a CC half of zero, and under

@@ -35,6 +35,11 @@ void usage() {
       "  --d-min D         leave out reflections beyond D A; the summary then "
       "has\n"
       "                    no Suggested column\n"
+      "  --d-min-auto      scale everything, estimate the limit from CC half, "
+      "and\n"
+      "                    scale again to it, if CC half falls to the limit\n"
+      "                    within the data at all\n"
+      "  --cc-half-limit C   the CC half the limit is set at (0.3)\n"
       "  --no-absorption   no absorption surface, whatever the sweep\n"
       "  --profile-only    profile-fitted intensities alone, not a mix with\n"
       "                    summation chosen by Rmeas\n"
@@ -51,12 +56,17 @@ void usage() {
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
-      "--threads", "--timing",        "--space-group",  "--change-of-basis",
-      "--d-min",   "--no-absorption", "--profile-only", "--shells",
-      "-o",        "--output-expt"};
-  const std::set<std::string> takes_value = {
-      "--threads", "--space-group", "--change-of-basis", "--d-min", "--shells",
-      "-o",        "--output-expt"};
+      "--d-min-auto",   "--cc-half-limit",   "--threads", "--timing",
+      "--space-group",  "--change-of-basis", "--d-min",   "--no-absorption",
+      "--profile-only", "--shells",          "-o",        "--output-expt"};
+  const std::set<std::string> takes_value = {"--cc-half-limit",
+                                             "--threads",
+                                             "--space-group",
+                                             "--change-of-basis",
+                                             "--d-min",
+                                             "--shells",
+                                             "-o",
+                                             "--output-expt"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage();
@@ -64,6 +74,13 @@ int run_program(int argc, char **argv) {
   }
   if (!args.ok) {
     std::fprintf(stderr, "mxi_scale: %s\n", args.error.c_str());
+    return 2;
+  }
+  if (args.has("--d-min") && args.has("--d-min-auto")) {
+    std::fprintf(
+        stderr,
+        "mxi_scale: --d-min and --d-min-auto are two answers to one question; "
+        "give one\n");
     return 2;
   }
   if (args.positional.size() != 2) {
@@ -108,7 +125,41 @@ int run_program(int argc, char **argv) {
     options.combine = !args.has("--profile-only");
     options.absorption = !args.has("--no-absorption");
     options.d_min = args.number("--d-min", 0.0);
+    const double cc_half_limit = args.number("--cc-half-limit", 0.3);
     phase("reindexing");
+    // --d-min-auto: everything scaled once, for the estimate alone, and then
+    // scaled again to the limit it finds -- again rather than filtered, since
+    // the outliers, the error model and the fit all depend on what is in. Only
+    // if CC half comes down to the limit within the data: where it never does,
+    // the estimate is just the last bin with pairs enough to fit, and a cut
+    // there would drop data that are good.
+    if (args.has("--d-min-auto")) {
+      const ScaleRun first =
+          scale_sweep(experiments, reflections, group, options);
+      phase("scaling everything, for the limit");
+      for (const auto &[name, seconds] : first.timing)
+        timing.add(name, seconds, 1);
+      const ResolutionEstimate first_res = estimate_resolution(
+          cc_half_bins(first.data, first.g, *experiments[0].crystal, 50, 10,
+                       0.1),
+          cc_half_limit);
+      phase("the limit from it");
+      if (first_res.reached) {
+        // To a hundredth of an angstrom, which is all the estimate is good
+        // for, so that what was chosen can be said and repeated: this is what
+        // --d-min with that number does, exactly.
+        options.d_min = std::round(first_res.d_min_cc_half * 100.0) / 100.0;
+        std::printf(
+            "\n--d-min-auto: CC half falls to %.2f at %.2f A with everything "
+            "scaled; scaling again, as --d-min %.2f would\n",
+            cc_half_limit, first_res.d_min_cc_half, options.d_min);
+      } else {
+        std::printf(
+            "\n--d-min-auto: CC half stays above %.2f to the edge of the data; "
+            "no limit applied\n",
+            cc_half_limit);
+      }
+    }
     const ScaleRun run = scale_sweep(experiments, reflections, group, options);
     phase("scaling");
     for (const auto &[name, seconds] : run.timing)
@@ -200,7 +251,7 @@ int run_program(int argc, char **argv) {
     std::size_t wilson = 0;
     const std::vector<ResolutionBin> bins = cc_half_bins(
         data, run.g, *experiments[0].crystal, 50, 10, 0.1, &wilson);
-    const ResolutionEstimate res = estimate_resolution(bins, 0.3);
+    const ResolutionEstimate res = estimate_resolution(bins, cc_half_limit);
     phase("the resolution limit");
     std::printf("\nRemoving %zu Wilson outliers with E^2 >= 16.0\n", wilson);
     if (res.d_min_cc_half > 0.0)
@@ -218,7 +269,8 @@ int run_program(int argc, char **argv) {
     // cut somewhere else beside it would be a second answer to a question
     // already settled. The estimate above is still printed.
     MergingShell suggested;
-    const bool cut = res.d_min_cc_half > 0.0 && !args.has("--d-min");
+    const bool cut = res.d_min_cc_half > 0.0 && !args.has("--d-min") &&
+                     !args.has("--d-min-auto");
     if (cut) {
       ScaleData to_limit = data;
       for (std::size_t i = 0; i < to_limit.size(); ++i) {

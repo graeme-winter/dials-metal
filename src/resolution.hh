@@ -41,6 +41,10 @@ struct ResolutionEstimate {
   double d_min_cc_half = 0.0, d_min_significance = 0.0;
   double r = 0.0, s0 = 0.0; //: the tanh: CC half = (1 - tanh((x - s0) / r)) / 2
   bool fitted = false;
+  //: Whether the fitted CC half came down to the limit within the data: if not,
+  //: d_min_cc_half is only the last bin with pairs enough to fit, and the data
+  //: reach the limit nowhere.
+  bool reached = false;
 };
 
 //: dials.estimate_resolution's two limits. The tanh is fitted by weighted least
