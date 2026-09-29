@@ -32,6 +32,7 @@ DOCUMENTS = [
     "docs/scaling.md",
     "docs/symmetry.md",
     "docs/outstanding.md",
+    "docs/review.md",
     "docs/README.md",
     "docs/conventions.md",
     "docs/spots.md",

@@ -1,5 +1,8 @@
 # dials-metal
 
+**Reviewing this code?** Start with `docs/review.md`: what this is, how it differs
+from DIALS and why, and where to find things.
+
 An independent implementation of the MX data-reduction chain from the images to
 integrated intensities: spot finding, indexing, refinement and integration, in
 C++, plus `mxeq`, a checker that compares its output against DIALS and explains
