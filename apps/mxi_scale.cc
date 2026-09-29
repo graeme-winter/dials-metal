@@ -32,7 +32,9 @@ void usage() {
       "                    notation: \"b+c,a+c,a+b\" from the primitive cell "
       "of\n"
       "                    a body-centred cubic lattice\n"
-      "  --d-min D         leave out reflections beyond D A\n"
+      "  --d-min D         leave out reflections beyond D A; the summary then "
+      "has\n"
+      "                    no Suggested column\n"
       "  --no-absorption   no absorption surface, whatever the sweep\n"
       "  --profile-only    profile-fitted intensities alone, not a mix with\n"
       "                    summation chosen by Rmeas\n"
@@ -211,9 +213,12 @@ int run_program(int argc, char **argv) {
     else
       std::printf("Resolution cc_half_significance_level:    none found\n");
 
-    // "Suggested": the same summary, cut at the CC half limit.
+    // "Suggested": the same summary, cut at the CC half limit -- unless a
+    // limit was given with --d-min, which is the cut already chosen; a column
+    // cut somewhere else beside it would be a second answer to a question
+    // already settled. The estimate above is still printed.
     MergingShell suggested;
-    const bool cut = res.d_min_cc_half > 0.0;
+    const bool cut = res.d_min_cc_half > 0.0 && !args.has("--d-min");
     if (cut) {
       ScaleData to_limit = data;
       for (std::size_t i = 0; i < to_limit.size(); ++i) {
@@ -233,16 +238,21 @@ int run_program(int argc, char **argv) {
       const MergingShell &low = table.front(), &high = table.back();
       std::printf("\n            -------------Summary of merging "
                   "statistics--------------\n\n");
-      std::printf("%-44s %8s %7s %7s %9s\n", "", "Overall", "Low", "High",
-                  "Suggested");
+      if (cut)
+        std::printf("%-44s %8s %7s %7s %9s\n", "", "Overall", "Low", "High",
+                    "Suggested");
+      else
+        std::printf("%-44s %8s %7s %7s\n", "", "Overall", "Low", "High");
       const auto line = [&](const char *what, double MergingShell::*f,
                             const char *fmt, double scale) {
         char x[4][32];
         const MergingShell *m[4] = {&all, &low, &high, &suggested};
         for (int k = 0; k < 4; ++k)
           std::snprintf(x[k], sizeof x[k], fmt, scale * (m[k]->*f));
-        std::printf("%-44s %8s %7s %7s %9s\n", what, x[0], x[1], x[2],
-                    cut ? x[3] : "");
+        if (cut)
+          std::printf("%-44s %8s %7s %7s %9s\n", what, x[0], x[1], x[2], x[3]);
+        else
+          std::printf("%-44s %8s %7s %7s\n", what, x[0], x[1], x[2]);
       };
       const auto count = [&](const char *what, std::size_t MergingShell::*f) {
         if (cut)

@@ -179,7 +179,8 @@ significant: a bin is significant where CC half exceeds t / sqrt(n - 2 + t^2),
 t Student's at the upper 0.1 on n - 2 degrees of freedom, and a logistic
 1 - expit(r (d*^2 - res)) through which bins are gives 1/sqrt(res). The summary
 gains dials.scale's "Suggested" column: the same statistics cut at the CC half
-limit.
+limit -- unless `--d-min` was given, when the cut is already chosen and the
+column is left out; the estimate itself is still printed.
 
 One difference, deliberately: only bins with pairs enough to fit (n > 3) decide
 whether CC half is above the limit everywhere. A detector's corners hold
