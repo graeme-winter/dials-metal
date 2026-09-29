@@ -256,6 +256,12 @@ mxi_symmetry integrated.expt integrated.refl     # symmetrized.expt, .refl
 mxi_scale symmetrized.expt symmetrized.refl      # scaled.expt, .refl
 ```
 
+**The spot finder runs on the GPU, Metal and CUDA, and the two agree exactly.**
+On 3600 frames of 16M pixels Metal takes 13.9 s on a MacBook and CUDA 32 s on an
+RTX 4060, whose kernels are its limit; a fused CUDA kernel for that is written
+and verified on the CPU, not yet run (`docs/spots.md`, and item 35 of
+`docs/outstanding.md`).
+
 **A device port is designed but not written.** `docs/gpu.md`. The target
 evaluation is 88 to 106 per cent of refinement time, the work is one
 independent thread per reflection and parameter, and float32 holds seven digits

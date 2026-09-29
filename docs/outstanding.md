@@ -80,6 +80,10 @@ where something is missing.
 * **26.** **capability -- The scaling model is not written** to `scaled.expt`, as
     dials.scale writes its `scaling_model`.
 
+* **41.** **measure -- `mxi_scale --threads`**: byte-identical on any count,
+  speed unmeasured -- one core here. Serial on the 16M sweep: 8.0 s.
+  `docs/scaling.md`.
+
 ## New programs
 
 * **27.** **mxi_report**: HTML reports of merging statistics, as dials.scale's.
@@ -93,9 +97,8 @@ where something is missing.
 * **34.** **untested -- Two paths of the CUDA backend**: its 32-bit
   instantiation, which wants 32-bit data, and its `stage2_direct` kernel
   (`SPOTFINDER_GPU_STAGE2=direct`). `stage0_tile` has run on real data on an RTX
-  4060, slower than the direct kernel; whether its output is byte-identical is
-  still to be compared. The paths it does run agree with Metal exactly.
-  `docs/spots.md`.
+  4060, output byte-identical to the direct kernel's, and slower. The paths it
+  runs agree with Metal exactly. `docs/spots.md`.
 * **35.** **speed -- Where the spot finder's time goes.** `mxi_find --timing`,
   on 3600 frames of 4148 x 4362 pixels, 10 GB compressed, with 16 threads:
   * **Metal, 13.9 s:** reading from HDF5 39 per cent of the threads' time, 24 ms a

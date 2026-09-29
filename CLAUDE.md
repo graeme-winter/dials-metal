@@ -44,6 +44,91 @@ Two overlaps, neither resolved:
 that list is done, it leaves the list, and the document it concerns says what
 was found.
 
+## Handover: where the work stands
+
+STATUS: written 29 September 2026 at 01b0295, 251 commits, for a new session to
+pick up from. `docs/outstanding.md` is the list of open work; this section is
+what is in flight and how the work is done here.
+
+**The chain is complete for one sweep**: `mxi_find`, `mxi_index`, `mxi_refine`,
+`mxi_integrate`, `mxi_symmetry`, `mxi_scale`, each interchangeable with DIALS at
+its boundary. Every program takes `--timing` (`src/timing.hh`).
+
+**In flight, waiting on Graeme's hardware** -- neither can run here:
+
+* **The fused CUDA threshold** (`SPOTFINDER_GPU_FUSED=1`, `src/spots/dext_fused.hh`,
+  `docs/spots.md`). Verified tile by tile on the CPU against `dext()` and compiled
+  for the RTX 4060 (compute capability 8.9), never run. To settle:
+  `SPOTFINDER_GPU_FUSED=1 ctest -R dext_gpu`, then `cmp` its `mxi_find` output
+  against the three kernels' and compare `--timing`. The three kernels take about
+  98 thread-seconds of device work on 3600 frames of 16M pixels at 8 threads, 8.9
+  ms a frame. If it is identical and faster, making it CUDA's default is the next
+  step; if it is not identical, `test_dext_gpu` says which frame.
+* **`mxi_scale --threads`** (`src/parallel.hh`, `docs/scaling.md`). Byte-identical
+  on any thread count; its speed is unmeasured, this container having one core.
+  Serial baseline on the 16M sweep: 8.0 s wall, 7.4 s user.
+
+**Next, as Graeme asked: `mxi_integrate`, the most expensive step.** On the 16M
+sweep (3600 frames, 16 threads, a MacBook) it is 28.4 of the chain's 59 seconds:
+decompressing 80 thread-seconds, every frame decompressed twice, once a pass
+(item 38); profile fitting 8.4 s; opening shoeboxes 3.5 s; background and
+summation 3.0 s; writing 1.35 s. Prediction was 0.2 s there and 6.3 s on the
+300 image sweep, unexplained (item 36). Start from `mxi_integrate --timing`.
+
+### How work is done here
+
+* **Commits** are authored and committed as Graeme Winter
+  <graeme.winter@gmail.com>, with `Co-Authored-By: Claude <noreply@anthropic.com>`,
+  and a message that says what was found and how it was checked.
+* **Before a commit**: `clang-format --style=file -i` on every changed `.cc`,
+  `.hh` and `.cu`, and none left out of format; GCC and Clang builds with no
+  warnings; `mxi_tests` under both, `ctest`, and the Python suite; and every
+  output a change should not touch compared byte for byte, before and after.
+* **The Python suite** wants the programs and data named:
+  `MXI_FIND=<build>/mxi_find MXI_TEMPLATE_EXPT=/mnt/user-data/uploads/refined.expt
+  MXI_INTEGRATE=<build>/mxi_integrate MXI_TEST_EXPT=/mnt/user-data/uploads/integrated.expt
+  MXI_TEST_REFL=/mnt/user-data/uploads/refined.refl
+  MXI_TEST_IMAGES=/mnt/user-data/uploads/ins10_1.nxs PYTHONPATH=src:tests
+  python3 -m pytest -q`, run in `python/`.
+  `python/tests/test_documents.py` fails on any path or program a document names that
+  does not exist.
+* **Delivery** is a bundle: `git bundle create <file> --all`, `git bundle
+  verify`, copied to `/mnt/user-data/outputs/dials-metal.bundle`; then a fresh
+  clone, `git submodule update --init`, `cmake -DMXI_FFTW=ON`, a build and every
+  suite from it, before `present_files`.
+* **The reference chain**, 300 images of insulin, from the uploads:
+  `mxi_find -e /mnt/user-data/uploads/imported.expt -j 4 -o strong.refl`;
+  `mxi_index /mnt/user-data/uploads/imported.expt strong.refl`;
+  `mxi_refine indexed.expt indexed.refl --analytic --scan-varying 5`;
+  `mxi_integrate refined.expt refined.refl --threads 4`;
+  `mxi_symmetry integrated.expt integrated.refl`;
+  `mxi_scale symmetrized.expt symmetrized.refl`. It gives I 2 3 by
+  b+c,a+c,a+b, Rmeas 0.041, error model a 1.017 and b 0.0236.
+* **A CUDA compile check** is possible here, not a run: `apt-get install
+  nvidia-cuda-toolkit` (12.0, some 5 GB), then `cmake -DSPOTFINDER_CUDA=ON
+  -DCMAKE_CUDA_ARCHITECTURES=89`. A GPU branch of `find_spots.cc` alone can be
+  compiled syntax only with `-fsyntax-only -DSPOTFINDER_GPU -DSPOTFINDER_CUDA
+  '-DSPOTFINDER_VERSION="check"'` and the include paths from the build's
+  `flags.make`.
+
+### Traps in this environment
+
+* **An edit that matches exact text fails once clang-format has reflowed it.**
+  Scripted edits here assert that their text occurs once before writing
+  anything, so a failed one writes nothing -- and a build that then passes has
+  built the unchanged file. Match by pattern, or by the braces of a block, and
+  check the edit landed.
+* **Commands run under `/bin/sh`**, which has no `<(...)` and no `${var/...}`.
+* **A tool call stops at about five minutes.** Build in the background --
+  `(build; echo EXIT $? >> log) & sleep 240` -- and run each suite in a call of
+  its own.
+* **One core**: determinism across thread counts can be tested here, speed-ups
+  cannot.
+* **The disk**: some 8 GB free at the start, the CUDA toolkit takes 5, and when
+  the disk filled every command failed, even `df`, until space was freed.
+  Remove build trees and sanitizer builds that are done with.
+* `mxeq.refl.load(path)` reads a reflection table in Python.
+
 ## Hard constraints
 
 **No third-party dependencies.** Same rule as the spot finder's hand-rolled
