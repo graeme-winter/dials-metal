@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <stdexcept>
 #include <string>
@@ -29,6 +30,13 @@ struct Failure {
 };
 
 inline void fail(const std::string &message) { throw Failure{message}; }
+
+//: A path for a test's own file, in the system's temporary directory rather
+//: than wherever the tests were started, which was once the repository.
+inline std::string scratch_path(const std::string &name) {
+  return (std::filesystem::temp_directory_path() / ("mxi_test_" + name))
+      .string();
+}
 
 inline void is_true(bool condition, const std::string &message) {
   if (!condition)

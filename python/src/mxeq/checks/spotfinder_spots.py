@@ -24,6 +24,7 @@ Reuses the table reader in spotfinder_refl, which is beside it.
 from __future__ import annotations
 
 import json
+import sys
 
 from .spotfinder_refl import Table
 

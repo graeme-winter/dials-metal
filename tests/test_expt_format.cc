@@ -18,6 +18,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 
 #include "../src/derivatives.hh"
@@ -546,7 +547,7 @@ TEST(a_column_we_cannot_decode_survives_a_read_and_a_write_byte_for_byte) {
   shoebox.rows = 3;
   t.set_opaque("shoebox", shoebox);
 
-  const std::string path = "test_opaque.refl";
+  const std::string path = check::scratch_path("opaque.refl");
   write_reflections(path, t);
   const Table back = read_reflections(path);
   std::remove(path.c_str());
@@ -574,8 +575,10 @@ TEST(writing_an_opaque_column_that_no_longer_fits_is_refused) {
   t.set_opaque("shoebox", shoebox);
 
   bool threw = false;
+  const std::string refused = check::scratch_path("opaque_refused.refl");
+  std::remove(refused.c_str());
   try {
-    write_reflections("test_opaque_bad.refl", t);
+    write_reflections(refused, t);
   } catch (const ReflError &e) {
     threw = true;
     const std::string what = e.what();
@@ -585,6 +588,8 @@ TEST(writing_an_opaque_column_that_no_longer_fits_is_refused) {
   }
   std::remove("test_opaque_bad.refl");
   check::is_true(threw, "must refuse");
+  // And refuse before the file is opened: a refused table leaves no file.
+  check::is_true(!std::filesystem::exists(refused), "and leave no file behind");
 }
 
 // --------------------------------------------------------------------------

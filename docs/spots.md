@@ -245,9 +245,9 @@ a bug.
 ## Checking it
 
 ```sh
-tests/check_refl.py strong.refl                  # well formed, and what is in it
-tests/check_refl.py strong.refl dials.refl       # how two spot lists differ
-tests/regression.sh                              # everything, no detector needed
+python -m mxeq.checks.spotfinder_refl strong.refl   # well formed, and what is in it
+mxeq check strong dials_strong.refl strong.refl     # how two spot lists differ
+tests/spots/regression.sh                           # everything, no detector needed
 ```
 
 `check_refl.py` decodes a table the way DIALS' own adapter reads it and checks

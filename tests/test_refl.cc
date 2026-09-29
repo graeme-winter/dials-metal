@@ -1,5 +1,6 @@
 // The reflection table reader and writer, at the level of bytes.
 
+#include <cstdio>
 #include <fstream>
 #include <string>
 
@@ -33,8 +34,8 @@ TEST(a_table_survives_a_read_and_a_write_byte_for_byte) {
   t.set_opaque("shoebox", blob);
   t.identifiers[0] = "0123abcd-0000-1111-2222-333344445555";
 
-  const std::string first = "test_roundtrip_a.refl";
-  const std::string second = "test_roundtrip_b.refl";
+  const std::string first = check::scratch_path("roundtrip_a.refl");
+  const std::string second = check::scratch_path("roundtrip_b.refl");
   write_reflections(first, t);
   write_reflections(second, read_reflections(first));
 
@@ -54,6 +55,8 @@ TEST(a_table_survives_a_read_and_a_write_byte_for_byte) {
                static_cast<long long>(a.size()),
                "same size after a round trip");
   check::is_true(a == b, "byte for byte identical after a round trip");
+  std::remove(first.c_str());
+  std::remove(second.c_str());
 }
 
 TEST(a_column_too_large_for_msgpack_is_refused_rather_than_truncated) {

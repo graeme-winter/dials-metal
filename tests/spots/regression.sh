@@ -2,7 +2,7 @@
 #
 # Everything that can be checked without a detector, in one command.
 #
-#   tests/regression.sh [build-dir]
+#   tests/spots/regression.sh [build-dir]
 #
 # A GPU is not needed: the CPU/device comparison is a ctest that skips itself
 # when the build has a backend but the machine has no device, and the one check
@@ -22,7 +22,11 @@ set -u
 
 BUILD="${1:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(dirname "${HERE}")"
+# tests/spots, two below the repository; the Python checks are in mxeq, in
+# python/src, and run as its modules.
+ROOT="$(dirname "$(dirname "${HERE}")")"
+PY="${ROOT}/python/src"
+export PYTHONPATH="${PY}${PYTHONPATH:+:${PYTHONPATH}}"
 BUILD="${BUILD:-${ROOT}/build}"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
@@ -53,7 +57,11 @@ skip() {
 }
 
 echo "== unit tests"
-if (cd "${BUILD}" && ctest --output-on-failure > "${WORK}/ctest.log" 2>&1); then
+# REGRESSION_NO_CTEST=1 leaves them out: python/tests/test_spots_regression.py
+# runs this beside the suites, which have run ctest already.
+if [ -n "${REGRESSION_NO_CTEST:-}" ]; then
+    echo "  skip  ctest, as asked"
+elif (cd "${BUILD}" && ctest --output-on-failure > "${WORK}/ctest.log" 2>&1); then
     pass "ctest"
 else
     fail "ctest"
@@ -61,13 +69,13 @@ else
 fi
 
 echo "== fixtures"
-if ! python3 "${HERE}/make_test_nxmx.py" "${WORK}/series" 12 \
+if ! python3 -m mxeq.fixtures.nxmx "${WORK}/series" 12 \
         > "${WORK}/plant.log" 2>&1; then
     echo "the fixture generator failed; are h5py, hdf5plugin and numpy installed?" >&2
     cat "${WORK}/plant.log" >&2
     exit 2
 fi
-python3 "${HERE}/make_test_nxmx.py" "${WORK}/holey" 12 --holey > /dev/null || exit 2
+python3 -m mxeq.fixtures.nxmx "${WORK}/holey" 12 --holey > /dev/null || exit 2
 cat "${WORK}/plant.log"
 
 MASTER="${WORK}/series/series.nxs"
@@ -79,11 +87,11 @@ echo "== from HDF5 to a reflection table"
 # virtual dataset: the spots have to come back where they were planted, one per
 # reflection rather than one per frame it touches.
 "${FIND}" -j 4 -e "${EXPT}" -o "${WORK}/strong.refl" "${MASTER}" \
-    > /dev/null 2> "${WORK}/find.err"
+    > "${WORK}/find.err" 2>&1
 if [ "$?" != "0" ]; then
     fail "the spot finder exited non-zero"
     tail -3 "${WORK}/find.err"
-elif python3 "${HERE}/check_refl.py" "${WORK}/strong.refl" \
+elif python3 -m mxeq.checks.spotfinder_refl "${WORK}/strong.refl" \
         > "${WORK}/refl.log" 2>&1; then
     pass "the reflection table is well formed"
 else
@@ -91,7 +99,7 @@ else
     cat "${WORK}/refl.log"
 fi
 
-if python3 "${HERE}/check_spots.py" "${MANIFEST}" "${WORK}/strong.refl" \
+if python3 -m mxeq.checks.spotfinder_spots "${MANIFEST}" "${WORK}/strong.refl" \
         > "${WORK}/spots.log" 2>&1; then
     pass "every planted reflection is one spot, where it was planted"
 else
@@ -101,7 +109,7 @@ fi
 
 # The identifier from the .expt has to reach the table: that string is what ties
 # the two together for dials.index.
-if python3 "${HERE}/check_refl.py" "${WORK}/strong.refl" 2>&1 |
+if python3 -m mxeq.checks.spotfinder_refl "${WORK}/strong.refl" 2>&1 |
         grep -q "$(python3 -c "
 import json,sys
 print(json.load(open('${MANIFEST}'))['identifier'])")"; then
@@ -115,6 +123,8 @@ echo "== the summary adds up"
 # what happened, so the arithmetic in it is checked rather than trusted:
 # extracted, less the two size rejections, is what reached the centroids, and
 # the peak-centroid filter reports that as its own total.
+# mxi_find reports on standard output and warns on standard error; each run
+# keeps both, in the order written, in its .err file.
 summary() { grep -E "^$1" "${WORK}/find.err" | head -1; }
 extracted=$(summary "Extracted" | awk '{print $2}')
 small=$(summary "Removed .* size <" | awk '{print $2}')
@@ -130,8 +140,8 @@ elif [ "${filtered}" != "${centroids}" ]; then
     fail "the filter reports ${filtered} spots and ${centroids} had centroids"
 elif [ "${filtered}" != "$(python3 -c "
 import sys
-sys.path.insert(0, '${HERE}')
-from check_refl import Table
+sys.path.insert(0, '${PY}')
+from mxeq.checks.spotfinder_refl import Table
 print(Table('${WORK}/strong.refl').rows)")" ]; then
     fail "the summary says ${filtered} spots and the table has a different number"
 else
@@ -143,16 +153,16 @@ echo "== the grouping is three dimensional"
 # three times as many spots. This is the check that would catch the 3D grouping
 # quietly degrading to per-frame -- which would still produce a plausible file.
 "${FIND}" -j 2 --2d -o "${WORK}/2d.refl" "${MASTER}" \
-    > /dev/null 2> "${WORK}/2d.err"
+    > "${WORK}/2d.err" 2>&1
 three_d=$(python3 -c "
 import sys
-sys.path.insert(0, '${HERE}')
-from check_refl import Table
+sys.path.insert(0, '${PY}')
+from mxeq.checks.spotfinder_refl import Table
 print(Table('${WORK}/strong.refl').rows)")
 two_d=$(python3 -c "
 import sys
-sys.path.insert(0, '${HERE}')
-from check_refl import Table
+sys.path.insert(0, '${PY}')
+from mxeq.checks.spotfinder_refl import Table
 print(Table('${WORK}/2d.refl').rows)")
 if [ "${two_d}" = "$((three_d * 3))" ]; then
     pass "--2d gives ${two_d} spots against ${three_d}, which is three frames each"
@@ -165,14 +175,14 @@ echo "== a frame that was never written"
 # connected across it, so the reflections that spanned it break in two, and the
 # manifest works out how many that leaves.
 "${FIND}" -j 3 -t 5 -o "${WORK}/holey.refl" "${WORK}/holey/series.nxs" \
-    > /dev/null 2> "${WORK}/holey.err"
+    > "${WORK}/holey.err" 2>&1
 if [ "$?" != "0" ]; then
     fail "the holey series exited non-zero"
     tail -3 "${WORK}/holey.err"
 elif ! grep -q "1 never written" "${WORK}/holey.err"; then
     fail "the missing frame was not reported as never written"
     tail -3 "${WORK}/holey.err"
-elif python3 "${HERE}/check_spots.py" "${WORK}/holey/manifest.json" \
+elif python3 -m mxeq.checks.spotfinder_spots "${WORK}/holey/manifest.json" \
         "${WORK}/holey.refl" > "${WORK}/holey.log" 2>&1; then
     pass "a missing frame splits the reflections that spanned it, and no others"
 else
@@ -196,11 +206,11 @@ fi
 
 echo "== the shoeboxes are optional"
 "${FIND}" -j 2 --no-shoeboxes -e "${EXPT}" -o "${WORK}/thin.refl" "${MASTER}" \
-    > /dev/null 2> "${WORK}/thin.err"
+    > "${WORK}/thin.err" 2>&1
 thin=$(wc -c < "${WORK}/thin.refl")
 fat=$(wc -c < "${WORK}/strong.refl")
 if [ "${thin}" -lt "${fat}" ] &&
-        python3 "${HERE}/check_spots.py" "${MANIFEST}" "${WORK}/thin.refl" \
+        python3 -m mxeq.checks.spotfinder_spots "${MANIFEST}" "${WORK}/thin.refl" \
             > "${WORK}/thin.log" 2>&1; then
     pass "--no-shoeboxes is ${thin} bytes against ${fat}, with the same spots"
 else
@@ -218,7 +228,7 @@ cat > "${WORK}/wrong.expt" <<'JSON'
 }
 JSON
 if "${FIND}" -t 5 -e "${WORK}/wrong.expt" -o "${WORK}/never.refl" "${MASTER}" \
-        > /dev/null 2> "${WORK}/wrong.err"; then
+        > "${WORK}/wrong.err" 2>&1; then
     fail "a mismatched experiment list was accepted"
 elif grep -q "not the same images" "${WORK}/wrong.err"; then
     pass "an experiment list of the wrong size is refused"
@@ -232,12 +242,12 @@ echo "== the device, if there is one"
 # bit by design, so the tables have to be identical. --gpu fails rather than
 # falling back when there is no device, which is what tells this to skip.
 if "${FIND}" --gpu -j 2 -e "${EXPT}" -o "${WORK}/gpu.refl" "${MASTER}" \
-        > /dev/null 2> "${WORK}/gpu.err"; then
+        > "${WORK}/gpu.err" 2>&1; then
     if cmp -s "${WORK}/gpu.refl" "${WORK}/strong.refl"; then
         pass "the device and the CPU give the same table, byte for byte"
     else
         fail "the device and the CPU disagree"
-        python3 "${HERE}/check_refl.py" "${WORK}/strong.refl" \
+        python3 -m mxeq.checks.spotfinder_refl "${WORK}/strong.refl" \
             "${WORK}/gpu.refl" 2>&1 | tail -8
     fi
 else
