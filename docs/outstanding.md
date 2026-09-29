@@ -95,14 +95,20 @@ where something is missing.
   `stage2_direct` kernels, which
   `SPOTFINDER_GPU_STAGE0=tile SPOTFINDER_GPU_STAGE2=direct` selects on any data.
   The paths it does run agree with Metal exactly. `docs/spots.md`.
-* **35.** **speed -- Where the spot finder's time goes.** `mxi_find --timing`
-  sums each stage across the threads. On 3600 frames of 4148 x 4362 pixels (16
-  threads): Metal, 13.9 s -- reading from HDF5 39 per cent of the threads' time,
-  24 ms a frame from an external drive, which may be the drive's bandwidth rather
-  than HDF5's lock; thresholding 32, decompressing 16. CUDA, 31.7 s --
-  thresholding, the GPU stage, 74 per cent. `--timing` on CUDA now splits that
-  stage into the upload, the three kernels, reading back, sorting and the rest,
-  which is waiting for the device: the next run says which. `docs/spots.md`.
+* **35.** **speed -- Where the spot finder's time goes.** `mxi_find --timing`,
+  on 3600 frames of 4148 x 4362 pixels, 10 GB compressed, with 16 threads:
+  * **Metal, 13.9 s:** reading from HDF5 39 per cent of the threads' time, 24 ms a
+    frame from an external drive -- 10 GB in 13.9 s is 0.72 GB/s, in the range of
+    a USB 3.2 drive; a second run with the file in the page cache would say
+    whether it is the drive or HDF5's lock -- thresholding 32, decompressing 16.
+  * **CUDA, RTX 4060, 32.0 s:** the GPU saturated, 8.9 ms a frame against Metal's
+    3.9. Uploading is 2.3 per cent (3.2 ms for 36 MB, 11 GB/s, as pinned memory on
+    PCIe 4.0 x8 should be), the kernels 20; reading back 27 and the rest 27, 38 ms
+    a frame each, for some 16 kB of signal pixels: waiting. The kernels' event
+    times sum to 113.5 s in 31.9 s of wall, so they include queueing behind the
+    other streams. Next: stage 0 by tile (`SPOTFINDER_GPU_STAGE0=tile`, never run on
+    a discrete card), `-j 8` against `-j 16`, and if those point there, a pinned
+    buffer for the read-back, which now goes to pageable memory. `docs/spots.md`.
 * **36.** **speed -- Prediction took 29 per cent of one integration and 1 of
   another**: 6.3 s of a 300 image integration of a scan-varying model, nearly as
   long for 60 images, and 0.2 s of a 3600 image one on the 16M sweep. What makes
