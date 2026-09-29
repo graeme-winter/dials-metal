@@ -636,6 +636,19 @@ int main(int argc, char **argv) {
   // what the others waited on. Reading is the HDF5 chunk read; the threshold
   // includes, on a GPU, the transfers to and from it.
   mxi::ThreadSeconds t_read, t_decompress, t_threshold, t_group;
+  // On CUDA the threshold's own split, from events around the upload and each
+  // kernel, which do not change the schedule: summed across threads, it says
+  // whether the card or the queue for it is the limit. Not taken on Metal,
+  // where measuring the split serialises the stages it would measure.
+  mxi::ThreadSeconds t_upload, t_stage0, t_stage1, t_stage2, t_readback, t_sort;
+#ifdef SPOTFINDER_GPU
+  const bool split =
+      options.timing && options.gpu && std::string(gpu::backend()) == "CUDA";
+  if (split)
+    gpu::profile_stages(true);
+#else
+  const bool split = false;
+#endif
   const double t_began = mxi::Timing::now();
 
   std::vector<std::thread> workers;
@@ -699,6 +712,18 @@ int main(int argc, char **argv) {
                                        "-bit data");
             }
             t_threshold.add(mxi::Timing::now() - d1);
+#ifdef SPOTFINDER_GPU
+            if (split) {
+              const gpu::StageTimes st =
+                  gpu::last_stage_times(); // milliseconds
+              t_upload.add(st.upload * 1e-3);
+              t_stage0.add(st.stage0 * 1e-3);
+              t_stage1.add(st.stage1 * 1e-3);
+              t_stage2.add(st.stage2 * 1e-3);
+              t_readback.add(st.copy * 1e-3);
+              t_sort.add(st.sort * 1e-3);
+            }
+#endif
             have = true;
             read++;
           }
@@ -943,6 +968,39 @@ int main(int argc, char **argv) {
     std::fprintf(stdout, "    %-22s %s\n",
                  options.gpu ? "thresholding (GPU)" : "thresholding",
                  share(t_threshold).c_str());
+    if (split) {
+      const double parts = t_upload.seconds() + t_stage0.seconds() +
+                           t_stage1.seconds() + t_stage2.seconds() +
+                           t_readback.seconds() + t_sort.seconds();
+      std::fprintf(stdout, "      %-20s %s\n", "uploading",
+                   share(t_upload).c_str());
+      std::fprintf(stdout, "      %-20s %s\n", "stage 0, device",
+                   share(t_stage0).c_str());
+      std::fprintf(stdout, "      %-20s %s\n", "stage 1, device",
+                   share(t_stage1).c_str());
+      std::fprintf(stdout, "      %-20s %s\n", "stage 2, device",
+                   share(t_stage2).c_str());
+      std::fprintf(stdout, "      %-20s %s\n", "reading back",
+                   share(t_readback).c_str());
+      std::fprintf(stdout, "      %-20s %s\n", "sorting",
+                   share(t_sort).c_str());
+      mxi::ThreadSeconds rest;
+      rest.add(t_threshold.seconds() - parts);
+      std::fprintf(stdout, "      %-20s %s\n", "the rest: waiting",
+                   share(rest).c_str());
+      std::fprintf(stdout,
+                   "      (the device's own work, upload and kernels, summed "
+                   "over the frames: "
+                   "%.3f s, in %.3f s of wall)\n",
+                   t_upload.seconds() + t_stage0.seconds() +
+                       t_stage1.seconds() + t_stage2.seconds(),
+                   wall);
+    } else if (options.gpu) {
+      std::fprintf(
+          stdout,
+          "      (the threshold's own split is taken on CUDA only: on Metal, "
+          "measuring it serialises its stages)\n");
+    }
     std::fprintf(
         stdout,
         "  and in the main thread: grouping %.3f s of the %.3f s wall\n",

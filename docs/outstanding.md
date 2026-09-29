@@ -95,18 +95,30 @@ where something is missing.
   `stage2_direct` kernels, which
   `SPOTFINDER_GPU_STAGE0=tile SPOTFINDER_GPU_STAGE2=direct` selects on any data.
   The paths it does run agree with Metal exactly. `docs/spots.md`.
-* **35.** **speed -- Where the spot finder's time goes on CUDA**: 196 images a
-  second on an RTX 4060 against Metal's 502. `mxi_find --timing` now says, each
-  stage's time summed across the threads: on four CPU threads here, reading from
-  HDF5 is 26 per cent of the threads' time -- 127 ms a frame, where decompressing
-  it takes 11 -- which looks like HDF5's global lock, threads queueing to read.
-  On sixteen that may matter more than the GPU. `docs/spots.md`.
-* **36.** **speed -- Prediction does not scale with the images asked for**: 5.7
-  seconds of a 60 image integration, 6.3 of a 300 image one, 29 per cent of the
-  latter -- the whole scan predicted and most of it dropped. `mxi_integrate
-  --timing`.
+* **35.** **speed -- Where the spot finder's time goes.** `mxi_find --timing`
+  sums each stage across the threads. On 3600 frames of 4148 x 4362 pixels (16
+  threads): Metal, 13.9 s -- reading from HDF5 39 per cent of the threads' time,
+  24 ms a frame from an external drive, which may be the drive's bandwidth rather
+  than HDF5's lock; thresholding 32, decompressing 16. CUDA, 31.7 s --
+  thresholding, the GPU stage, 74 per cent. `--timing` on CUDA now splits that
+  stage into the upload, the three kernels, reading back, sorting and the rest,
+  which is waiting for the device: the next run says which. `docs/spots.md`.
+* **36.** **speed -- Prediction took 29 per cent of one integration and 1 of
+  another**: 6.3 s of a 300 image integration of a scan-varying model, nearly as
+  long for 60 images, and 0.2 s of a 3600 image one on the 16M sweep. What makes
+  the first slow is not yet known. `mxi_integrate --timing`.
 * **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
   run, for the table; the choice needs only the one chosen.
+
+* **38.** **speed -- Integration decompresses every frame twice**, once a pass:
+  80 thread-seconds of a 28.4 s integration of 3600 frames, 11 ms a frame, more
+  than half the threads' time while frames are read. Profile fitting, 8.4 s, is
+  next.
+* **39.** **speed -- Writing a reflection table costs about a second a million
+  rows** in every program that writes one: 1.3 to 1.5 s in integration, symmetry
+  and scaling on the 16M sweep.
+* **40.** **speed -- `mxi_symmetry` scores its elements by ordered-map lookup**,
+  1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
 
 ## Infrastructure
 
