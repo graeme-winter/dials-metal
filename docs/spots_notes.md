@@ -154,7 +154,7 @@ could.
   that is refused with -2 rather than truncated.
 * Only 16 and 32 bit are instantiated. 8-bit is refused with a message rather
   than promoted.
-* `-gpu` fails if no backend was built in or no device is present, rather than
+* `--gpu` fails if no backend was built in or no device is present, rather than
   falling back: an explicit request answered by the other implementation would
   misattribute the results.
 
@@ -163,7 +163,7 @@ could.
 * **There is one GPU interface and two implementations of it**, `dext_gpu.hh`
   with `dext_cuda.cu` and `dext_metal.cc` behind it. Exactly one is compiled in;
   configuring both is a hard error in `CMakeLists.txt`, because the linker would
-  otherwise pick one and `-gpu` would run a device nobody chose. `SPOTFINDER_GPU`
+  otherwise pick one and `--gpu` would run a device nobody chose. `SPOTFINDER_GPU`
   at the call sites means "there is a backend"; `SPOTFINDER_CUDA` and
   `SPOTFINDER_METAL` mean which, and stay in `CMakeLists.txt` and in the
   backend's own file.

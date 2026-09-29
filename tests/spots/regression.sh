@@ -229,9 +229,9 @@ fi
 
 echo "== the device, if there is one"
 # Same series, same threshold, on the GPU: the two implementations agree bit for
-# bit by design, so the tables have to be identical. -gpu fails rather than
+# bit by design, so the tables have to be identical. --gpu fails rather than
 # falling back when there is no device, which is what tells this to skip.
-if "${FIND}" -gpu -j 2 -e "${EXPT}" -o "${WORK}/gpu.refl" "${MASTER}" \
+if "${FIND}" --gpu -j 2 -e "${EXPT}" -o "${WORK}/gpu.refl" "${MASTER}" \
         > /dev/null 2> "${WORK}/gpu.err"; then
     if cmp -s "${WORK}/gpu.refl" "${WORK}/strong.refl"; then
         pass "the device and the CPU give the same table, byte for byte"

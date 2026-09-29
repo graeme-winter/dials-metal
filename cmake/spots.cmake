@@ -43,7 +43,7 @@ option(SPOTFINDER_METAL "Build the Metal threshold kernels" OFF)
 
 # One backend at a time. gpu::find has one definition, and a build with both
 # would either fail at the linker or -- worse -- link whichever the linker saw
-# first, so that -gpu ran a device nobody chose.
+# first, so that --gpu ran a device nobody chose.
 if(SPOTFINDER_CUDA AND SPOTFINDER_METAL)
     message(FATAL_ERROR
             "SPOTFINDER_CUDA and SPOTFINDER_METAL are both on, and they implement "

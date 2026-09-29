@@ -402,7 +402,7 @@ int find(const T *image_in, std::vector<SignalPixel> &signal_out,
     signal_out.clear();
     throw std::runtime_error(
         "the Metal signal calculation supports 16-bit data only, because "
-        "Apple GPUs have no double precision; run 32-bit frames without -gpu");
+        "Apple GPUs have no double precision; run 32-bit frames without --gpu");
   } else {
     signal_out.clear();
     if (image_in == nullptr || height == 0 || width == 0)

@@ -163,7 +163,7 @@ those are not installed.
 
 ```sh
 dials.import  master.nxs                                        # -> imported.expt
-mxi_find      -e imported.expt -j 16 -gpu -o strong.refl
+mxi_find      -e imported.expt -j 16 --gpu -o strong.refl
 mxi_index     imported.expt strong.refl                         # -> indexed.*
 mxi_refine    indexed.expt indexed.refl --analytic              # -> refined.*
               # static by default; --scan-varying N for a crystal that moves,

@@ -8,7 +8,7 @@
 // format -- src/dials_spots.{hh,cc} and src/refl.{hh,cc}.
 //
 //   dials.import /data/ins10_1_master.h5
-//   mxi_find -gpu -e imported.expt
+//   mxi_find --gpu -e imported.expt
 //   dials.index imported.expt strong.refl
 //
 // The .expt is dials.import's business and is read rather than written: the
@@ -109,7 +109,7 @@ void report_version(const char *program) {
 void usage(const char *program, std::FILE *to = stderr) {
   std::fprintf(
       to,
-      "usage: %s [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]\n"
+      "usage: %s [-j threads] [-g|--gpu] [-e imported.expt] [-o strong.refl]\n"
       "       [options] [master.nxs]\n"
       "\n"
       "  master.nxs         an NXmx HDF5 master file, or -x master.nxs.\n"
@@ -123,7 +123,7 @@ void usage(const char *program, std::FILE *to = stderr) {
       "  --timing           where the time goes: each stage's time summed "
       "across\n"
       "                     the threads, against the time they had\n"
-      "  -gpu               run the threshold on the GPU; 16-bit only under\n"
+      "  -g, --gpu          run the threshold on the GPU; 16-bit only under\n"
       "                     Metal, which has no double precision\n"
       "  --no-shoeboxes     leave out the pixel data, which is most of the\n"
       "                     file and is not needed for indexing\n"
@@ -159,6 +159,13 @@ bool parse_options(int argc, char **argv, Options *options) {
     } else if (flag == "-o" && has_value) {
       options->output = argv[++i];
     } else if (flag == "-gpu") {
+      // The old spelling, one dash for a long option: kept for scripts that
+      // have it, for now, and said so.
+      std::fprintf(
+          stderr,
+          "warning: -gpu is now --gpu, or -g; the old spelling will go\n");
+      options->gpu = true;
+    } else if (flag == "--gpu" || flag == "-g") {
       options->gpu = true;
     } else if (flag == "--timing") {
       options->timing = true;
@@ -547,13 +554,13 @@ int main(int argc, char **argv) {
     if (options.gpu) {
 #ifdef SPOTFINDER_GPU
       if (!gpu::available()) {
-        throw std::runtime_error(std::string("-gpu was given but no usable ") +
+        throw std::runtime_error(std::string("--gpu was given but no usable ") +
                                  gpu::backend() + " device was found");
       }
       on_device = true;
 #else
       throw std::runtime_error(
-          "-gpu was given but this build has no GPU support; configure with "
+          "--gpu was given but this build has no GPU support; configure with "
           "-DSPOTFINDER_METAL=ON or -DSPOTFINDER_CUDA=ON");
 #endif
     }

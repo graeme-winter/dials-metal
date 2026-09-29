@@ -5,7 +5,7 @@ to a reflection table `dials.index` will take.
 
 ```sh
 dials.import /data/ins10_1_master.h5
-mxi_find -gpu -j 8 -e imported.expt /data/ins10_1_master.h5
+mxi_find --gpu -j 8 -e imported.expt /data/ins10_1_master.h5
 dials.index imported.expt strong.refl
 ```
 
@@ -60,7 +60,7 @@ it is asked for, so a machine with neither still configures.
 ## Running
 
 ```
-mxi_find [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]
+mxi_find [-j threads] [-g|--gpu] [-e imported.expt] [-o strong.refl]
                        [options] master.nxs
 
   master.nxs         an NXmx HDF5 master file, or -x master.nxs
@@ -68,7 +68,7 @@ mxi_find [-j threads] [-gpu] [-e imported.expt] [-o strong.refl]
                      size and the experiment identifier
   -o file            where to write the reflection table (strong.refl)
   -j threads         frames read and thresholded at once (default 4)
-  -gpu               run the threshold on the GPU
+  -g, --gpu          run the threshold on the GPU
   --no-shoeboxes     leave out the pixel data, which is most of the file
   --min-spot-size N  contiguous pixels a spot needs (3)
   --max-spot-size N  and the most it may have (1000)
@@ -120,7 +120,7 @@ The peak-centroid line appears only when that filter is on, since "Filtered 48
 of 48" would otherwise read as a filter that passed everything rather than one
 that was switched off.
 
-`-gpu` fails, rather than falling back, if the build has no backend or no device
+`--gpu` fails, rather than falling back, if the build has no backend or no device
 is present: it is an explicit request, and quietly answering with the other
 implementation would misreport where the results came from.
 
@@ -434,8 +434,8 @@ pixels directly or build summed-area tables in threadgroup memory, and each
 choice is independent:
 
 ```sh
-SPOTFINDER_GPU_STAGE0=tile   mxi_find -gpu series.nxs
-SPOTFINDER_GPU_STAGE2=direct mxi_find -gpu series.nxs
+SPOTFINDER_GPU_STAGE0=tile   mxi_find --gpu series.nxs
+SPOTFINDER_GPU_STAGE2=direct mxi_find --gpu series.nxs
 ```
 
 `tile` touches each pixel about twice but fills its tables with a few dozen of
