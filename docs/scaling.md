@@ -79,7 +79,7 @@ per cent of its eleven parameters have sigma over half their value.
 A scaled, unmerged reflection table with dials.scale's columns --
 `inverse_scale_factor` and its variance, `intensity.scale.value` and variance --
 and its flags (scaled, bit 26; an outlier in scaling, bit 23; excluded, bit 24)
-ADDED to those integration set, so that dials.merge and dials.export take it on.
+ADDED to those integration set, and dials.merge takes it.
 The intensity's variance already carries the scale's uncertainty, as dials.scale's
 does, so nothing downstream should add `inverse_scale_factor_variance` to it
 again. The models, reindexed, go to `scaled.expt`. It prints the model, the error
