@@ -90,25 +90,30 @@ where something is missing.
 * **30.** **structure -- What is still duplicated** between the spot finder and the
     rest. `docs/spotfinder.md`.
 
-* **34.** **untested -- Three paths of the CUDA backend**: its 32-bit
-  instantiation, which wants 32-bit data, and its `stage0_tile` and
-  `stage2_direct` kernels, which
-  `SPOTFINDER_GPU_STAGE0=tile SPOTFINDER_GPU_STAGE2=direct` selects on any data.
-  The paths it does run agree with Metal exactly. `docs/spots.md`.
+* **34.** **untested -- Two paths of the CUDA backend**: its 32-bit
+  instantiation, which wants 32-bit data, and its `stage2_direct` kernel
+  (`SPOTFINDER_GPU_STAGE2=direct`). `stage0_tile` has run on real data on an RTX
+  4060, slower than the direct kernel; whether its output is byte-identical is
+  still to be compared. The paths it does run agree with Metal exactly.
+  `docs/spots.md`.
 * **35.** **speed -- Where the spot finder's time goes.** `mxi_find --timing`,
   on 3600 frames of 4148 x 4362 pixels, 10 GB compressed, with 16 threads:
   * **Metal, 13.9 s:** reading from HDF5 39 per cent of the threads' time, 24 ms a
     frame from an external drive -- 10 GB in 13.9 s is 0.72 GB/s, in the range of
     a USB 3.2 drive; a second run with the file in the page cache would say
     whether it is the drive or HDF5's lock -- thresholding 32, decompressing 16.
-  * **CUDA, RTX 4060, 32.0 s:** the GPU saturated, 8.9 ms a frame against Metal's
-    3.9. Uploading is 2.3 per cent (3.2 ms for 36 MB, 11 GB/s, as pinned memory on
-    PCIe 4.0 x8 should be), the kernels 20; reading back 27 and the rest 27, 38 ms
-    a frame each, for some 16 kB of signal pixels: waiting. The kernels' event
-    times sum to 113.5 s in 31.9 s of wall, so they include queueing behind the
-    other streams. Next: stage 0 by tile (`SPOTFINDER_GPU_STAGE0=tile`, never run on
-    a discrete card), `-j 8` against `-j 16`, and if those point there, a pinned
-    buffer for the read-back, which now goes to pageable memory. `docs/spots.md`.
+  * **CUDA, RTX 4060, 32.0 s: the kernels are the limit.** 8.9 ms a frame
+    against Metal's 3.9. With 8 threads the wall is the same, 32.5 s, and only
+    the waiting falls -- reading back 138 thread-seconds to 43, the rest 137 to
+    45 -- while the device's work stays about 110 s: the GPU runs some 3.4
+    frames' kernels at once and that is its rate. Of that work, at 8 threads:
+    stage 2 (11 x 11) 38 per cent, stage 0 (7 x 7) 27, stage 1 (5 x 5) 23, the
+    upload 11 (3.2 ms for 36 MB, 11 GB/s). Stage 0 by tile is slower on this
+    card, 37.4 thread-seconds against 32.4, so direct stays the default there,
+    the reverse of Apple silicon. Faster means the windowed sums cost less:
+    running sums independent of the window's size, or fused stages, measured on
+    the card. HDF5's lock shows too: reading takes 4.6 thread-seconds on 8
+    threads and 22.5 on 16, for the same data. `docs/spots.md`.
 * **36.** **speed -- Prediction took 29 per cent of one integration and 1 of
   another**: 6.3 s of a 300 image integration of a scan-varying model, nearly as
   long for 60 images, and 0.2 s of a 3600 image one on the 16M sweep. What makes
