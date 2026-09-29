@@ -1,6 +1,8 @@
 #include <cmath>
 #include <random>
+#include <tuple>
 
+#include "../src/parallel.hh"
 #include "../src/scale.hh"
 #include "check.hh"
 
@@ -404,6 +406,38 @@ TEST(merging_statistics_with_friedel_mates_apart_are_what_the_hand_says) {
                "the mean merged intensity");
   check::close(m.i_over_sigma, (16.0 / 0.5 + 6.0 / std::sqrt(0.5)) / 2.0, 1e-12,
                "and I/sigma, sigma(<I>) = 1/sqrt(n) at unit variance");
+}
+
+TEST(scaling_gives_the_same_answer_on_any_number_of_threads) {
+  // A fit, outlier rejection, the error model and the covariance, on one thread
+  // and on four: every number the same, bit for bit. The work is cut into a
+  // fixed number of blocks and combined in block order, whatever the count.
+  ScaleModel truth({6, 5, 2});
+  const double c[6] = {0.9, 1.05, 1.15, 1.0, 0.85, 1.05};
+  for (std::size_t i = 0; i < 6; ++i)
+    truth.parameters[i] = c[i];
+  truth.normalise();
+  const auto run = [&](std::size_t threads) {
+    set_parallel_threads(threads);
+    ScaleData data = planted(truth, 17);
+    data.variance_before = data.variance;
+    ScaleModel fit({6, 5, 2});
+    fit_scale_model(fit, data);
+    std::vector<double> g = inverse_scales(fit, data);
+    const std::size_t flagged = reject_outliers(data, g);
+    const ErrorModel em = refine_error_model(data, g);
+    const ParameterCovariance cov = parameter_covariance(fit, data, {}, {});
+    set_parallel_threads(0);
+    return std::make_tuple(fit.parameters, flagged, em.a, em.b, cov.matrix, g);
+  };
+  const auto one = run(1), four = run(4);
+  check::is_true(std::get<0>(one) == std::get<0>(four), "the parameters");
+  check::is_true(std::get<1>(one) == std::get<1>(four), "the outliers");
+  check::is_true(std::get<2>(one) == std::get<2>(four) &&
+                     std::get<3>(one) == std::get<3>(four),
+                 "the error model");
+  check::is_true(std::get<4>(one) == std::get<4>(four), "the covariance");
+  check::is_true(std::get<5>(one) == std::get<5>(four), "every inverse scale");
 }
 
 } // namespace mxi

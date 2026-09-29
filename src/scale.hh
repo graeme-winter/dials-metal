@@ -35,7 +35,9 @@ struct ScaleData {
   std::vector<Miller> unique;     //: the symmetry-unique index of each group
   std::vector<std::size_t> row;   //: in the reflection table
   std::vector<double> d;
-  std::vector<bool> outlier;
+  //: A byte each, not std::vector<bool>: outlier rejection writes these from
+  //: several threads at once, and neighbouring bits of one word are one write.
+  std::vector<std::uint8_t> outlier;
   //: Both estimates, corrected likewise, for combining them; has_sum is false
   //: where summation failed, as it does across a module gap.
   std::vector<double> prf, prf_variance, sum, sum_variance;

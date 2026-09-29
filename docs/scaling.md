@@ -194,6 +194,24 @@ On a sweep of 1082994 reflections, dials.estimate_resolution run on this
 program's own scaled.refl and this program agree exactly: 1.25 A by CC half and
 1.17 by significance.
 
+## Threads
+
+`--threads N` (the machine's by default). The fits' target and normal
+equations, outlier rejection, the error model's deviations, the scales'
+uncertainties and the absorption harmonics run in parallel; the merging
+statistics, whose random half-splits depend on order, do not. The work is cut
+into 64 blocks whatever the count and combined in block order, so the answer is
+the same on any number of threads: scaled.refl is byte-identical on one and four,
+and a test holds a fit, outlier rejection, the error model and the covariance to
+the bit across counts, failing if the blocks follow the threads.
+
+Only the normal equations' order of summation differs from the serial version's,
+by rounding: on the 300 image sweep the scale factors move by 3.4e-11 relative
+and their variances by 3.7e-9, the flags and the error model not at all. The
+error model's deviations are computed a group at a time, each group's spread in
+its own order, and are bit for bit what one thread gives; the normal quantiles
+of its probability plot are computed once rather than every round.
+
 ## Decisions
 
 * **gemmi** for space groups, pinned at a release as a submodule, behind

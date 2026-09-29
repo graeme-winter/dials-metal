@@ -1069,6 +1069,11 @@ Each of these was got wrong once, or had to be found. `docs/symmetry.md` and
   crystal at the unique index, or a shell comes out above 100 per cent.
 * **Change a column by copying it and setting it back.** `int_column` makes a
   column of zeroes; used on the flags, it wiped every flag integration had set.
+* **Parallel work is cut into fixed blocks and combined in block order**
+  (`src/parallel.hh`), never into one block a thread: then the answer does not
+  depend on the thread count, as integration's does not. And a flag written
+  from several threads is a byte, not a `std::vector<bool>` bit, whose
+  neighbours share one word and one write.
 * **A model reference is an integer.** `json::Value(0.0)` writes a float that
   Python's json reads as one, and a float does not index a list. See also
   "`0` is not `0.0`" above.

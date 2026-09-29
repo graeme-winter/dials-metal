@@ -126,6 +126,7 @@ add_library(mxi
   src/symmetry.cc
   src/laue.cc
   src/scale_model.cc
+  src/parallel.cc
   src/scale.cc
   src/resolution.cc
 )
@@ -145,6 +146,9 @@ if(MXI_FFTW)
         target_link_libraries(mxi PUBLIC Threads::Threads)
     endif()
 endif()
+# Always: src/parallel.cc runs std::threads, FFTW's threads or not.
+find_package(Threads REQUIRED)
+target_link_libraries(mxi PUBLIC Threads::Threads)
 target_include_directories(mxi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_options(mxi PRIVATE -Wall -Wextra -Wpedantic)
 

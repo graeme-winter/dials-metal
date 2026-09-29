@@ -11,6 +11,7 @@
 #include "args.hh"
 #include "expt.hh"
 #include "log_mirror.hh"
+#include "parallel.hh"
 #include "refl.hh"
 #include "resolution.hh"
 #include "scale.hh"
@@ -38,6 +39,9 @@ void usage() {
       "  --shells N        resolution shells in the table (20)\n"
       "  -o PATH           scaled reflections (scaled.refl)\n"
       "  --output-expt PATH   the models, reindexed (scaled.expt)\n"
+      "  --threads N       threads to use (0: the machine's); the answer is "
+      "the\n"
+      "                    same for any number\n"
       "  --timing          where the time goes\n");
 }
 
@@ -45,12 +49,12 @@ void usage() {
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
-      "--timing",        "--space-group",  "--change-of-basis", "--d-min",
-      "--no-absorption", "--profile-only", "--shells",          "-o",
-      "--output-expt"};
+      "--threads", "--timing",        "--space-group",  "--change-of-basis",
+      "--d-min",   "--no-absorption", "--profile-only", "--shells",
+      "-o",        "--output-expt"};
   const std::set<std::string> takes_value = {
-      "--space-group", "--change-of-basis", "--d-min", "--shells", "-o",
-      "--output-expt"};
+      "--threads", "--space-group", "--change-of-basis", "--d-min", "--shells",
+      "-o",        "--output-expt"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage();
@@ -68,6 +72,7 @@ int run_program(int argc, char **argv) {
     return 2;
   }
   Timing timing(args.has("--timing"));
+  set_parallel_threads(static_cast<std::size_t>(args.number("--threads", 0.0)));
   try {
     double mark = Timing::now();
     const auto phase = [&](const char *name) {

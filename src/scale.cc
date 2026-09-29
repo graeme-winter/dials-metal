@@ -1,5 +1,7 @@
 #include "scale.hh"
 
+#include "parallel.hh"
+
 #include "timing.hh"
 
 #include <algorithm>
@@ -36,7 +38,6 @@ ScaleData build_scale_data(const ExperimentList &experiments,
 
   ScaleData data;
   std::map<Miller, std::size_t> groups;
-  std::vector<double> harmonics_s1, harmonics_s0;
   for (std::size_t i = 0; i < reflections.nrows; ++i) {
     if ((flags.ints[i] & wanted) == 0)
       continue;
@@ -71,24 +72,6 @@ ScaleData build_scale_data(const ExperimentList &experiments,
     o.rotation = images > 0.0 ? z / images : 0.0;
     o.time = o.rotation;
     o.inv_2d2 = 1.0 / (2.0 * d * d);
-    if (shape.lmax > 0 && has_s1) {
-      // The crystal frame: undo the goniometer's rotation at this angle.
-      const Mat3 r = e.goniometer.setting *
-                     rotation(e.goniometer.axis, e.scan.phi_from_z(z)) *
-                     e.goniometer.fixed;
-      const Mat3 back = r.transpose();
-      const Column &s1 = reflections.at("s1");
-      const Vec3 s1c = (back * Vec3{s1.reals[i * 3], s1.reals[i * 3 + 1],
-                                    s1.reals[i * 3 + 2]})
-                           .normalized();
-      const Vec3 s0c =
-          (back * e.beam.direction).normalized(); // the reverse incident beam
-      real_spherical_harmonics(shape.lmax, s1c, &harmonics_s1);
-      real_spherical_harmonics(shape.lmax, s0c, &harmonics_s0);
-      o.absorption.resize(harmonics_s1.size());
-      for (std::size_t k = 0; k < harmonics_s1.size(); ++k)
-        o.absorption[k] = 0.5 * (harmonics_s1[k] + harmonics_s0[k]);
-    }
     data.intensity.push_back(value.reals[i] * factor);
     data.variance.push_back(v * factor * factor);
     data.variance_before.push_back(v * factor * factor);
@@ -113,14 +96,42 @@ ScaleData build_scale_data(const ExperimentList &experiments,
     data.d.push_back(d);
     data.outlier.push_back(false);
   }
+  // The absorption harmonics at s1 and the reverse incident beam in the
+  // crystal frame, for every observation: independent of one another, so in
+  // parallel, after the selection above, which groups and so stays in order.
+  if (shape.lmax > 0 && has_s1) {
+    const Column &s1 = reflections.at("s1");
+    for_each_index(data.size(), [&](std::size_t k) {
+      const std::size_t i = data.row[k];
+      const double z = cal.reals[i * 3 + 2];
+      // The crystal frame: undo the goniometer's rotation at this angle.
+      const Mat3 r = e.goniometer.setting *
+                     rotation(e.goniometer.axis, e.scan.phi_from_z(z)) *
+                     e.goniometer.fixed;
+      const Mat3 back = r.transpose();
+      const Vec3 s1c = (back * Vec3{s1.reals[i * 3], s1.reals[i * 3 + 1],
+                                    s1.reals[i * 3 + 2]})
+                           .normalized();
+      const Vec3 s0c =
+          (back * e.beam.direction).normalized(); // the reverse incident beam
+      std::vector<double> y1, y0;
+      real_spherical_harmonics(shape.lmax, s1c, &y1);
+      real_spherical_harmonics(shape.lmax, s0c, &y0);
+      std::vector<double> &out = data.observation[k].absorption;
+      out.resize(y1.size());
+      for (std::size_t q = 0; q < y1.size(); ++q)
+        out[q] = 0.5 * (y1[q] + y0[q]);
+    });
+  }
   return data;
 }
 
 std::vector<double> inverse_scales(const ScaleModel &model,
                                    const ScaleData &data) {
   std::vector<double> g(data.size());
-  for (std::size_t i = 0; i < data.size(); ++i)
+  for_each_index(data.size(), [&](std::size_t i) {
     g[i] = model.inverse_scale(data.observation[i]);
+  });
   return g;
 }
 
@@ -171,27 +182,42 @@ namespace {
 //: The target over `use`, with <I_h> from the same observations, plus the
 //: restraints.
 double target(const ScaleModel &model, const ScaleData &data,
+              const std::vector<std::vector<std::size_t>> &members,
               const std::vector<std::size_t> &use,
               const ScaleFitOptions &options, std::vector<double> *g_out,
               std::vector<double> *merged_out) {
-  std::vector<double> g(data.size(), 0.0);
-  for (std::size_t i : use)
-    g[i] = model.inverse_scale(data.observation[i]);
-  // Merged over `use` only, which is what is being fitted.
-  std::vector<double> num(data.unique.size(), 0.0),
-      den(data.unique.size(), 0.0);
-  for (std::size_t i : use) {
-    const double w = 1.0 / data.variance[i];
-    num[data.group[i]] += w * g[i] * data.intensity[i];
-    den[data.group[i]] += w * g[i] * g[i];
-  }
-  for (std::size_t h = 0; h < num.size(); ++h)
-    num[h] = den[h] > 0.0 ? num[h] / den[h] : 0.0;
+  // In parallel over groups, each group's sums in its own members' order --
+  // the order of `use` within it -- and the total summed in `use` order: the
+  // same arithmetic as one thread, on any number.
+  std::vector<double> g(data.size(), 0.0), merged(data.unique.size(), 0.0),
+      term(data.size(), 0.0);
+  const std::size_t groups = members.size();
+  const std::size_t blocks =
+      std::min<std::size_t>(std::max<std::size_t>(groups, 1), kParallelBlocks);
+  for_each_block(blocks, [&](std::size_t blk) {
+    for (std::size_t hh = block_begin(groups, blocks, blk);
+         hh < block_begin(groups, blocks, blk + 1); ++hh) {
+      const std::vector<std::size_t> &obs = members[hh];
+      if (obs.empty())
+        continue;
+      double num = 0.0, den = 0.0;
+      for (std::size_t i : obs) {
+        g[i] = model.inverse_scale(data.observation[i]);
+        const double w = 1.0 / data.variance[i];
+        num += w * g[i] * data.intensity[i];
+        den += w * g[i] * g[i];
+      }
+      const double m = den > 0.0 ? num / den : 0.0;
+      merged[hh] = m;
+      for (std::size_t i : obs) {
+        const double r = data.intensity[i] - g[i] * m;
+        term[i] = r * r / data.variance[i];
+      }
+    }
+  });
   double phi = 0.0;
-  for (std::size_t i : use) {
-    const double r = data.intensity[i] - g[i] * num[data.group[i]];
-    phi += r * r / data.variance[i];
-  }
+  for (std::size_t i : use)
+    phi += term[i];
   const ScaleModelShape &s = model.shape();
   for (std::size_t k = 0; k < s.decay_points; ++k)
     phi += options.decay_restraint * model.parameters[model.first_decay() + k] *
@@ -203,7 +229,7 @@ double target(const ScaleModel &model, const ScaleData &data,
   if (g_out)
     *g_out = std::move(g);
   if (merged_out)
-    *merged_out = std::move(num);
+    *merged_out = std::move(merged);
   return phi;
 }
 
@@ -225,58 +251,82 @@ void normal_equations(const ScaleModel &model, const ScaleData &data,
   const std::size_t n = model.size();
   N.assign(n * n, 0.0);
   b.assign(n, 0.0);
-  std::vector<std::pair<std::size_t, double>> grad;
-  std::vector<double> G(n, 0.0), row(n, 0.0);
-  std::vector<std::vector<std::pair<std::size_t, double>>> grads;
-  std::vector<std::size_t> touched;
-  for (const std::vector<std::size_t> &obs : members) {
-    if (obs.empty())
-      continue;
-    const std::size_t h = data.group[obs.front()];
-    const double m = merged[h];
-    grads.resize(obs.size());
-    std::fill(G.begin(), G.end(), 0.0);
-    touched.clear();
-    double den = 0.0;
-    for (std::size_t k = 0; k < obs.size(); ++k) {
-      const std::size_t i = obs[k];
-      const double w = 1.0 / data.variance[i];
-      model.inverse_scale(data.observation[i], &grads[k]);
-      den += w * g[i] * g[i];
-      for (const auto &[a, da] : grads[k]) {
-        if (G[a] == 0.0)
-          touched.push_back(a);
-        G[a] += w * g[i] * da;
+  // In blocks of groups, each with its own N and b, combined in block order:
+  // the same sums on any number of threads. (The only step of scaling whose
+  // order of summation differs from one thread's -- by rounding, the same on
+  // every count.)
+  const std::size_t groups = members.size();
+  const std::size_t blocks =
+      std::min<std::size_t>(std::max<std::size_t>(groups, 1), kParallelBlocks);
+  std::vector<std::vector<double>> Nb(blocks), bb(blocks);
+  for_each_block(blocks, [&](std::size_t blk) {
+    // N and b here are this block's.
+    std::vector<double> &N = Nb[blk];
+    std::vector<double> &b = bb[blk];
+    N.assign(n * n, 0.0);
+    b.assign(n, 0.0);
+    std::vector<std::pair<std::size_t, double>> grad;
+    std::vector<double> G(n, 0.0), row(n, 0.0);
+    std::vector<std::vector<std::pair<std::size_t, double>>> grads;
+    std::vector<std::size_t> touched;
+    for (std::size_t hh = block_begin(groups, blocks, blk);
+         hh < block_begin(groups, blocks, blk + 1); ++hh) {
+      const std::vector<std::size_t> &obs = members[hh];
+      if (obs.empty())
+        continue;
+      const std::size_t h = data.group[obs.front()];
+      const double m = merged[h];
+      grads.resize(obs.size());
+      std::fill(G.begin(), G.end(), 0.0);
+      touched.clear();
+      double den = 0.0;
+      for (std::size_t k = 0; k < obs.size(); ++k) {
+        const std::size_t i = obs[k];
+        const double w = 1.0 / data.variance[i];
+        model.inverse_scale(data.observation[i], &grads[k]);
+        den += w * g[i] * g[i];
+        for (const auto &[a, da] : grads[k]) {
+          if (G[a] == 0.0)
+            touched.push_back(a);
+          G[a] += w * g[i] * da;
+        }
       }
-    }
-    if (!(den > 0.0))
-      continue;
-    std::sort(touched.begin(), touched.end());
-    touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
-    for (std::size_t a : touched)
-      G[a] /= den;
-    for (std::size_t k = 0; k < obs.size(); ++k) {
-      const std::size_t i = obs[k];
-      const double w = 1.0 / data.variance[i];
+      if (!(den > 0.0))
+        continue;
+      std::sort(touched.begin(), touched.end());
+      touched.erase(std::unique(touched.begin(), touched.end()), touched.end());
       for (std::size_t a : touched)
-        row[a] = -g[i] * G[a];
-      for (const auto &[a, da] : grads[k])
-        row[a] += da;
-      const double r = data.intensity[i] - g[i] * m;
-      // J = -sqrt(w) m row; accumulate J^T J and -J^T r.
-      for (std::size_t a : touched) {
-        if (row[a] == 0.0)
-          continue;
-        b[a] += w * m * row[a] * r;
-        for (std::size_t c : touched)
-          N[a * n + c] += w * m * m * row[a] * row[c];
+        G[a] /= den;
+      for (std::size_t k = 0; k < obs.size(); ++k) {
+        const std::size_t i = obs[k];
+        const double w = 1.0 / data.variance[i];
+        for (std::size_t a : touched)
+          row[a] = -g[i] * G[a];
+        for (const auto &[a, da] : grads[k])
+          row[a] += da;
+        const double r = data.intensity[i] - g[i] * m;
+        // J = -sqrt(w) m row; accumulate J^T J and -J^T r.
+        for (std::size_t a : touched) {
+          if (row[a] == 0.0)
+            continue;
+          b[a] += w * m * row[a] * r;
+          for (std::size_t c : touched)
+            N[a * n + c] += w * m * m * row[a] * row[c];
+        }
+        for (std::size_t a : touched)
+          row[a] = 0.0;
       }
       for (std::size_t a : touched)
-        row[a] = 0.0;
+        G[a] = 0.0;
     }
-    for (std::size_t a : touched)
-      G[a] = 0.0;
+  });
+  for (std::size_t blk = 0; blk < blocks; ++blk) {
+    for (std::size_t k = 0; k < n * n; ++k)
+      N[k] += Nb[blk][k];
+    for (std::size_t k = 0; k < n; ++k)
+      b[k] += bb[blk][k];
   }
+
   const ScaleModelShape &s = model.shape();
   for (std::size_t k = 0; k < s.decay_points; ++k) {
     const std::size_t a = model.first_decay() + k;
@@ -306,14 +356,14 @@ ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
   if (use.empty() || n == 0)
     return result;
 
-  std::vector<double> g, merged;
-  double phi = target(model, data, use, options, &g, &merged);
-  result.target_start = phi;
-  double mu = 1e-3;
   // The observations of each group being fitted.
   std::vector<std::vector<std::size_t>> members(data.unique.size());
   for (std::size_t i : use)
     members[data.group[i]].push_back(i);
+  std::vector<double> g, merged;
+  double phi = target(model, data, members, use, options, &g, &merged);
+  result.target_start = phi;
+  double mu = 1e-3;
   for (int it = 0; it < options.max_iterations; ++it) {
     result.iterations = it + 1;
     // Normal equations of the residuals sqrt(w)(I - g <I>), differentiated
@@ -339,7 +389,7 @@ ScaleFitResult fit_scale_model(ScaleModel &model, const ScaleData &data,
         trial.parameters[a] += step[a];
       trial.normalise();
       std::vector<double> g2, m2;
-      const double phi2 = target(trial, data, use, options, &g2, &m2);
+      const double phi2 = target(trial, data, members, use, options, &g2, &m2);
       if (phi2 < phi) {
         const double gain = phi - phi2;
         model = trial;
@@ -432,42 +482,54 @@ std::size_t reject_outliers(ScaleData &data, const std::vector<double> &g,
   std::vector<std::vector<std::size_t>> members(data.unique.size());
   for (std::size_t i = 0; i < data.size(); ++i)
     members[data.group[i]].push_back(i);
-  std::size_t flagged = 0;
-  for (const std::vector<std::size_t> &m : members) {
-    while (true) {
-      double sn = 0.0, sd = 0.0;
-      std::size_t live = 0;
-      for (std::size_t i : m) {
-        if (data.outlier[i])
-          continue;
-        const double w = 1.0 / data.variance[i];
-        sn += w * g[i] * data.intensity[i];
-        sd += w * g[i] * g[i];
-        ++live;
-      }
-      if (live < 3)
-        break; // with two, which of them is wrong cannot be said
-      double worst = 0.0;
-      std::size_t at = m.front();
-      for (std::size_t i : m) {
-        if (data.outlier[i])
-          continue;
-        const double w = 1.0 / data.variance[i];
-        const double num = sn - w * g[i] * data.intensity[i];
-        const double den = sd - w * g[i] * g[i];
-        const double z = std::abs(data.intensity[i] - g[i] * num / den) /
-                         std::sqrt(data.variance[i] + g[i] * g[i] / den);
-        if (z > worst) {
-          worst = z;
-          at = i;
+  // Each group judged apart from every other: in parallel, in blocks of groups,
+  // each block counting what it flags.
+  const std::size_t groups = members.size();
+  const std::size_t blocks =
+      std::min<std::size_t>(std::max<std::size_t>(groups, 1), kParallelBlocks);
+  std::vector<std::size_t> count(blocks, 0);
+  for_each_block(blocks, [&](std::size_t blk) {
+    for (std::size_t hh = block_begin(groups, blocks, blk);
+         hh < block_begin(groups, blocks, blk + 1); ++hh) {
+      const std::vector<std::size_t> &m = members[hh];
+      while (true) {
+        double sn = 0.0, sd = 0.0;
+        std::size_t live = 0;
+        for (std::size_t i : m) {
+          if (data.outlier[i])
+            continue;
+          const double w = 1.0 / data.variance[i];
+          sn += w * g[i] * data.intensity[i];
+          sd += w * g[i] * g[i];
+          ++live;
         }
+        if (live < 3)
+          break; // with two, which of them is wrong cannot be said
+        double worst = 0.0;
+        std::size_t at = m.front();
+        for (std::size_t i : m) {
+          if (data.outlier[i])
+            continue;
+          const double w = 1.0 / data.variance[i];
+          const double num = sn - w * g[i] * data.intensity[i];
+          const double den = sd - w * g[i] * g[i];
+          const double z = std::abs(data.intensity[i] - g[i] * num / den) /
+                           std::sqrt(data.variance[i] + g[i] * g[i] / den);
+          if (z > worst) {
+            worst = z;
+            at = i;
+          }
+        }
+        if (worst <= zmax)
+          break;
+        data.outlier[at] = true;
+        ++count[blk];
       }
-      if (worst <= zmax)
-        break;
-      data.outlier[at] = true;
-      ++flagged;
     }
-  }
+  });
+  std::size_t flagged = 0;
+  for (std::size_t k : count)
+    flagged += k;
   return flagged;
 }
 
@@ -508,26 +570,43 @@ ErrorModel refine_error_model(const ScaleData &data,
     const std::size_t h = data.group[i];
     c[i] = (g[i] * g[i] / data.variance[i]) / s.den[h];
   }
-  std::vector<double> spread(data.unique.size(), 0.0), v(data.size(), 0.0);
+  // The used observations of each group, and where each sits in `use`: the
+  // deviations are then computed a group at a time in parallel, each group's
+  // spread summed in its own order -- the order of `use` within it -- so the
+  // answer is the one a single thread gives.
+  std::vector<std::vector<std::size_t>> used_in(data.unique.size());
+  std::vector<std::size_t> position(data.size(), 0);
+  for (std::size_t k = 0; k < use.size(); ++k) {
+    used_in[data.group[use[k]]].push_back(use[k]);
+    position[use[k]] = k;
+  }
+  const std::size_t n_groups = used_in.size();
+  const std::size_t dev_blocks = std::min<std::size_t>(
+      std::max<std::size_t>(n_groups, 1), kParallelBlocks);
+  std::vector<double> v(data.size(), 0.0);
   const auto deviations = [&](double a, double b, std::vector<double> *out) {
-    std::fill(spread.begin(), spread.end(), 0.0);
-    for (std::size_t i : use) {
-      v[i] = a * a *
-             (data.variance_before[i] + data.scale_term_at(i) +
-              b * b * data.intensity[i] * data.intensity[i]) /
-             (g[i] * g[i]);
-      spread[data.group[i]] += c[i] * c[i] * v[i];
-    }
-    out->clear();
-    for (std::size_t i : use) {
-      const std::size_t h = data.group[i];
-      const double var =
-          std::fmax(v[i] * (1.0 - 2.0 * c[i]) + spread[h], 1e-12 * v[i]);
-      out->push_back((data.intensity[i] / g[i] - s.num[h] / s.den[h]) /
-                     std::sqrt(var));
-    }
-  };
-  // Intensity bins for b: logarithmically spaced over the used intensities.
+    out->assign(use.size(), 0.0);
+    for_each_block(dev_blocks, [&](std::size_t blk) {
+      for (std::size_t hh = block_begin(n_groups, dev_blocks, blk);
+           hh < block_begin(n_groups, dev_blocks, blk + 1); ++hh) {
+        double spread = 0.0;
+        for (std::size_t i : used_in[hh]) {
+          v[i] = a * a *
+                 (data.variance_before[i] + data.scale_term_at(i) +
+                  b * b * data.intensity[i] * data.intensity[i]) /
+                 (g[i] * g[i]);
+          spread += c[i] * c[i] * v[i];
+        }
+        for (std::size_t i : used_in[hh]) {
+          const double var =
+              std::fmax(v[i] * (1.0 - 2.0 * c[i]) + spread, 1e-12 * v[i]);
+          (*out)[position[i]] =
+              (data.intensity[i] / g[i] - s.num[hh] / s.den[hh]) /
+              std::sqrt(var);
+        }
+      }
+    });
+  }; // Intensity bins for b: logarithmically spaced over the used intensities.
   double lo = HUGE_VAL, hi = 0.0;
   for (std::size_t i : use) {
     const double v = std::fmax(data.intensity[i], 1e-3);
@@ -544,16 +623,21 @@ ErrorModel refine_error_model(const ScaleData &data,
                      : 0;
   }
   std::vector<double> dev;
+  // The normal probability plot's quantiles depend only on the count, which a
+  // round does not change: computed once rather than twenty times.
+  std::vector<double> quantile_of(use.size());
+  for (std::size_t k = 0; k < use.size(); ++k)
+    quantile_of[k] = normal_quantile((static_cast<double>(k) + 0.5) /
+                                     static_cast<double>(use.size()));
   for (int round = 0; round < 20; ++round) {
     const double a0 = em.a, b0 = em.b;
     // a: the slope of the central normal probability plot, |x| < 1.5.
     deviations(em.a, em.b, &dev);
     std::vector<double> sorted = dev;
     std::sort(sorted.begin(), sorted.end());
-    const double n = static_cast<double>(sorted.size());
     double sxx = 0.0, sxy = 0.0;
     for (std::size_t k = 0; k < sorted.size(); ++k) {
-      const double x = normal_quantile((static_cast<double>(k) + 0.5) / n);
+      const double x = quantile_of[k];
       if (std::abs(x) < 1.5) {
         sxx += x * x;
         sxy += x * sorted[k];
@@ -619,7 +703,7 @@ void apply_error_model(ScaleData &data, const ErrorModel &model) {
 }
 
 void combine_intensities(ScaleData &data, double i_mid) {
-  for (std::size_t i = 0; i < data.size(); ++i) {
+  for_each_index(data.size(), [&](std::size_t i) {
     double w = 1.0;
     if (!data.has_sum[i])
       w = 1.0;
@@ -633,7 +717,7 @@ void combine_intensities(ScaleData &data, double i_mid) {
     const double sigma = w * sp + (1.0 - w) * (data.has_sum[i] ? ss : sp);
     data.variance[i] = sigma * sigma;
     data.variance_before[i] = sigma * sigma;
-  }
+  });
 }
 
 double rmeas(const ScaleData &data, const std::vector<double> &g) {
@@ -1083,7 +1167,7 @@ parameter_covariance(const ScaleModel &model, const ScaleData &data,
   for (std::size_t i : use)
     members[data.group[i]].push_back(i);
   std::vector<double> g, merged;
-  const double phi = target(model, data, use, options, &g, &merged);
+  const double phi = target(model, data, members, use, options, &g, &merged);
   std::vector<double> N, b;
   normal_equations(model, data, members, g, merged, options, N, b);
 
@@ -1170,15 +1254,15 @@ inverse_scale_variances(const ScaleModel &model, const ScaleData &data,
   if (!covariance.ok)
     return out;
   const std::size_t n = model.size();
-  std::vector<std::pair<std::size_t, double>> grad;
-  for (std::size_t i = 0; i < data.size(); ++i) {
+  for_each_index(data.size(), [&](std::size_t i) {
+    std::vector<std::pair<std::size_t, double>> grad;
     model.inverse_scale(data.observation[i], &grad);
     double v = 0.0;
     for (const auto &[a, da] : grad)
       for (const auto &[c, dc] : grad)
         v += da * covariance.matrix[a * n + c] * dc;
     out[i] = std::fmax(v, 0.0);
-  }
+  });
   return out;
 }
 
