@@ -167,7 +167,8 @@ background, to the same constant -- so a held box is the one the second pass
 would rebuild. On the 300 image sweep: identical with the defaults, with 5 x 5
 regions and ten blocks and 28 cells borrowing, with one block holding every box
 to the end, with shoeboxes saved, and on one thread and four; 300 frames read
-where two passes read 600. `--two-pass` reads twice, to compare against, and
+where two passes read 600. On a smaller data set on a MacBook, the same SHA-1
+both ways and 7.0 s against 8.1. `--two-pass` reads twice, to compare against, and
 `python/tests/test_single_pass.py` holds the two to the same bytes. If a reflection ever
 learned into a block already final the program stops rather than give a
 different answer.

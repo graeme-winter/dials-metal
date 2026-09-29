@@ -127,11 +127,12 @@ where something is missing.
 * **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
   run, for the table; the choice needs only the one chosen.
 
-* **42.** **measure -- One pass over the images on the 16M sweep**: frames
-  read once, where two passes decompressed each twice (80 thread-seconds of a
-  28.4 s integration); the most shoeboxes held is estimated at some 49000, 1.1
-  GB. `mxi_integrate --timing` against `--two-pass`, and `cmp`.
-  `docs/integration.md`.
+* **42.** **measure -- One pass over the images on the 16M sweep.** On a smaller
+  data set on a MacBook it is byte-identical to two passes (same SHA-1) and 7.0 s
+  against 8.1, the second pass's decompression gone. On the 16M sweep, where two
+  passes decompressed for 80 thread-seconds of a 28.4 s integration, the saving
+  and the most shoeboxes held -- estimated at 49000 and 1.1 GB -- are still to be
+  measured: `mxi_integrate --timing` against `--two-pass`. `docs/integration.md`.
 * **39.** **speed -- Writing a reflection table costs about a second a million
   rows** in every program that writes one: 1.3 to 1.5 s in integration, symmetry
   and scaling on the 16M sweep.
