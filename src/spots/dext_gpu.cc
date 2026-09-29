@@ -40,6 +40,7 @@ std::atomic<Window> chosen0{Window::Direct};
 std::atomic<Window> chosen2{Window::Tile};
 std::once_flag chosen_once;
 
+std::atomic<bool> chosen_fused{false};
 std::atomic<bool> profiling{false};
 std::atomic<bool> reporting{true};
 
@@ -79,6 +80,17 @@ void resolve_windows() {
   chosen2.store(internal::default_stage2_window(), std::memory_order_relaxed);
   resolve_one("STAGE0", chosen0);
   resolve_one("STAGE2", chosen2);
+  if (const char *asked = std::getenv("SPOTFINDER_GPU_FUSED")) {
+    if (std::strcmp(asked, "1") == 0)
+      chosen_fused.store(true, std::memory_order_relaxed);
+    else if (std::strcmp(asked, "0") == 0)
+      chosen_fused.store(false, std::memory_order_relaxed);
+    else
+      std::fprintf(stderr,
+                   "warning: SPOTFINDER_GPU_FUSED=%s is not '1' or '0'; "
+                   "leaving it alone\n",
+                   asked);
+  }
 }
 
 } // namespace
@@ -109,6 +121,16 @@ void stage2_window(Window window) {
   chosen2.store(window, std::memory_order_relaxed);
 }
 
+bool fused() {
+  std::call_once(chosen_once, resolve_windows);
+  return chosen_fused.load(std::memory_order_relaxed);
+}
+
+void fused(bool on) {
+  std::call_once(chosen_once, resolve_windows);
+  chosen_fused.store(on, std::memory_order_relaxed);
+}
+
 void profile_stages(bool on) { profiling.store(on, std::memory_order_relaxed); }
 
 bool profile_stages() { return profiling.load(std::memory_order_relaxed); }
@@ -132,6 +154,15 @@ void announce_windows(Window stage0, Window stage2) {
     return;
   std::fprintf(stderr, "%s: stage0 %s window, stage2 %s window\n", backend(),
                name(stage0), name(stage2));
+}
+
+void announce_fused() {
+  if (!reporting.load(std::memory_order_relaxed))
+    return;
+  // After the four window pairs, so a switch to or from it is a change.
+  if (announced.exchange(4, std::memory_order_relaxed) == 4)
+    return;
+  std::fprintf(stderr, "%s: the three stages fused, one kernel\n", backend());
 }
 
 } // namespace internal

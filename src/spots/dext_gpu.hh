@@ -71,6 +71,15 @@ void stage0_window(Window window);
 Window stage2_window();
 void stage2_window(Window window);
 
+// All three stages in one kernel (dext_fused.hh): each 32 x 32 tile reads its
+// pixels once and keeps both masks in shared memory. From SPOTFINDER_GPU_FUSED,
+// "1" or "0"; off by default until it has been measured on the hardware. CUDA
+// and 16-bit only -- a 32-bit tile wants more shared memory than a static
+// allocation may have -- so a 32-bit frame, and Metal, run the three kernels
+// whatever this says.
+bool fused();
+void fused(bool on);
+
 // ---------------------------------------------------------------------------
 // Where a frame's time went, in milliseconds, for the last frame this thread
 // analysed while profiling was on.
@@ -92,6 +101,7 @@ struct StageTimes {
   double stage0 = 0.0; // the 7 x 7 dispersion test
   double stage1 = 0.0; // the 5 x 5 erode
   double stage2 = 0.0; // the 11 x 11 Poisson test and the emit
+  double fused = 0.0;  // all three in one kernel, when that ran instead
 
   // Host wall clock for the rest of find(), which is not device work and was
   // for a while being compared against device numbers as though it were. Kept

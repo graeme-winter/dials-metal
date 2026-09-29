@@ -496,6 +496,34 @@ order by construction and each holds about four pixels. O(n) rather than
 O(n log n), and it uses nothing about the emit order, which is a property of the
 threadgroup shape and the scheduler and would break quietly if relied on.
 
+## The fused kernel
+
+`SPOTFINDER_GPU_FUSED=1` runs the three stages as one CUDA kernel
+(`src/spots/dext_fused.hh`), for 16-bit frames; 32-bit frames and Metal run the
+three kernels whatever it says. On an RTX 4060 the three kernels were the limit,
+8.9 ms a frame, and each read the whole frame, the first two writing a
+whole-frame mask back to device memory: five passes over memory a frame. The
+tile kernels built their summed-area tables with 42 of 1024 threads, one a row.
+
+The fused kernel takes a 32 x 32 tile of output and reads its pixels once, with
+the halo all three windows need (52 x 52), keeps the two masks in shared memory,
+and sums every window separably -- rows, then columns -- across all of the
+block's threads. A pixel outside the frame is loaded as masked, which is exact:
+it adds to no sum, sets stage 0's mask so the erode cannot grow through it, and
+is left out of the background, as each kernel treats one outside the frame. The
+sums are integers, the same in any order, and the tests are written as the three
+kernels write them, so the answer is theirs bit for bit.
+
+The phases are host-and-device functions of one item each: the kernel spreads
+them over its threads, and `dext_fused_emulated()` runs them in order on the CPU.
+`test_dext_fused` compares that with `dext()` on 49 frames -- sizes not multiples
+of the tile, spots on the edges and corners, masked and saturated pixels, a masked
+row and column, both pixel types, and one 3262 x 3108 frame with 916077 signal
+pixels -- and every field of every pixel agrees; an off-by-one in either of two
+halo indices fails 37 of them. `test_dext_gpu` runs the kernel itself against the
+CPU on CUDA, beside the four window pairs. It compiles here with nvcc 12.0 for
+compute capability 8.9, no warnings; it has not run, there being no GPU here.
+
 ## Status
 
 * **The Metal backend works.** On a Mac, 16 threads and the GPU: 1800 images of

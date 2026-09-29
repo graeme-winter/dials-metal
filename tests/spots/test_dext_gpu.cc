@@ -191,7 +191,17 @@ int main() {
       failures += run_all(frames);
     }
   }
-  const std::size_t checks = frames.size() * 4;
+  std::size_t checks = frames.size() * 4;
+
+  // And the three stages fused into one kernel, on CUDA, where it exists: the
+  // same frames against the same CPU results. On Metal the switch does nothing.
+  if (std::string(gpu::backend()) == "CUDA") {
+    gpu::fused(true);
+    std::printf("\nfused, one kernel:\n");
+    failures += run_all(frames);
+    gpu::fused(false);
+    checks += frames.size();
+  }
 
   if (failures != 0) {
     std::printf("\n%d of %zu comparisons disagree\n", failures, checks);

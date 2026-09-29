@@ -23,8 +23,10 @@
 #include <cstdio>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 
 #include "dext.hh"
+#include "dext_fused.hh"
 #include "dext_gpu_internal.hh"
 #include "signal_order.hh"
 
@@ -582,6 +584,94 @@ void *host_alloc(std::size_t bytes) {
 
 void host_free(void *pointer) { cudaFreeHost(pointer); }
 
+// All three stages in one kernel: dext_fused.hh has the phases and why. One
+// block a 32 x 32 tile, 32 x 8 threads; each phase spread over them, a barrier
+// between. The phases are the ones test_dext_fused runs on the CPU against
+// dext(), so what this adds is only how they are spread.
+template <typename T>
+__global__ void fused_kernel(const T *image_in, SignalPixel *out,
+                             unsigned *counter, unsigned capacity, int height,
+                             int width) {
+  __shared__ dext_fused::Tile<T> t;
+  constexpr int R0 = dext_fused::kR0, R1 = dext_fused::kR1,
+                R2 = dext_fused::kR2, TILE = dext_fused::kTile;
+  const int ti = static_cast<int>(blockIdx.y) * TILE;
+  const int tj = static_cast<int>(blockIdx.x) * TILE;
+  const int tid = static_cast<int>(threadIdx.y * blockDim.x + threadIdx.x);
+  const int step = static_cast<int>(blockDim.x * blockDim.y);
+
+  for (int n = tid; n < R0 * R0; n += step)
+    dext_fused::load(t, image_in, height, width, ti, tj, n / R0, n % R0);
+  __syncthreads();
+  for (int n = tid; n < R0 * R1; n += step)
+    dext_fused::stage0_row(t, n / R1, n % R1);
+  __syncthreads();
+  for (int n = tid; n < R1 * R1; n += step)
+    dext_fused::stage0_test(t, n / R1, n % R1);
+  __syncthreads();
+  for (int n = tid; n < R1 * R2; n += step)
+    dext_fused::stage1_row(t, n / R2, n % R2);
+  __syncthreads();
+  for (int n = tid; n < R2 * R2; n += step)
+    dext_fused::stage1_erode(t, n / R2, n % R2);
+  __syncthreads();
+  // Stage 2's row sums take the storage stage 0's had: those were last read
+  // before the barrier ahead of stage 1.
+  for (int n = tid; n < R2 * TILE; n += step)
+    dext_fused::stage2_row(t, n / TILE, n % TILE);
+  __syncthreads();
+
+  // The test and the emit. A warp is one row of the tile -- blockDim.x is 32 --
+  // and every lane of it takes the same rows, so every lane reaches the ballot.
+  const T masked = dext_fused::masked_value<T>();
+  (void)masked;
+  for (int r = static_cast<int>(threadIdx.y); r < TILE;
+       r += static_cast<int>(blockDim.y)) {
+    const int c = static_cast<int>(threadIdx.x);
+    const int i = ti + r, j = tj + c;
+    const bool in_frame = i < height && j < width;
+    const dext_fused::Decision d = dext_fused::stage2_test(t, r, c, in_frame);
+
+    const unsigned lane = threadIdx.x;
+    const unsigned ballot = __ballot_sync(0xffffffffu, d.signal);
+    const unsigned rank = __popc(ballot & ((1u << lane) - 1u));
+    unsigned base = 0;
+    if (lane == 0 && ballot != 0u)
+      base = atomicAdd(counter, __popc(ballot));
+    base = __shfl_sync(0xffffffffu, base, 0);
+    // Past the end is dropped, and counted, as emit_signal has it.
+    if (d.signal && base + rank < capacity) {
+      SignalPixel pixel;
+      pixel.index = static_cast<unsigned>(i * width + j);
+      pixel.value = d.value;
+      pixel.background = d.background;
+      pixel.population = d.population;
+      pixel.reserved = 0;
+      out[base + rank] = pixel;
+    }
+  }
+}
+
+// Only for 16-bit pixels: a 32-bit tile wants about 57 KB of shared memory,
+// over what a static allocation may have. Not instantiated for 32 bits at all.
+template <typename T>
+void launch_fused(const T *in, SignalPixel *out, unsigned *counter,
+                  unsigned capacity, int rows, int columns,
+                  cudaStream_t stream) {
+  if constexpr (std::is_same<T, std::uint16_t>::value) {
+    const dim3 block(32, 8);
+    const dim3 grid(static_cast<unsigned>((columns + dext_fused::kTile - 1) /
+                                          dext_fused::kTile),
+                    static_cast<unsigned>((rows + dext_fused::kTile - 1) /
+                                          dext_fused::kTile));
+    fused_kernel<T>
+        <<<grid, block, 0, stream>>>(in, out, counter, capacity, rows, columns);
+  } else {
+    (void)in, (void)out, (void)counter, (void)capacity, (void)rows,
+        (void)columns, (void)stream;
+  }
+}
+
 template <typename T>
 int find(const T *image_in, std::vector<SignalPixel> &signal_out,
          std::size_t height, std::size_t width) {
@@ -618,7 +708,11 @@ int find(const T *image_in, std::vector<SignalPixel> &signal_out,
 
   const Window window0 = stage0_window();
   const Window window2 = stage2_window();
-  internal::announce_windows(window0, window2);
+  const bool one_kernel = std::is_same<T, std::uint16_t>::value && fused();
+  if (one_kernel)
+    internal::announce_fused();
+  else
+    internal::announce_windows(window0, window2);
 
   const bool timing = profile_stages();
   cudaEvent_t *const marks = timing ? space.marks() : nullptr;
@@ -637,25 +731,31 @@ int find(const T *image_in, std::vector<SignalPixel> &signal_out,
 
   if (timing)
     ok(cudaEventRecord(marks[1], stream), "cudaEventRecord");
-  if (window0 == Window::Tile)
-    stage0_tile<T><<<grid, block, 0, stream>>>(in, scratch, rows, columns);
-  else
-    stage0<T><<<grid, block, 0, stream>>>(in, scratch, rows, columns);
+  if (one_kernel) {
+    launch_fused<T>(in, out, counter, capacity, rows, columns, stream);
+    if (timing)
+      ok(cudaEventRecord(marks[4], stream), "cudaEventRecord");
+  } else {
+    if (window0 == Window::Tile)
+      stage0_tile<T><<<grid, block, 0, stream>>>(in, scratch, rows, columns);
+    else
+      stage0<T><<<grid, block, 0, stream>>>(in, scratch, rows, columns);
 
-  if (timing)
-    ok(cudaEventRecord(marks[2], stream), "cudaEventRecord");
-  stage1<T><<<grid, block, 0, stream>>>(in, scratch, tmp, rows, columns);
+    if (timing)
+      ok(cudaEventRecord(marks[2], stream), "cudaEventRecord");
+    stage1<T><<<grid, block, 0, stream>>>(in, scratch, tmp, rows, columns);
 
-  if (timing)
-    ok(cudaEventRecord(marks[3], stream), "cudaEventRecord");
-  if (window2 == Window::Tile)
-    stage2<T><<<grid, block, 0, stream>>>(in, tmp, out, counter, capacity, rows,
-                                          columns);
-  else
-    stage2_direct<T><<<grid, block, 0, stream>>>(in, tmp, out, counter,
-                                                 capacity, rows, columns);
-  if (timing)
-    ok(cudaEventRecord(marks[4], stream), "cudaEventRecord");
+    if (timing)
+      ok(cudaEventRecord(marks[3], stream), "cudaEventRecord");
+    if (window2 == Window::Tile)
+      stage2<T><<<grid, block, 0, stream>>>(in, tmp, out, counter, capacity,
+                                            rows, columns);
+    else
+      stage2_direct<T><<<grid, block, 0, stream>>>(in, tmp, out, counter,
+                                                   capacity, rows, columns);
+    if (timing)
+      ok(cudaEventRecord(marks[4], stream), "cudaEventRecord");
+  }
   ok(cudaGetLastError(), "launching the signal calculation");
 
   unsigned found = 0;
@@ -669,12 +769,18 @@ int find(const T *image_in, std::vector<SignalPixel> &signal_out,
     float elapsed = 0.0f;
     ok(cudaEventElapsedTime(&elapsed, marks[0], marks[1]), "upload time");
     times.upload = static_cast<double>(elapsed);
-    ok(cudaEventElapsedTime(&elapsed, marks[1], marks[2]), "stage0 time");
-    times.stage0 = static_cast<double>(elapsed);
-    ok(cudaEventElapsedTime(&elapsed, marks[2], marks[3]), "stage1 time");
-    times.stage1 = static_cast<double>(elapsed);
-    ok(cudaEventElapsedTime(&elapsed, marks[3], marks[4]), "stage2 time");
-    times.stage2 = static_cast<double>(elapsed);
+    if (one_kernel) {
+      ok(cudaEventElapsedTime(&elapsed, marks[1], marks[4]),
+         "fused kernel time");
+      times.fused = static_cast<double>(elapsed);
+    } else {
+      ok(cudaEventElapsedTime(&elapsed, marks[1], marks[2]), "stage0 time");
+      times.stage0 = static_cast<double>(elapsed);
+      ok(cudaEventElapsedTime(&elapsed, marks[2], marks[3]), "stage1 time");
+      times.stage1 = static_cast<double>(elapsed);
+      ok(cudaEventElapsedTime(&elapsed, marks[3], marks[4]), "stage2 time");
+      times.stage2 = static_cast<double>(elapsed);
+    }
   }
 
   if (found > capacity)

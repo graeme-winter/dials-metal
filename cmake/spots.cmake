@@ -454,6 +454,13 @@ if(SPOTFINDER_TESTS)
         PRIVATE spotfinder_dext spotfinder_warnings)
     add_test(NAME dext_squares COMMAND test_dext_squares)
 
+    # No GPU needed: the fused kernel's phases, run on the CPU tile by tile,
+    # against dext() -- the tile arithmetic, checked where it can be.
+    add_executable(test_dext_fused tests/spots/test_dext_fused.cc)
+    target_link_libraries(test_dext_fused
+        PRIVATE spotfinder_dext spotfinder_warnings)
+    add_test(NAME dext_fused COMMAND test_dext_fused)
+
     # No GPU needed: the ordering is host code, and this is where its heap
     # overflow was caught.
     add_executable(test_signal_order tests/spots/test_signal_order.cc)

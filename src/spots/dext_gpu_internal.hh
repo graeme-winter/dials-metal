@@ -26,6 +26,7 @@ void set_stage_times(const StageTimes &times);
 // nothing when the benchmark switched, so the benchmark's own output attributed
 // every one of its numbers to the first configuration it happened to run.
 void announce_windows(Window stage0, Window stage2);
+void announce_fused();
 
 // Which window each stage uses when nothing has asked for one, which is a
 // question about the device and so is answered by the backend. Every other part

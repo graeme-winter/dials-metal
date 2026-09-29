@@ -640,7 +640,8 @@ int main(int argc, char **argv) {
   // kernel, which do not change the schedule: summed across threads, it says
   // whether the card or the queue for it is the limit. Not taken on Metal,
   // where measuring the split serialises the stages it would measure.
-  mxi::ThreadSeconds t_upload, t_stage0, t_stage1, t_stage2, t_readback, t_sort;
+  mxi::ThreadSeconds t_upload, t_stage0, t_stage1, t_stage2, t_fused,
+      t_readback, t_sort;
 #ifdef SPOTFINDER_GPU
   const bool split =
       options.timing && options.gpu && std::string(gpu::backend()) == "CUDA";
@@ -720,6 +721,7 @@ int main(int argc, char **argv) {
               t_stage0.add(st.stage0 * 1e-3);
               t_stage1.add(st.stage1 * 1e-3);
               t_stage2.add(st.stage2 * 1e-3);
+              t_fused.add(st.fused * 1e-3);
               t_readback.add(st.copy * 1e-3);
               t_sort.add(st.sort * 1e-3);
             }
@@ -971,7 +973,8 @@ int main(int argc, char **argv) {
     if (split) {
       const double parts = t_upload.seconds() + t_stage0.seconds() +
                            t_stage1.seconds() + t_stage2.seconds() +
-                           t_readback.seconds() + t_sort.seconds();
+                           t_fused.seconds() + t_readback.seconds() +
+                           t_sort.seconds();
       std::fprintf(stdout, "      %-20s %s\n", "uploading",
                    share(t_upload).c_str());
       std::fprintf(stdout, "      %-20s %s\n", "stage 0, device",
@@ -980,6 +983,9 @@ int main(int argc, char **argv) {
                    share(t_stage1).c_str());
       std::fprintf(stdout, "      %-20s %s\n", "stage 2, device",
                    share(t_stage2).c_str());
+      if (t_fused.seconds() > 0.0)
+        std::fprintf(stdout, "      %-20s %s\n", "fused kernel, device",
+                     share(t_fused).c_str());
       std::fprintf(stdout, "      %-20s %s\n", "reading back",
                    share(t_readback).c_str());
       std::fprintf(stdout, "      %-20s %s\n", "sorting",
@@ -993,7 +999,8 @@ int main(int argc, char **argv) {
                    "over the frames: "
                    "%.3f s, in %.3f s of wall)\n",
                    t_upload.seconds() + t_stage0.seconds() +
-                       t_stage1.seconds() + t_stage2.seconds(),
+                       t_stage1.seconds() + t_stage2.seconds() +
+                       t_fused.seconds(),
                    wall);
     } else if (options.gpu) {
       std::fprintf(

@@ -112,7 +112,10 @@ where something is missing.
     card, 37.4 thread-seconds against 32.4, so direct stays the default there,
     the reverse of Apple silicon. Faster means the windowed sums cost less:
     running sums independent of the window's size, or fused stages, measured on
-    the card. HDF5's lock shows too: reading takes 4.6 thread-seconds on 8
+    the card. A fused kernel for that is written (`SPOTFINDER_GPU_FUSED=1`,
+    `docs/spots.md`), verified against the CPU tile by tile and compiled for the
+    4060, not yet run: `ctest -R dext_gpu`, then `cmp` and `--timing` against the
+    three kernels on real data. HDF5's lock shows too: reading takes 4.6 thread-seconds on 8
     threads and 22.5 on 16, for the same data. `docs/spots.md`.
 * **36.** **speed -- Prediction took 29 per cent of one integration and 1 of
   another**: 6.3 s of a 300 image integration of a scan-varying model, nearly as
