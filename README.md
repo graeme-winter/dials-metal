@@ -185,6 +185,11 @@ and into the log too, in order, so the log of a run that failed says why. A run
 that only asks for `--help` or `--version` writes no log, rather than overwrite
 the last real run's.
 
+Every program takes `--timing`, and ends with one table of where its time went:
+phases in seconds and per cent of the run, and where work runs in parallel --
+the spot finder's reading, decompressing and thresholding, the integrator's
+frame reading -- time summed across the threads against the time they had.
+
 Output is interchangeable with DIALS at every boundary: any stage can be
 swapped for DIALS' own, `dials.scale` and `dials.export` read the integrated
 table, and `dials.image_viewer` draws every stage's output. To compare a stage

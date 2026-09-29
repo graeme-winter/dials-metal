@@ -5,6 +5,8 @@
 // 2 and 3).
 
 #include <cstddef>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "expt.hh"
@@ -224,8 +226,10 @@ struct ScaleRun {
   std::vector<double> g_variance; //: var(g) for every observation
   ParameterCovariance covariance;
   std::size_t outliers = 0;
-  std::size_t fitted_on =
-      0; //: observations in the subset the model was fitted to
+  //: Observations in the subset the model was fitted to.
+  std::size_t fitted_on = 0;
+  //: Wall seconds of each step, in order, for --timing.
+  std::vector<std::pair<std::string, double>> timing;
 };
 
 //: Scale one sweep as the paper's figure 2: outliers on the unscaled data; fit;

@@ -21,6 +21,7 @@
 #include "log_mirror.hh"
 #include "profile_grid.hh"
 #include "shoebox.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -43,23 +44,26 @@ void usage(const char *program) {
       "                    blurs an aggregate by about root two\n"
       "  --subdivisions S  split each pixel S ways per axis; 1 to see the\n"
       "                    undersampling raw (5)\n"
-      "  --sigma-b B --sigma-m M   use these instead of estimating\n",
+      "  --sigma-b B --sigma-m M   use these instead of estimating\n"
+      "  --timing          where the time goes\n",
       program);
 }
 
 } // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"--out",        "--n",
-                                       "--half-width", "--neighbours",
-                                       "--spots",      "--subdivisions",
-                                       "--sigma-b",    "--sigma-m",
-                                       "--map",        "--recentre"};
+  const std::set<std::string> known = {
+      "--timing",       "--out",        "--n",
+      "--half-width",   "--neighbours", "--spots",
+      "--subdivisions", "--sigma-b",    "--sigma-m",
+      "--map",          "--recentre"};
   // Not every known option takes a value: passing one set as both made
   // --recentre demand an argument.
   std::set<std::string> takes_value = known;
   takes_value.erase("--recentre");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  Timing timing(args.has("--timing"));
+  double mark = Timing::now();
   if (args.help) {
     usage(argv[0]);
     return 0;
@@ -77,6 +81,8 @@ int run_program(int argc, char **argv) {
   try {
     const ExperimentList experiments = read_experiments(args.positional[0]);
     const Table reflections = read_reflections(args.positional[1]);
+    timing.add("reading", Timing::now() - mark);
+    mark = Timing::now();
     const std::vector<Shoebox> boxes = decode_shoeboxes(reflections);
     if (boxes.empty()) {
       std::fprintf(stderr, "mxi_grid: %s has no shoeboxes\n",
@@ -261,6 +267,8 @@ int run_program(int argc, char **argv) {
       (void)normal;
       std::printf("wrote %s\n", map_path.c_str());
     }
+    timing.add("computing, printing and writing", Timing::now() - mark);
+    timing.report(stdout);
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_grid: %s\n", e.what());

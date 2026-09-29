@@ -42,6 +42,7 @@
 #include "reference.hh"
 #include "shoebox.hh"
 #include "summary.hh"
+#include "timing.hh"
 
 #include "decompress.hh"
 #include "series.hh"
@@ -1481,40 +1482,37 @@ int run_program(int argc, char **argv) {
     }
 
     if (args.has("--timing")) {
-      const double total = now_wall() - t_start;
-      const auto line = [&](const char *name, double seconds) {
-        std::printf("  %-26s %8.3f s  %5.1f%%\n", name, seconds,
-                    total > 0.0 ? 100.0 * seconds / total : 0.0);
+      Timing timing(true, t_start);
+      timing.add("the profile model", t_profile);
+      timing.add("prediction", t_predict);
+      timing.add("bounding boxes", t_boxes);
+      timing.add("opening shoeboxes", t_open);
+      timing.add("reading frames, wall", t_region);
+      timing.add("background and summation", t_integrate);
+      timing.add("learning profiles", t_transform);
+      timing.add("profile fitting", t_fit);
+      timing.add("writing", t_write);
+      timing.report(stdout);
+      const auto per = [&](double seconds) {
+        return t_region > 0.0 ? seconds / t_region : 0.0;
       };
-      std::printf("\nTiming: %zu threads, chunks of %zu frames, at most %zu "
-                  "boxes opened a chunk, %zu open at once\n",
+      std::printf("  %zu threads, chunks of %zu frames, at most %zu boxes "
+                  "opened a chunk, %zu "
+                  "open at once\n",
                   workers, window, max_boxes, most_open);
       std::printf("  %zu frames read, %zu wanted by a shoebox, each read %.2f "
-                  "times; %zu voxels on masked pixels\n",
+                  "times; %zu voxels "
+                  "on masked pixels\n",
                   frames_read, wanted.size(),
                   wanted.empty() ? 0.0
                                  : static_cast<double>(frames_read) /
                                        static_cast<double>(wanted.size()),
                   bad_pixels);
-      line("the profile model", t_profile);
-      line("prediction", t_predict);
-      line("bounding boxes", t_boxes);
-      line("opening shoeboxes", t_open);
-      line("reading frames (wall)", t_region);
-      std::printf("    of which, in thread-seconds over %zu threads:\n",
-                  workers);
-      const auto thread_line = [&](const char *name, double seconds) {
-        std::printf("      %-22s %8.3f s  %5.2f x wall\n", name, seconds,
-                    t_region > 0.0 ? seconds / t_region : 0.0);
-      };
-      thread_line("fetching", t_fetch);
-      thread_line("decompressing", t_decompress);
-      thread_line("filling shoeboxes", t_fill);
-      line("background and summation", t_integrate);
-      line("learning profiles", t_transform);
-      line("profile fitting", t_fit);
-      line("writing", t_write);
-      std::printf("  %-26s %8.3f s\n", "total", total);
+      std::printf(
+          "  reading frames, in thread-seconds: fetching %.3f s (%.2f x wall), "
+          "decompressing %.3f s (%.2f x), filling shoeboxes %.3f s (%.2f x)\n",
+          t_fetch, per(t_fetch), t_decompress, per(t_decompress), t_fill,
+          per(t_fill));
     }
     return 0;
   } catch (const std::exception &error) {

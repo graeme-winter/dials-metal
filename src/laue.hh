@@ -81,6 +81,9 @@ struct LaueScores {
   double cc_true = 0.0, cc_sig_fac = 0.0, e_cc_true = 0.0, cc_identity = 0.0;
   std::vector<ElementScore> elements;
   std::vector<GroupScore> groups; //: most likely first
+  //: Wall seconds, for --timing: the E(CC) and sigma(CC) estimates, the
+  //: elements, the subgroups.
+  double t_estimates = 0.0, t_elements = 0.0, t_groups = 0.0;
 };
 
 //: The distinct symmetry elements of a lattice's rotations, as dials.symmetry

@@ -1,5 +1,7 @@
 #include "scale.hh"
 
+#include "timing.hh"
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -960,6 +962,12 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
                      const Table &reflections, const SpaceGroup &group,
                      const ScaleRunOptions &options) {
   ScaleRun run;
+  double mark = Timing::now();
+  const auto step = [&](const char *name) {
+    const double t = Timing::now();
+    run.timing.emplace_back(name, t - mark);
+    mark = t;
+  };
   const Experiment &e = experiments[0];
   const double degrees = std::abs(e.scan.osc_width) * e.scan.num_images();
   ScaleModelShape shape = default_shape(degrees);
@@ -969,6 +977,7 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
   data_options.d_min = options.d_min;
   run.data =
       build_scale_data(experiments, reflections, group, shape, data_options);
+  step("gathering the observations");
   ScaleData &data = run.data;
   run.model = ScaleModel(shape);
   if (data.size() == 0)
@@ -982,19 +991,26 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
   };
   run.g.assign(data.size(), 1.0);
   reject_outliers(data, run.g); // on the unscaled intensities
+  step("outliers, unscaled");
   fit();
+  step("fit 1");
   reject_outliers(data, run.g);
   if (options.combine) {
     run.i_mid = choose_intensity_combination(data, run.g);
     reject_outliers(data, run.g);
   }
+  step("outliers and profile against summation");
   run.error_model = refine_error_model(data, run.g);
   apply_error_model(data, run.error_model);
+  step("error model 1");
   fit();
+  step("fit 2");
   reject_outliers(data, run.g);
   run.error_model = refine_error_model(data, run.g);
   apply_error_model(data, run.error_model);
+  step("outliers and error model 2");
   fit();
+  step("fit 3");
   // The scale's uncertainty into each observation's variance BEFORE the final
   // error model, so that a and b correct what remains after it rather than
   // absorbing it. (dials.scale applies its error model first and then
@@ -1005,9 +1021,11 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
                                         select_for_fitting(data));
   run.g_variance = inverse_scale_variances(run.model, data, run.covariance);
   propagate_scale_variances(data, run.g, run.g_variance);
+  step("the scale's uncertainty");
   run.outliers = reject_outliers(data, run.g);
   run.error_model = refine_error_model(data, run.g);
   apply_error_model(data, run.error_model);
+  step("final outliers and error model");
   return run;
 }
 

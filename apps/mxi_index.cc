@@ -19,6 +19,7 @@
 #include "index.hh"
 #include "log_mirror.hh"
 #include "refine.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -109,8 +110,10 @@ int run_program(int argc, char **argv) {
   const std::string out_refl = args.value("--output-refl", "indexed.refl");
 
   try {
+    const double t_run_start = Timing::now();
     ExperimentList experiments = read_experiments(args.positional[0]);
     Table reflections = read_reflections(args.positional[1]);
+    const double t_read_seconds = Timing::now() - t_run_start;
     std::printf("Indexing %zu reflections from %zu experiment%s\n",
                 reflections.nrows, experiments.size(),
                 experiments.size() == 1 ? "" : "s");
@@ -166,34 +169,36 @@ int run_program(int argc, char **argv) {
     set_indexed_flags(reflections);
     add_reciprocal_columns(experiments, reflections);
     update_predictions(experiments, reflections);
+    const double t_write_start = Timing::now();
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);
+    const double t_write_seconds = Timing::now() - t_write_start;
     std::printf("Wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
 
     if (args.has("--timing")) {
       const IndexTiming &t = result.timing;
-      const auto line = [&](const char *name, double seconds) {
-        std::printf("  %-22s %7.3f s  %5.1f%%\n", name, seconds,
-                    t.total > 0.0 ? 100.0 * seconds / t.total : 0.0);
-      };
-      std::printf("\ntiming\n");
-      line("reciprocal points", t.reciprocal_points);
-      line("max cell", t.max_cell);
-      line("candidate vectors", t.candidate_vectors);
-      line("  the transform", t.fft);
-      line("  the peak search", t.peak_search);
-      line("  the rest of it", t.candidate_vectors - t.fft - t.peak_search);
-      line("choose basis", t.choose_basis);
-      std::printf("    %zu triples scored, %zu skipped as degenerate\n",
-                  t.triples_scored, t.triples_skipped);
-      line("fit and reduce", t.fit_and_reduce);
-      line("macrocycles", t.macrocycles);
-      line("  copy and select", t.subset_copy);
-      line("  refinement", t.refine);
-      line("  reassignment", t.reassign);
-      line("    the jacobian", g_jacobian_seconds);
-      line("    the normal equations", g_normal_seconds);
-      std::printf("  %-22s %7.3f s\n", "indexing total", t.total);
+      Timing timing(true, t_run_start);
+      timing.add("reading", t_read_seconds);
+      timing.add("indexing", t.total);
+      timing.add("reciprocal points", t.reciprocal_points, 1);
+      timing.add("max cell", t.max_cell, 1);
+      timing.add("candidate vectors", t.candidate_vectors, 1);
+      timing.add("the transform", t.fft, 2);
+      timing.add("the peak search", t.peak_search, 2);
+      timing.add("the rest of it", t.candidate_vectors - t.fft - t.peak_search,
+                 2);
+      timing.add("choose basis", t.choose_basis, 1);
+      timing.add("fit and reduce", t.fit_and_reduce, 1);
+      timing.add("macrocycles", t.macrocycles, 1);
+      timing.add("copy and select", t.subset_copy, 2);
+      timing.add("refinement", t.refine, 2);
+      timing.add("the jacobian", g_jacobian_seconds, 3);
+      timing.add("the normal equations", g_normal_seconds, 3);
+      timing.add("reassignment", t.reassign, 2);
+      timing.add("writing", t_write_seconds);
+      timing.note(std::to_string(t.triples_scored) + " triples scored, " +
+                  std::to_string(t.triples_skipped) + " skipped as degenerate");
+      timing.report(stdout);
     }
     return 0;
   } catch (const std::exception &e) {

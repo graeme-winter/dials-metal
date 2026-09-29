@@ -16,6 +16,7 @@
 #include "args.hh"
 #include "background.hh"
 #include "log_mirror.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -31,14 +32,19 @@ void usage(const char *program) {
       "  per input line: the fitted mean, the iterations, and 1 if it "
       "converged.\n"
       "\n"
-      "  --tuning K        the Huber tuning constant (1.345)\n",
+      "  --tuning K        the Huber tuning constant (1.345)\n"
+      "  --timing          where the time goes\n",
       program);
 }
 } // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"--tuning"};
-  const Arguments args = parse_arguments(argc, argv, known, known);
+  const std::set<std::string> known = {"--timing", "--tuning"};
+  std::set<std::string> takes_value = known;
+  takes_value.erase("--timing");
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  Timing timing(args.has("--timing"));
+  double mark = Timing::now();
   if (!args.ok) {
     std::fprintf(stderr, "mxi_background: %s\n", args.error.c_str());
     return 2;
@@ -74,6 +80,8 @@ int run_program(int argc, char **argv) {
     const BackgroundResult r = glm_background(values, options);
     std::printf("%.10g %d %d\n", r.mean, r.iterations, r.converged ? 1 : 0);
   }
+  timing.add("reading and fitting", Timing::now() - mark);
+  timing.report(stdout);
   return 0;
 }
 

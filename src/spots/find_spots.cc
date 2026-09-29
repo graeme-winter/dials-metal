@@ -45,6 +45,7 @@
 #include <vector>
 
 #include "../log_mirror.hh"
+#include "../timing.hh"
 #include "decompress.hh"
 #include "dext.hh"
 #include "dials_spots.hh"
@@ -75,6 +76,7 @@ struct Options {
   std::string experiments;            // -e: what dials.import wrote
   std::string output = "strong.refl"; // -o
   bool gpu = false;
+  bool timing = false;
   bool shoeboxes = true;
   bool two_d = false;
   bool z_offset_given = false;
@@ -118,6 +120,9 @@ void usage(const char *program, std::FILE *to = stderr) {
       "                     panel size and the experiment identifier\n"
       "  -o file            where to write the reflection table (strong.refl)\n"
       "  -j threads         frames read and thresholded at once (default 4)\n"
+      "  --timing           where the time goes: each stage's time summed "
+      "across\n"
+      "                     the threads, against the time they had\n"
       "  -gpu               run the threshold on the GPU; 16-bit only under\n"
       "                     Metal, which has no double precision\n"
       "  --no-shoeboxes     leave out the pixel data, which is most of the\n"
@@ -155,6 +160,8 @@ bool parse_options(int argc, char **argv, Options *options) {
       options->output = argv[++i];
     } else if (flag == "-gpu") {
       options->gpu = true;
+    } else if (flag == "--timing") {
+      options->timing = true;
     } else if (flag == "--no-shoeboxes") {
       options->shoeboxes = false;
     } else if (flag == "--2d") {
@@ -518,6 +525,8 @@ int main(int argc, char **argv) {
   Options options;
   if (!parse_options(argc, argv, &options))
     return 2;
+  // The whole run's clock, from here, for --timing.
+  mxi::Timing timing(options.timing);
 
   std::signal(SIGINT, on_signal);
   std::signal(SIGTERM, on_signal);
@@ -623,6 +632,11 @@ int main(int argc, char **argv) {
   std::atomic<std::uint64_t> failed{0};
   std::atomic<int> live{options.threads};
   const Clock::time_point began = Clock::now();
+  // Each stage's time summed across the threads: set against threads x wall,
+  // what the others waited on. Reading is the HDF5 chunk read; the threshold
+  // includes, on a GPU, the transfers to and from it.
+  mxi::ThreadSeconds t_read, t_decompress, t_threshold, t_group;
+  const double t_began = mxi::Timing::now();
 
   std::vector<std::thread> workers;
   for (int i = 0; i < options.threads; i++) {
@@ -655,7 +669,10 @@ int main(int argc, char **argv) {
         Found found;
         bool have = false;
         try {
-          if (!reader->read(key, &frame)) {
+          const double r0 = mxi::Timing::now();
+          const bool got = reader->read(key, &frame);
+          t_read.add(mxi::Timing::now() - r0);
+          if (!got) {
             missing++;
           } else {
             const std::size_t height = static_cast<std::size_t>(frame.height);
@@ -663,8 +680,11 @@ int main(int argc, char **argv) {
             const std::size_t bytes =
                 decompress::frame_bytes(height, width, frame.bit_depth);
             std::uint8_t *const pixels = buffer.get(bytes);
+            const double d0 = mxi::Timing::now();
             decompress::image(frame.data, frame.algorithm, frame.bit_depth,
                               height, width, {pixels, bytes});
+            const double d1 = mxi::Timing::now();
+            t_decompress.add(d1 - d0);
             found.number = frame.number;
             switch (frame.bit_depth) {
             case 16:
@@ -678,6 +698,7 @@ int main(int argc, char **argv) {
                                        std::to_string(frame.bit_depth) +
                                        "-bit data");
             }
+            t_threshold.add(mxi::Timing::now() - d1);
             have = true;
             read++;
           }
@@ -732,7 +753,9 @@ int main(int argc, char **argv) {
         continue;
       }
       try {
+        const double g0 = mxi::Timing::now();
         labeller.add(z, found.pixels);
+        t_group.add(mxi::Timing::now() - g0);
       } catch (const std::exception &error) {
         std::fprintf(stderr, "grouping frame %lld: %s\n",
                      static_cast<long long>(found.number), error.what());
@@ -788,8 +811,10 @@ int main(int argc, char **argv) {
   queue.close();
   for (std::thread &worker : workers)
     worker.join();
+  const double t_streamed = mxi::Timing::now();
 
   labeller.finish();
+  const double t_finished = mxi::Timing::now();
 
   const double seconds =
       std::chrono::duration<double>(Clock::now() - began).count();
@@ -868,6 +893,7 @@ int main(int argc, char **argv) {
     }
   }
 
+  const double t_written_from = mxi::Timing::now();
   refl::Options writing;
   writing.identifier = experiments.identifier;
   writing.shoeboxes = options.shoeboxes;
@@ -892,6 +918,35 @@ int main(int argc, char **argv) {
                  labeller.spots().size(), options.output.c_str(),
                  static_cast<double>(bytes) / 1e6,
                  options.shoeboxes ? ", most of it shoeboxes" : "");
+  }
+
+  if (options.timing) {
+    const double wall = t_streamed - t_began;
+    const double capacity = wall * options.threads;
+    const auto share = [&](const mxi::ThreadSeconds &t) {
+      char text[96];
+      std::snprintf(text, sizeof text,
+                    "%9.3f thread-s, %5.1f%% of the threads' time", t.seconds(),
+                    capacity > 0.0 ? 100.0 * t.seconds() / capacity : 0.0);
+      return std::string(text);
+    };
+    timing.add("reading and thresholding, wall", wall);
+    timing.add("grouping what was left", t_finished - t_streamed);
+    timing.add("writing", mxi::Timing::now() - t_written_from);
+    timing.report(stdout);
+    std::fprintf(stdout, "  across %d threads, %.3f s of wall each:\n",
+                 options.threads, wall);
+    std::fprintf(stdout, "    %-22s %s\n", "reading (HDF5)",
+                 share(t_read).c_str());
+    std::fprintf(stdout, "    %-22s %s\n", "decompressing",
+                 share(t_decompress).c_str());
+    std::fprintf(stdout, "    %-22s %s\n",
+                 options.gpu ? "thresholding (GPU)" : "thresholding",
+                 share(t_threshold).c_str());
+    std::fprintf(
+        stdout,
+        "  and in the main thread: grouping %.3f s of the %.3f s wall\n",
+        t_group.seconds(), wall);
   }
 
   return failed.load() == 0 ? 0 : 1;

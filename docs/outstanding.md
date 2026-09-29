@@ -95,11 +95,18 @@ where something is missing.
   `stage2_direct` kernels, which
   `SPOTFINDER_GPU_STAGE0=tile SPOTFINDER_GPU_STAGE2=direct` selects on any data.
   The paths it does run agree with Metal exactly. `docs/spots.md`.
-* **35.** **speed -- Where the CUDA run's time goes**: 196 images a second on an
-  RTX 4060 against Metal's 502. A 16-bit frame of 3108 x 3262 pixels is 20 MB,
-  so 196 a second is 4 GB/s across PCIe, which Apple silicon's unified memory
-  does not pay; decompression on the host is the other candidate. A run
-  without `-gpu` on each machine would say which. `docs/spots.md`.
+* **35.** **speed -- Where the spot finder's time goes on CUDA**: 196 images a
+  second on an RTX 4060 against Metal's 502. `mxi_find --timing` now says, each
+  stage's time summed across the threads: on four CPU threads here, reading from
+  HDF5 is 26 per cent of the threads' time -- 127 ms a frame, where decompressing
+  it takes 11 -- which looks like HDF5's global lock, threads queueing to read.
+  On sixteen that may matter more than the GPU. `docs/spots.md`.
+* **36.** **speed -- Prediction does not scale with the images asked for**: 5.7
+  seconds of a 60 image integration, 6.3 of a 300 image one, 29 per cent of the
+  latter -- the whole scan predicted and most of it dropped. `mxi_integrate
+  --timing`.
+* **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
+  run, for the table; the choice needs only the one chosen.
 
 ## Infrastructure
 

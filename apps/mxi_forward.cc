@@ -20,6 +20,7 @@
 #include "log_mirror.hh"
 #include "profile_model.hh"
 #include "shoebox.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -34,18 +35,22 @@ void usage(const char *program) {
       "  --no-sensor       leave the absorption depth out of the model\n"
       "  --depth-samples N samples through the sensor; 1 is the mean depth\n"
       "                    alone, which is the parallax correction and no\n"
-      "                    smear (8)\n",
+      "                    smear (8)\n"
+      "  --timing          where the time goes\n",
       program);
 }
 
 } // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"--out", "--sigma-b", "--sigma-m",
+  const std::set<std::string> known = {"--timing",    "--out",
+                                       "--sigma-b",   "--sigma-m",
                                        "--no-sensor", "--depth-samples"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--no-sensor");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  Timing timing(args.has("--timing"));
+  double mark = Timing::now();
   if (args.help) {
     usage(argv[0]);
     return 0;
@@ -63,6 +68,8 @@ int run_program(int argc, char **argv) {
   try {
     const ExperimentList experiments = read_experiments(args.positional[0]);
     const Table t = read_reflections(args.positional[1]);
+    timing.add("reading", Timing::now() - mark);
+    mark = Timing::now();
     const std::vector<Shoebox> boxes = decode_shoeboxes(t);
     if (boxes.empty()) {
       std::fprintf(stderr, "mxi_forward: %s has no shoeboxes\n",
@@ -156,6 +163,8 @@ int run_program(int argc, char **argv) {
     }
     std::fclose(out);
     std::printf("wrote %s, %zu spots compared\n", path.c_str(), written);
+    timing.add("computing, printing and writing", Timing::now() - mark);
+    timing.report(stdout);
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_forward: %s\n", e.what());

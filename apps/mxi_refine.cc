@@ -13,6 +13,7 @@
 #include "args.hh"
 #include "log_mirror.hh"
 #include "refine.hh"
+#include "timing.hh"
 #include <algorithm>
 #include <vector>
 
@@ -284,21 +285,16 @@ int run_program(int argc, char **argv) {
     std::printf("Wrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
 
     if (args.has("--timing")) {
-      const double total = now_wall() - t_start;
-      const auto line = [&](const char *name, double seconds) {
-        std::printf("  %-24s %7.3f s  %5.1f%%\n", name, seconds,
-                    total > 0.0 ? 100.0 * seconds / total : 0.0);
-      };
-      std::printf("\ntiming\n");
-      line("read", t_read);
-      line("build the target rows", g_observations_seconds);
-      line("the jacobian", g_jacobian_seconds);
-      line("the normal equations", g_normal_seconds);
-      line("the solve", g_solve_seconds);
-      line("the trial residuals", g_residual_seconds);
-      line("outlier rejection", g_outlier_seconds);
-      line("write", t_write);
-      std::printf("  %-24s %7.3f s\n", "total", total);
+      Timing timing(true, t_start);
+      timing.add("reading", t_read);
+      timing.add("building the target rows", g_observations_seconds);
+      timing.add("the jacobian", g_jacobian_seconds);
+      timing.add("the normal equations", g_normal_seconds);
+      timing.add("the solve", g_solve_seconds);
+      timing.add("the trial residuals", g_residual_seconds);
+      timing.add("outlier rejection", g_outlier_seconds);
+      timing.add("writing", t_write);
+      timing.report(stdout);
     }
     return 0;
   } catch (const std::exception &e) {

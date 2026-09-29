@@ -2,6 +2,7 @@
 
 #include "resolution.hh"
 #include "scale.hh"
+#include "timing.hh"
 
 #include <algorithm>
 #include <cmath>
@@ -181,6 +182,7 @@ LaueScores score_laue_groups(const P1Intensities &data,
                              const std::vector<Rotation> &lattice,
                              unsigned seed) {
   LaueScores out;
+  double mark = Timing::now();
   std::map<Miller, std::size_t> where;
   for (std::size_t k = 0; k < data.size(); ++k)
     where[data.hkl[k]] = k; // exact: Friedel mates are apart
@@ -256,6 +258,8 @@ LaueScores score_laue_groups(const P1Intensities &data,
     const double w2 = data.size() > 10 ? 1.0 / (sigma_2 * sigma_2) : 0.0;
     out.cc_true = (w1 * out.e_cc_true + w2 * out.cc_identity) / (w1 + w2);
   }
+  out.t_estimates = Timing::now() - mark;
+  mark = Timing::now();
   // Each element: CC over the reflections it relates, excluding those it
   // leaves in place (on the axis), with dials.symmetry's generous outlier cut.
   for (const Rotation &r : symmetry_elements(lattice)) {
@@ -317,6 +321,8 @@ LaueScores score_laue_groups(const P1Intensities &data,
     }
     out.elements.push_back(e);
   }
+  out.t_elements = Timing::now() - mark;
+  mark = Timing::now();
   // Each subgroup: Evans (2011) A2.
   double total = 0.0;
   for (const std::vector<Rotation> &g : subgroups(lattice)) {
@@ -362,6 +368,7 @@ LaueScores score_laue_groups(const P1Intensities &data,
                    [](const GroupScore &a, const GroupScore &b) {
                      return a.likelihood > b.likelihood;
                    });
+  out.t_groups = Timing::now() - mark;
   return out;
 }
 

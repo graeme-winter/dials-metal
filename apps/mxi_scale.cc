@@ -15,6 +15,7 @@
 #include "resolution.hh"
 #include "scale.hh"
 #include "symmetry.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -36,15 +37,17 @@ void usage() {
       "                    summation chosen by Rmeas\n"
       "  --shells N        resolution shells in the table (20)\n"
       "  -o PATH           scaled reflections (scaled.refl)\n"
-      "  --output-expt PATH   the models, reindexed (scaled.expt)\n");
+      "  --output-expt PATH   the models, reindexed (scaled.expt)\n"
+      "  --timing          where the time goes\n");
 }
 
 } // namespace
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
-      "--space-group",  "--change-of-basis", "--d-min", "--no-absorption",
-      "--profile-only", "--shells",          "-o",      "--output-expt"};
+      "--timing",        "--space-group",  "--change-of-basis", "--d-min",
+      "--no-absorption", "--profile-only", "--shells",          "-o",
+      "--output-expt"};
   const std::set<std::string> takes_value = {
       "--space-group", "--change-of-basis", "--d-min", "--shells", "-o",
       "--output-expt"};
@@ -64,9 +67,17 @@ int run_program(int argc, char **argv) {
     usage();
     return 2;
   }
+  Timing timing(args.has("--timing"));
   try {
+    double mark = Timing::now();
+    const auto phase = [&](const char *name) {
+      const double t = Timing::now();
+      timing.add(name, t - mark);
+      mark = t;
+    };
     ExperimentList experiments = read_experiments(args.positional[0]);
     Table reflections = read_reflections(args.positional[1]);
+    phase("reading");
     if (experiments.size() != 1 || !experiments[0].crystal)
       throw std::runtime_error("one sweep with a crystal, for now");
     const SpaceGroup group =
@@ -90,7 +101,11 @@ int run_program(int argc, char **argv) {
     options.combine = !args.has("--profile-only");
     options.absorption = !args.has("--no-absorption");
     options.d_min = args.number("--d-min", 0.0);
+    phase("reindexing");
     const ScaleRun run = scale_sweep(experiments, reflections, group, options);
+    phase("scaling");
+    for (const auto &[name, seconds] : run.timing)
+      timing.add(name, seconds, 1);
     const ScaleData &data = run.data;
     if (data.size() == 0)
       throw std::runtime_error("no observations fit to scale");
@@ -156,6 +171,7 @@ int run_program(int argc, char **argv) {
     const int shells = static_cast<int>(args.number("--shells", 20.0));
     const std::vector<MergingShell> table = merging_statistics(
         data, run.g, group, *experiments[0].crystal, shells, &all);
+    phase("merging statistics");
     std::printf("\nMerging statistics, Friedel mates merged\n");
     std::printf("  %6s %6s %7s %6s %6s %6s %8s %7s %6s %7s %6s %6s\n", "d_max",
                 "d_min", "#obs", "#uniq", "mult.", "%comp", "<I>", "<I/sI>",
@@ -178,6 +194,7 @@ int run_program(int argc, char **argv) {
     const std::vector<ResolutionBin> bins = cc_half_bins(
         data, run.g, *experiments[0].crystal, 50, 10, 0.1, &wilson);
     const ResolutionEstimate res = estimate_resolution(bins, 0.3);
+    phase("the resolution limit");
     std::printf("\nRemoving %zu Wilson outliers with E^2 >= 16.0\n", wilson);
     if (res.d_min_cc_half > 0.0)
       std::printf("Resolution cc_half:       %.2f\n", res.d_min_cc_half);
@@ -203,6 +220,7 @@ int run_program(int argc, char **argv) {
       merging_statistics(to_limit, run.g, group, *experiments[0].crystal,
                          shells, &suggested);
     }
+    phase("the suggested cut");
 
     // The summary dials.scale ends with: overall, the lowest shell and the
     // highest, and the data cut at the suggested limit.
@@ -265,6 +283,8 @@ int run_program(int argc, char **argv) {
     write_reflections(out_refl, reflections);
     write_experiments(out_expt, experiments);
     std::printf("\nWrote %s and %s\n", out_refl.c_str(), out_expt.c_str());
+    phase("writing");
+    timing.report(stdout);
   } catch (const std::exception &error) {
     std::fprintf(stderr, "mxi_scale: %s\n", error.what());
     return 1;

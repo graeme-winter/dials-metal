@@ -29,6 +29,7 @@
 #include "args.hh"
 #include "linalg.hh"
 #include "log_mirror.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -50,12 +51,17 @@ double median(std::vector<double> v) {
 } // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"--bins", "--clip", "--modules"};
-  const Arguments args = parse_arguments(argc, argv, known, known);
+  const std::set<std::string> known = {"--timing", "--bins", "--clip",
+                                       "--modules"};
+  std::set<std::string> takes_value = known;
+  takes_value.erase("--timing");
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  Timing timing(args.has("--timing"));
+  double mark = Timing::now();
   if (args.help) {
-    std::printf(
-        "usage: mxi_residuals EXPT REFL [--bins N] [--clip PX]\n"
-        "                     [--modules FASTW,FASTGAP,SLOWW,SLOWGAP]\n");
+    std::printf("usage: mxi_residuals EXPT REFL [--bins N] [--clip PX]\n"
+                "                     [--modules FASTW,FASTGAP,SLOWW,SLOWGAP] "
+                "[--timing]\n");
     return 0;
   }
   if (!args.ok) {
@@ -82,6 +88,8 @@ int run_program(int argc, char **argv) {
   try {
     const ExperimentList experiments = read_experiments(args.positional[0]);
     const Table t = read_reflections(args.positional[1]);
+    timing.add("reading", Timing::now() - mark);
+    mark = Timing::now();
     if (!t.has("xyzcal.px")) {
       std::fprintf(stderr,
                    "mxi_residuals: no xyzcal.px; run mxi_refine first\n");
@@ -272,6 +280,8 @@ int run_program(int argc, char **argv) {
     std::printf("\n  radial slope %+.4e px per px over %.0f px = %+.3f px\n",
                 slope, points.back().radius - points.front().radius,
                 slope * (points.back().radius - points.front().radius));
+    timing.add("computing and printing", Timing::now() - mark);
+    timing.report(stdout);
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_residuals: %s\n", e.what());

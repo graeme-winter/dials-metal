@@ -23,6 +23,7 @@
 #include "predict.hh"
 #include "profile_model.hh"
 #include "shoebox.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -50,7 +51,8 @@ void usage(const char *program) {
       "  --min-zeta Z      skip reflections whose zeta is below Z (0.05)\n"
       "  --first-image N --last-image N   restrict to part of the scan; a "
       "whole\n"
-      "                    sweep of shoeboxes does not fit in memory\n",
+      "                    sweep of shoeboxes does not fit in memory\n"
+      "  --timing          where the time goes\n",
       program);
 }
 
@@ -58,9 +60,14 @@ void usage(const char *program) {
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
-      "-o",         "--n-sigma",   "--sigma-b",     "--sigma-m",    "--d-min",
-      "--min-zeta", "--box-scale", "--first-image", "--last-image", "--shape"};
-  const Arguments args = parse_arguments(argc, argv, known, known);
+      "--timing",      "-o",           "--n-sigma",  "--sigma-b",
+      "--sigma-m",     "--d-min",      "--min-zeta", "--box-scale",
+      "--first-image", "--last-image", "--shape"};
+  std::set<std::string> takes_value = known;
+  takes_value.erase("--timing");
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  Timing timing(args.has("--timing"));
+  double mark = Timing::now();
   if (args.help) {
     usage(argv[0]);
     return 0;
@@ -78,6 +85,8 @@ int run_program(int argc, char **argv) {
 
   try {
     ExperimentList experiments = read_experiments(args.positional[0]);
+    timing.add("reading", Timing::now() - mark);
+    mark = Timing::now();
     if (experiments.size() == 0) {
       std::fprintf(stderr, "mxi_mask: no experiments\n");
       return 1;
@@ -283,6 +292,8 @@ int run_program(int argc, char **argv) {
     std::printf("wrote %s\n", path.c_str());
     std::printf("\n  dials.image_viewer %s %s\n", args.positional[0].c_str(),
                 path.c_str());
+    timing.add("computing, printing and writing", Timing::now() - mark);
+    timing.report(stdout);
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_mask: %s\n", e.what());

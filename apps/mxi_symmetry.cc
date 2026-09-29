@@ -14,6 +14,7 @@
 #include "log_mirror.hh"
 #include "refl.hh"
 #include "symmetry.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -25,15 +26,18 @@ void usage() {
       "  --max-delta D     the lattice's symmetry to D degrees of obliquity "
       "(2)\n"
       "  --output-expt PATH   the models, reindexed (symmetrized.expt)\n"
-      "  --output-refl PATH   the reflections, reindexed (symmetrized.refl)\n");
+      "  --output-refl PATH   the reflections, reindexed (symmetrized.refl)\n"
+      "  --timing          where the time goes\n");
 }
 
 } // namespace
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {"--max-delta", "--output-expt",
-                                       "--output-refl"};
-  const Arguments args = parse_arguments(argc, argv, known, known);
+                                       "--output-refl", "--timing"};
+  std::set<std::string> takes_value = known;
+  takes_value.erase("--timing");
+  const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage();
     return 0;
@@ -49,9 +53,17 @@ int run_program(int argc, char **argv) {
     usage();
     return 2;
   }
+  Timing timing(args.has("--timing"));
   try {
+    double mark = Timing::now();
+    const auto phase = [&](const char *name) {
+      const double t = Timing::now();
+      timing.add(name, t - mark);
+      mark = t;
+    };
     ExperimentList experiments = read_experiments(args.positional[0]);
     Table reflections = read_reflections(args.positional[1]);
+    phase("reading");
     if (experiments.size() != 1 || !experiments[0].crystal)
       throw std::runtime_error("one sweep with a crystal, for now");
     const UnitCell cell = experiments[0].crystal->cell();
@@ -61,6 +73,7 @@ int run_program(int argc, char **argv) {
     P1Selection selection;
     const P1Intensities merged =
         merge_in_p1(experiments, reflections, &selection);
+    phase("merging in P1, and the resolution limit");
     std::printf("%zu observations; %zu removed with I/sigma below -5\n",
                 selection.observations, selection.negative);
     std::printf("Resolution from CC half above 0.6: %.2f A; from <I>/<sigma> "
@@ -70,10 +83,16 @@ int run_program(int argc, char **argv) {
                 selection.d_min);
     P1Intensities normalised = merged;
     const std::size_t wilson = normalise(normalised);
+    phase("normalising");
     std::printf("%zu Wilson outliers removed, E^2 of 16 or more\n", wilson);
     const std::vector<Rotation> lattice =
         lattice_symmetry(cell, args.number("--max-delta", 2.0));
+    phase("the lattice's symmetry");
     const LaueScores scores = score_laue_groups(normalised, lattice);
+    phase("scoring");
+    timing.add("E(CC) and sigma(CC)", scores.t_estimates, 1);
+    timing.add("the elements", scores.t_elements, 1);
+    timing.add("the subgroups", scores.t_groups, 1);
     std::printf("%zu reflections merged in P1, Friedel mates apart; the "
                 "lattice has %zu rotations, "
                 "%zu symmetry "
@@ -118,6 +137,7 @@ int run_program(int argc, char **argv) {
     if (!best)
       throw std::runtime_error(
           "the most likely group could not be put in a reference setting");
+    phase("naming the subgroups, and printing");
 
     // Screw axes from the absences, in the chosen group's own setting.
     std::vector<Miller> hkl;
@@ -125,6 +145,7 @@ int run_program(int argc, char **argv) {
       hkl.push_back(best->cb.apply(h));
     const SpaceGroupChoice choice =
         choose_space_group(hkl, merged.i, merged.sigma, best->group);
+    phase("the space group, by absences");
     std::printf(
         "\nSpace groups with Patterson group %s, judged by their absences\n",
         best->group.name().c_str());
@@ -151,6 +172,8 @@ int run_program(int argc, char **argv) {
     write_experiments(out_expt, experiments);
     write_reflections(out_refl, reflections);
     std::printf("\nWrote %s and %s\n", out_expt.c_str(), out_refl.c_str());
+    phase("reindexing and writing");
+    timing.report(stdout);
   } catch (const std::exception &error) {
     std::fprintf(stderr, "mxi_symmetry: %s\n", error.what());
     return 1;

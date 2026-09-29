@@ -18,6 +18,7 @@
 #include "log_mirror.hh"
 #include "profile_model.hh"
 #include "shoebox.hh"
+#include "timing.hh"
 
 namespace mxi {
 
@@ -35,19 +36,23 @@ void usage(const char *program) {
       "  --compare --compare-sigma-b B --compare-sigma-m M\n"
       "                    also report the captured fraction for another "
       "pair,\n"
-      "                    to see which of them the data prefers\n",
+      "                    to see which of them the data prefers\n"
+      "  --timing          where the time goes\n",
       program);
 }
 
 } // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {
-      "--all",     "--n-sigma",         "--min-zeta",
-      "--compare", "--compare-sigma-b", "--compare-sigma-m"};
+  const std::set<std::string> known = {"--timing",         "--all",
+                                       "--n-sigma",        "--min-zeta",
+                                       "--compare",        "--compare-sigma-b",
+                                       "--compare-sigma-m"};
   const std::set<std::string> takes_value = {
       "--n-sigma", "--min-zeta", "--compare-sigma-b", "--compare-sigma-m"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
+  Timing timing(args.has("--timing"));
+  double mark = Timing::now();
   if (args.help) {
     usage(argv[0]);
     return 0;
@@ -65,6 +70,8 @@ int run_program(int argc, char **argv) {
   try {
     const ExperimentList experiments = read_experiments(args.positional[0]);
     const Table reflections = read_reflections(args.positional[1]);
+    timing.add("reading", Timing::now() - mark);
+    mark = Timing::now();
     if (experiments.size() == 0) {
       std::fprintf(stderr, "mxi_profile: no experiments\n");
       return 1;
@@ -209,6 +216,8 @@ int run_program(int argc, char **argv) {
         "docs/integration.md: every pixel here is mapped through the same\n"
         "px-to-mm correction that s1 was built with, which is demonstrably\n"
         "right and takes sigma_b further from DIALS, not closer.\n");
+    timing.add("computing, printing and writing", Timing::now() - mark);
+    timing.report(stdout);
     return 0;
   } catch (const std::exception &e) {
     std::fprintf(stderr, "mxi_profile: %s\n", e.what());
