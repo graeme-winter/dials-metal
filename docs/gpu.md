@@ -67,6 +67,13 @@ learning, which uses the same geometry, from 2.18 to 1.20, and the fit from 4.71
 thread-seconds to 2.83. The corners' exact geometry, one call a pixel corner,
 is now a quarter of what is left.
 
+And a strong reflection's cells were computed twice, for learning and again for
+fitting, from the same box, s1, phi and grid. In one pass the box learned from
+is the box fitted, so its cells are kept with it: carrying the profile onto the
+pixels went to 1.54 s, and the fit to 2.27 thread-seconds, 52 per cent less than
+at the start, for 0.01 GB more held on the 300 image sweep. Byte-identical, in one
+pass and in two, which computes them afresh.
+
 ## Scan-varying refinement, where the normal equations were the cost
 
 The static case below is not the command anyone actually runs. This is:

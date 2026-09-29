@@ -1149,6 +1149,10 @@ passes' byte for byte (`python/tests/test_single_pass.py`). What that rests on:
   the fit sets anyway; so a held box drops its background and is the box the
   second pass would rebuild. If that ever changes -- `close()` touching the mask
   or pixels -- the held box must be copied first.
+* **A held box's pixel cells are learning's own**: the geometry of where its
+  subdivisions fall in the grid, from its extent, s1, phi and the grid, all the
+  same for its fit. If a fit ever used a different s1 or phi or grid -- a
+  refined model between learning and fitting, say -- it must compute them.
 * **A chunk's save skips the boxes one pass holds**: their release saves them.
   Saving them in the chunk overwrote boxes fitted in the same chunk with the
   emptied ones the move left, and the table failed to write.

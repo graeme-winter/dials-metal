@@ -28,11 +28,7 @@ namespace {
 //: exactly. Interpolation alone is good to about 1e-7 degrees and put a
 //: subdivision across a boundary in 147 of 3000 real boxes; with the guard the
 //: cells are the direct computation's.
-struct PixelCells {
-  std::vector<std::uint32_t> start;
-  std::vector<std::uint32_t> cell; // i2 * side + i1
-  std::vector<std::uint16_t> hits;
-};
+// (PixelCells is in reference.hh, so that a box's cells can be kept.)
 
 //: floor(t), exactly: truncating to an integer and back, one less where that
 //: rounded up. On x86-64 built for the baseline instruction set std::floor is a
@@ -367,7 +363,7 @@ Transformed transform_shoebox_direct(const Experiment &e, const Shoebox &box,
 
 Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
                               const Vec3 &s1, double phi_calculated,
-                              const GridSpec &spec) {
+                              const GridSpec &spec, PixelCells *cells_out) {
   // transform_shoebox_direct's answer, tested against it, faster two ways.
   // The face through pixel_cells: 49 per cent of the direct version's time
   // was epsilon_of for every subdivision. And the voxels: every valid voxel
@@ -404,8 +400,10 @@ Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
   double inside = 0.0;
   double total = 0.0;
 
-  const PixelCells cells = pixel_cells(e, frame, p, box, spec.subdivisions,
-                                       side, span_d, step_d, phi_calculated);
+  PixelCells local;
+  PixelCells &cells = cells_out ? *cells_out : local;
+  cells = pixel_cells(e, frame, p, box, spec.subdivisions, side, span_d, step_d,
+                      phi_calculated);
   const std::int32_t nx = box.nx(), ny = box.ny();
   for (std::int32_t z = 0; z < box.nz(); ++z) {
     const Planes planes =
@@ -587,7 +585,8 @@ profile_on_pixels_direct(const Experiment &e, const Shoebox &box,
 std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
                                       const Vec3 &s1, double phi_calculated,
                                       const GridSpec &spec,
-                                      const std::vector<double> &reference) {
+                                      const std::vector<double> &reference,
+                                      const PixelCells *cells_in) {
   // profile_on_pixels_direct's answer, tested against it. The face through
   // pixel_cells, as transform_shoebox; and each image's eps3 planes blended
   // into one slice of the grid once, so that a voxel is its pixel's short list
@@ -616,8 +615,18 @@ std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
   const std::int32_t nx = box.nx(), ny = box.ny();
   out.assign(box.size(), 0.0);
 
-  const PixelCells cells = pixel_cells(e, frame, p, box, spec.subdivisions,
-                                       side, span_d, step_d, phi_calculated);
+  // The cells learning computed for this box, if it kept them -- the same
+  // box, s1, phi and grid, so the same cells -- else computed here.
+  const bool reuse =
+      cells_in != nullptr &&
+      cells_in->start.size() == static_cast<std::size_t>(box.nx()) *
+                                        static_cast<std::size_t>(box.ny()) +
+                                    1;
+  PixelCells computed;
+  if (!reuse)
+    computed = pixel_cells(e, frame, p, box, spec.subdivisions, side, span_d,
+                           step_d, phi_calculated);
+  const PixelCells &cells = reuse ? *cells_in : computed;
   const std::size_t slice =
       static_cast<std::size_t>(side) * static_cast<std::size_t>(side);
   std::vector<double> blended(slice);

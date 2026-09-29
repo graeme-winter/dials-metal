@@ -1051,6 +1051,9 @@ int run_program(int argc, char **argv) {
     };
     std::vector<Shoebox> held;
     std::vector<std::size_t> held_rows;
+    // A held box's cells, if it was learned from: fitting uses them rather
+    // than computing them again.
+    std::vector<PixelCells> held_cells;
     std::size_t most_held = 0;
     double most_held_bytes = 0.0;
 
@@ -1060,7 +1063,8 @@ int run_program(int argc, char **argv) {
     // The fit's time, summed across threads, by stage: interpolating the
     // reference, carrying it onto the pixels, and the least squares.
     ThreadSeconds t_fit_interpolate, t_fit_onto, t_fit_solve;
-    const auto fit_one = [&](std::size_t row, Shoebox &box) {
+    const auto fit_one = [&](std::size_t row, Shoebox &box,
+                             const PixelCells *cells) {
       if (box.data.empty())
         return;
       const Prediction &q = *planned[row].prediction;
@@ -1091,7 +1095,7 @@ int run_program(int argc, char **argv) {
       // DIALS has 0.84 -- errors too small by 1.6, and everything weighted
       // by them wrong.
       const std::vector<double> on_pixels =
-          profile_on_pixels(e, box, q.s1, q.phi, grid_spec, local);
+          profile_on_pixels(e, box, q.s1, q.phi, grid_spec, local, cells);
       const double f2 = Timing::now();
       t_fit_onto.add(f2 - f1);
       if (on_pixels.empty())
@@ -1141,6 +1145,10 @@ int run_program(int argc, char **argv) {
       for (const Shoebox &box : held)
         bytes += static_cast<double>(box.data.size() * sizeof(float) +
                                      box.mask.size());
+      for (const PixelCells &c : held_cells)
+        bytes += static_cast<double>((c.start.size() + c.cell.size()) *
+                                         sizeof(std::uint32_t) +
+                                     c.hits.size() * sizeof(std::uint16_t));
       most_held_bytes = std::max(most_held_bytes, bytes);
       const int ready = final_through();
       std::vector<std::size_t> now;
@@ -1151,7 +1159,7 @@ int run_program(int argc, char **argv) {
         return;
       const double t0 = now_wall();
       in_parallel(now.size(), [&](std::size_t n) {
-        fit_one(held_rows[now[n]], held[now[n]]);
+        fit_one(held_rows[now[n]], held[now[n]], &held_cells[now[n]]);
       });
       t_fit += now_wall() - t0;
       std::vector<bool> gone(held.size(), false);
@@ -1164,13 +1172,16 @@ int run_program(int argc, char **argv) {
       }
       std::vector<Shoebox> keep;
       std::vector<std::size_t> keep_rows;
+      std::vector<PixelCells> keep_cells;
       for (std::size_t k = 0; k < held.size(); ++k)
         if (!gone[k]) {
           keep.push_back(std::move(held[k]));
           keep_rows.push_back(held_rows[k]);
+          keep_cells.push_back(std::move(held_cells[k]));
         }
       held.swap(keep);
       held_rows.swap(keep_rows);
+      held_cells.swap(keep_cells);
     };
     std::atomic<bool> learned_into_final{false};
 
@@ -1387,6 +1398,7 @@ int run_program(int argc, char **argv) {
       // Which of this chunk's boxes one pass holds for fitting: their release
       // saves them, not the save below.
       std::vector<bool> moved_to_held(count, false);
+      std::vector<PixelCells> cells_of;
 
       if (pass == 0) {
         // Integrate, in parallel over boxes.
@@ -1428,6 +1440,8 @@ int run_program(int argc, char **argv) {
           constexpr std::size_t kBlocks = 16;
           const std::size_t blocks =
               std::min(kBlocks, std::max<std::size_t>(count, 1));
+          // The cells each box's transform computes, kept for its fit.
+          cells_of.assign(single_pass ? count : 0, PixelCells{});
           std::vector<ReferenceProfiles> partial(blocks, reference);
           for (ReferenceProfiles &r : partial) {
             for (std::vector<double> &p : r.profile)
@@ -1450,7 +1464,8 @@ int run_program(int argc, char **argv) {
                 continue;
               const Prediction &q = *planned[row].prediction;
               const Transformed t =
-                  transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec);
+                  transform_shoebox(e, boxes[i], q.s1, q.phi, grid_spec,
+                                    single_pass ? &cells_of[i] : nullptr);
               if (!t.valid || t.outside > 0.05)
                 continue;
               const std::size_t region =
@@ -1492,6 +1507,8 @@ int run_program(int argc, char **argv) {
             std::vector<float>().swap(boxes[i].background);
             held.push_back(std::move(boxes[i]));
             held_rows.push_back(rows[i]);
+            held_cells.push_back(i < cells_of.size() ? std::move(cells_of[i])
+                                                     : PixelCells{});
             moved_to_held[i] = true;
           }
           finalise_closed(chunk_end);
@@ -1500,7 +1517,8 @@ int run_program(int argc, char **argv) {
       } else {
         // Fit, in parallel over boxes: each writes only its own row.
         const double t0 = now_wall();
-        in_parallel(count, [&](std::size_t i) { fit_one(rows[i], boxes[i]); });
+        in_parallel(
+            count, [&](std::size_t i) { fit_one(rows[i], boxes[i], nullptr); });
         t_fit += now_wall() - t0;
       }
 

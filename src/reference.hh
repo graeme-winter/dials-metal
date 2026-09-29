@@ -39,6 +39,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "geometry.hh"
@@ -83,9 +84,21 @@ struct Transformed {
   double outside = 0.0;
 };
 
+//: Where each subdivision of each pixel of a box falls on the grid's (e1, e2)
+//: face: for pixel k, cells start[k] to start[k + 1] and how many of its
+//: subdivisions reached each. Geometry alone -- the box's extent, s1 and phi --
+//: so a box learned from and then fitted can keep them.
+struct PixelCells {
+  std::vector<std::uint32_t> start;
+  std::vector<std::uint32_t> cell; // i2 * side + i1
+  std::vector<std::uint16_t> hits;
+};
+
+//: `cells_out`, if given, receives the box's cells, for profile_on_pixels.
 Transformed transform_shoebox(const Experiment &e, const Shoebox &box,
                               const Vec3 &s1, double phi_calculated,
-                              const GridSpec &spec);
+                              const GridSpec &spec,
+                              PixelCells *cells_out = nullptr);
 
 //: The same thing done the obvious way: every subdivision of every pixel
 //: through epsilon_of, every valid voxel through every subdivision and plane.
@@ -216,10 +229,13 @@ void finalise_block(ReferenceProfiles *reference, int block, std::size_t least,
 //: DIALS, fitting on the grid claimed a variance 0.35 of the summed one at
 //: high resolution where DIALS has 0.84, so the errors were too small by a
 //: factor of 1.6 and everything downstream weighted by them was wrong.
+//: `cells`, if given, are the box's from transform_shoebox, used rather than
+//: computed again; ignored unless they are the box's size.
 std::vector<double> profile_on_pixels(const Experiment &e, const Shoebox &box,
                                       const Vec3 &s1, double phi_calculated,
                                       const GridSpec &spec,
-                                      const std::vector<double> &reference);
+                                      const std::vector<double> &reference,
+                                      const PixelCells *cells = nullptr);
 
 //: The same thing done the obvious way: every subdivision of every pixel
 //: through epsilon_of, every voxel through every subdivision and plane.

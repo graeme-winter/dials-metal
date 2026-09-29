@@ -158,7 +158,9 @@ finalised, in order, against the rule `finalise_reference` applies to the whole
 scan -- a sparse cell takes its block's own average -- and every held box whose
 blocks are final is fitted and dropped. A box is held without its background
 array, which the fit restores from the GLM's mean as the second pass did: 5
-bytes a voxel.
+bytes a voxel. A box learned from keeps the cells its transform computed -- where each
+pixel's subdivisions fall in the grid -- and its fit uses them rather than
+computing them again.
 
 The answer is the two passes' own, byte for byte. The profiles are learned in
 the same chunks and the same order, a finished cell only has zeroes added to it
