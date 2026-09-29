@@ -34,6 +34,19 @@ struct PixelCells {
   std::vector<std::uint16_t> hits;
 };
 
+//: floor(t), exactly: truncating to an integer and back, one less where that
+//: rounded up. On x86-64 built for the baseline instruction set std::floor is a
+//: call into libm -- rounding instructions came with SSE4.1 -- and pixel_cells
+//: took two a subdivision, some 540 million on a 300 image sweep. Equal to
+//: std::floor for every finite t below 2^53 in size, which is all a grid
+//: coordinate can be; anything else goes to std::floor.
+inline double exact_floor(double t) {
+  if (!(std::abs(t) < 4.0e15))
+    return std::floor(t);
+  const double f = static_cast<double>(static_cast<std::int64_t>(t));
+  return f > t ? f - 1.0 : f;
+}
+
 PixelCells pixel_cells(const Experiment &e, const KabschFrame &frame,
                        const Panel &p, const Shoebox &box, int sub, int side,
                        double span_d, double step_d, double phi_calculated) {
@@ -59,10 +72,35 @@ PixelCells pixel_cells(const Experiment &e, const KabschFrame &frame,
   out.start.assign(pixels + 1, 0);
   out.cell.reserve(pixels * 4);
   out.hits.reserve(pixels * 4);
-  const auto near_boundary = [](double f) {
-    const double r = f - std::floor(f);
-    return std::min(r, 1.0 - r) < 1e-3;
-  };
+  // The bilinear weights depend only on where a subdivision sits in its pixel,
+  // so they are formed once a box, not once a pixel -- each product exactly as
+  // the sum below used to form it, (1 - u)(1 - v) and so on, so the sums and
+  // their rounding are unchanged.
+  const std::size_t subs =
+      static_cast<std::size_t>(sub) * static_cast<std::size_t>(sub);
+  std::vector<double> w00(subs), w10(subs), w01(subs), w11(subs), uu(subs),
+      vv(subs);
+  for (int sy = 0; sy < sub; ++sy) {
+    const double v = (static_cast<double>(sy) + 0.5) / static_cast<double>(sub);
+    for (int sx = 0; sx < sub; ++sx) {
+      const double u =
+          (static_cast<double>(sx) + 0.5) / static_cast<double>(sub);
+      const std::size_t n =
+          static_cast<std::size_t>(sy) * static_cast<std::size_t>(sub) +
+          static_cast<std::size_t>(sx);
+      w00[n] = (1.0 - u) * (1.0 - v);
+      w10[n] = u * (1.0 - v);
+      w01[n] = (1.0 - u) * v;
+      w11[n] = u * v;
+      uu[n] = u;
+      vv[n] = v;
+    }
+  }
+  // A pixel's cells, gathered locally in order of first appearance, as the
+  // output list used to be searched and grown; at most one a subdivision.
+  std::vector<std::uint32_t> ids(subs);
+  std::vector<std::uint16_t> counts(subs);
+  std::vector<double> ts1(subs), ts2(subs);
   for (std::int32_t y = 0; y < ny; ++y) {
     for (std::int32_t x = 0; x < nx; ++x) {
       const std::size_t k =
@@ -72,45 +110,59 @@ PixelCells pixel_cells(const Experiment &e, const KabschFrame &frame,
       const std::size_t a00 =
           static_cast<std::size_t>(y) * cw + static_cast<std::size_t>(x);
       const std::size_t a10 = a00 + 1, a01 = a00 + cw, a11 = a01 + 1;
-      for (int sy = 0; sy < sub; ++sy) {
-        const double v =
-            (static_cast<double>(sy) + 0.5) / static_cast<double>(sub);
-        for (int sx = 0; sx < sub; ++sx) {
-          const double u =
-              (static_cast<double>(sx) + 0.5) / static_cast<double>(sub);
-          double e1 = (1.0 - u) * (1.0 - v) * c1[a00] +
-                      u * (1.0 - v) * c1[a10] + (1.0 - u) * v * c1[a01] +
-                      u * v * c1[a11];
-          double e2 = (1.0 - u) * (1.0 - v) * c2[a00] +
-                      u * (1.0 - v) * c2[a10] + (1.0 - u) * v * c2[a01] +
-                      u * v * c2[a11];
-          if (near_boundary((e1 + span_d) / step_d) ||
-              near_boundary((e2 + span_d) / step_d)) {
-            const Epsilon eps = epsilon_of(
-                e, frame, p, static_cast<double>(box.bbox[0] + x) + u,
-                static_cast<double>(box.bbox[2] + y) + v, phi_calculated,
-                phi_calculated);
-            e1 = eps.e1;
-            e2 = eps.e2;
-          }
-          const int i1 = static_cast<int>(std::floor((e1 + span_d) / step_d));
-          const int i2 = static_cast<int>(std::floor((e2 + span_d) / step_d));
-          if (i1 < 0 || i1 >= side || i2 < 0 || i2 >= side)
-            continue;
-          const std::uint32_t id = static_cast<std::uint32_t>(i2 * side + i1);
-          bool found = false;
-          for (std::size_t q = out.start[k]; q < out.cell.size(); ++q) {
-            if (out.cell[q] == id) {
-              ++out.hits[q];
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            out.cell.push_back(id);
-            out.hits.push_back(1);
-          }
+      const double c1_00 = c1[a00], c1_10 = c1[a10], c1_01 = c1[a01],
+                   c1_11 = c1[a11];
+      const double c2_00 = c2[a00], c2_10 = c2[a10], c2_01 = c2[a01],
+                   c2_11 = c2[a11];
+      // First the arithmetic alone, every subdivision of the pixel, in a loop
+      // with no branches for the compiler to vectorise; then the boundary
+      // test and the counting. The expressions are the ones they were.
+      for (std::size_t n = 0; n < subs; ++n) {
+        const double e1 =
+            w00[n] * c1_00 + w10[n] * c1_10 + w01[n] * c1_01 + w11[n] * c1_11;
+        const double e2 =
+            w00[n] * c2_00 + w10[n] * c2_10 + w01[n] * c2_01 + w11[n] * c2_11;
+        // (e + span) / step once for each, for the boundary test and for the
+        // cell: it was computed twice, and a division is the cost.
+        ts1[n] = (e1 + span_d) / step_d;
+        ts2[n] = (e2 + span_d) / step_d;
+      }
+      std::size_t found = 0;
+      for (std::size_t n = 0; n < subs; ++n) {
+        double t1 = ts1[n], t2 = ts2[n];
+        double e1 = 0.0, e2 = 0.0;
+        double f1 = exact_floor(t1), f2 = exact_floor(t2);
+        const double r1 = t1 - f1, r2 = t2 - f2;
+        if (std::min(r1, 1.0 - r1) < 1e-3 || std::min(r2, 1.0 - r2) < 1e-3) {
+          const Epsilon eps = epsilon_of(
+              e, frame, p, static_cast<double>(box.bbox[0] + x) + uu[n],
+              static_cast<double>(box.bbox[2] + y) + vv[n], phi_calculated,
+              phi_calculated);
+          e1 = eps.e1;
+          e2 = eps.e2;
+          t1 = (e1 + span_d) / step_d;
+          t2 = (e2 + span_d) / step_d;
+          f1 = exact_floor(t1);
+          f2 = exact_floor(t2);
         }
+        const int i1 = static_cast<int>(f1);
+        const int i2 = static_cast<int>(f2);
+        if (i1 < 0 || i1 >= side || i2 < 0 || i2 >= side)
+          continue;
+        const std::uint32_t id = static_cast<std::uint32_t>(i2 * side + i1);
+        std::size_t q = 0;
+        while (q < found && ids[q] != id)
+          ++q;
+        if (q == found) {
+          ids[found] = id;
+          counts[found] = 0;
+          ++found;
+        }
+        ++counts[q];
+      }
+      for (std::size_t q = 0; q < found; ++q) {
+        out.cell.push_back(ids[q]);
+        out.hits.push_back(counts[q]);
       }
     }
   }

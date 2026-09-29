@@ -57,6 +57,16 @@ and a strong reflection's cells are computed twice, for learning and for
 fitting. Those can be removed with the arithmetic unchanged, on the CPU, for
 every platform.
 
+Done, with the arithmetic unchanged and integrated.refl byte-identical: the
+weights formed once a box, (e + span) / step once, the cells gathered in a
+local array, `std::floor` replaced by an exact truncation (on baseline x86-64 it
+is a libm call, and there were 540 million), and the arithmetic split from the
+branches so that the compiler vectorises it. On one thread on the 300 image
+sweep, carrying the profile onto the pixels went from 3.98 s to 2.16, profile
+learning, which uses the same geometry, from 2.18 to 1.20, and the fit from 4.71
+thread-seconds to 2.83. The corners' exact geometry, one call a pixel corner,
+is now a quarter of what is left.
+
 ## Scan-varying refinement, where the normal equations were the cost
 
 The static case below is not the command anyone actually runs. This is:
