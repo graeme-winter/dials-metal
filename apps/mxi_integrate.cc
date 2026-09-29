@@ -207,7 +207,10 @@ void usage(const char *program) {
       "                    chunks, so this bounds memory, not re-reading\n"
       "  --max-boxes N     boxes opened per chunk (20000); shortens the chunk\n"
       "                    when it bites, about 31 kB a box\n"
-      "  --summation-only  skip profile fitting and its second pass\n"
+      "  --summation-only  skip profile fitting\n"
+      "  --two-pass        read the images twice, to learn and then to fit, "
+      "as\n"
+      "                    before one pass; the same answer, byte for byte\n"
       "  --grid-points N   the profile grid is 2N+1 a side (4)\n"
       "  --subdivisions N  pixel subdivisions per axis (5, as Kabsch uses)\n"
       "  --regions N       detector divided N by N for reference profiles (3)\n"
@@ -365,6 +368,7 @@ int run_program(int argc, char **argv) {
                                        "--scan-blocks",
                                        "--reference-signal",
                                        "--summation-only",
+                                       "--two-pass",
                                        "--save-profiles",
                                        "--min-zeta",
                                        "--least-measured",
@@ -375,6 +379,7 @@ int run_program(int argc, char **argv) {
   takes_value.erase("--save-shoeboxes");
   takes_value.erase("--timing");
   takes_value.erase("--summation-only");
+  takes_value.erase("--two-pass");
   takes_value.erase("--postrefine");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
@@ -931,14 +936,20 @@ int run_program(int argc, char **argv) {
                             [&](std::size_t i, std::size_t) { body(i); });
     };
 
-    // TWO PASSES OVER THE IMAGES
+    // ONE PASS OVER THE IMAGES, AND WHY IT GIVES THE TWO PASSES' ANSWER
     //
     // The reference profiles are learned from the reflections themselves, so
-    // they cannot exist until something has been integrated. The images are
-    // therefore read twice: once to sum and to learn, once to fit. That is the
-    // slow way round and it is the right one -- a profile learned from part of
-    // a scan and applied to the rest is a different algorithm, and one whose
-    // errors would be hard to attribute.
+    // none exists until something has been integrated, and the images used to
+    // be read twice: once to sum and to learn, once to fit. But a reflection's
+    // profile comes only from the cells near it, and a cell is complete once
+    // the scan has passed every box that learns into its block. So one pass
+    // holds each shoebox until the blocks its profile is interpolated from are
+    // final, fits it and lets it go. That is NOT a profile learned from part of
+    // a scan and applied to the rest: every fit uses the finished profile it
+    // would have used anyway, the profiles are learned in the same order, and
+    // a held box is the box the second pass would rebuild -- so the table is
+    // the same bytes, which python/tests/test_single_pass.py holds. --two-pass
+    // keeps the old way, to compare against.
     GridSpec grid_spec;
     grid_spec.n = static_cast<int>(args.number("--grid-points", 4.0));
     grid_spec.sigma_d = sigma_b;
@@ -962,11 +973,138 @@ int run_program(int argc, char **argv) {
         grid_spec, static_cast<int>(args.number("--regions", 3.0)), scan_blocks,
         e.detector.size(), first_image, last_image);
     const bool fitting = !args.has("--summation-only");
+    // ONE PASS over the images unless --two-pass: a reflection is fitted as
+    // soon as the scan blocks its profile is interpolated from are complete,
+    // its shoebox held until then. See "One pass over the images" in
+    // docs/integration.md; the answer is the two passes' own, byte for byte.
+    const bool single_pass = fitting && !args.has("--two-pass");
     // Which reflections are worth learning from: strong, nearly whole, and
     // mostly inside the grid. DIALS marks these `reference_spot`.
     const double least_signal = args.number("--reference-signal", 10.0);
     // How much of a reflection must have been measured for its fit to count.
     const double least_measured = args.number("--least-measured", 0.6);
+
+    // For one pass: the scan block each reflection learns into, the last block
+    // its fit waits for -- the neighbours the interpolation uses, exactly --
+    // and the frame after which every box learning into a block has closed.
+    // All known before a frame is read: they depend on positions alone.
+    const int n_blocks = std::max(reference.blocks, 1);
+    std::vector<std::int32_t> block_done(
+        static_cast<std::size_t>(n_blocks),
+        std::numeric_limits<std::int32_t>::min());
+    std::vector<int> learns_into, waits_for;
+    if (single_pass) {
+      learns_into.assign(planned.size(), 0);
+      waits_for.assign(planned.size(), 0);
+      in_parallel(planned.size(), [&](std::size_t r) {
+        const Prediction &q = *planned[r].prediction;
+        learns_into[r] = block_of_cell(
+            reference,
+            reference.region_of(panel, static_cast<std::size_t>(q.panel),
+                                q.px_fast, q.px_slow, q.z));
+        int last = 0;
+        for (const Neighbour &nb :
+             neighbours_of(reference, panel, static_cast<std::size_t>(q.panel),
+                           q.px_fast, q.px_slow, q.z))
+          if (nb.weight > 0.0)
+            last = std::max(last, block_of_cell(reference, nb.region));
+        waits_for[r] = last;
+      });
+      for (std::size_t r = 0; r < planned.size(); ++r) {
+        std::int32_t &done =
+            block_done[static_cast<std::size_t>(learns_into[r])];
+        done = std::max(done, planned[r].bbox[5]);
+      }
+    }
+    // Blocks final in order, as their boxes all close: each against its own
+    // average if it has spots, else the latest earlier one's, else -- no
+    // earlier block having any -- it waits for the first later one that
+    // does. finalise_reference's rule, a block at a time.
+    int finalised_through = -1;
+    std::vector<int> waiting_empty;
+    std::vector<double> latest_average;
+    bool have_average = false;
+    const auto finalise_closed = [&](std::int32_t closed_to) {
+      while (finalised_through + 1 < n_blocks &&
+             block_done[static_cast<std::size_t>(finalised_through + 1)] <=
+                 closed_to) {
+        const int b = ++finalised_through;
+        std::vector<double> average;
+        if (block_average(reference, b, &average)) {
+          for (int w : waiting_empty)
+            finalise_block(&reference, w, 10, average);
+          waiting_empty.clear();
+          finalise_block(&reference, b, 10, average);
+          latest_average = average;
+          have_average = true;
+        } else if (have_average) {
+          finalise_block(&reference, b, 10, latest_average);
+        } else {
+          waiting_empty.push_back(b);
+        }
+      }
+    };
+    // Every block up to this one is final.
+    const auto final_through = [&]() {
+      return waiting_empty.empty() ? finalised_through
+                                   : waiting_empty.front() - 1;
+    };
+    std::vector<Shoebox> held;
+    std::vector<std::size_t> held_rows;
+    std::size_t most_held = 0;
+    double most_held_bytes = 0.0;
+
+    // One reflection's profile fit, which both ways of reading the images
+    // call: against its own pixels, with the reference profile interpolated
+    // between the neighbouring cells and carried onto them.
+    const auto fit_one = [&](std::size_t row, Shoebox &box) {
+      if (box.data.empty())
+        return;
+      const Prediction &q = *planned[row].prediction;
+      // The background the GLM found in the first pass, put back so the
+      // fit subtracts the same thing the sum did.
+      box.background.assign(box.size(), static_cast<float>(bmean.reals[row]));
+      // No transform here. The second pass fits against the pixels, so
+      // carrying the counts onto the grid is work whose answer is thrown
+      // away -- and it is the same cost as carrying the profile back, so
+      // doing both doubled this phase.
+      //
+      // A weighted average of the nearby profiles, not the nearest one:
+      // taking the nearest makes the model jump at a cell boundary, so two
+      // reflections either side of one are fitted with different profiles.
+      const std::vector<double> local =
+          profile_at(reference, panel, static_cast<std::size_t>(q.panel),
+                     q.px_fast, q.px_slow, q.z);
+      // Fitted against the PIXELS, with the profile carried onto them,
+      // rather than against the grid with the pixels carried onto it. The
+      // two give the same intensity and very different variances: the grid
+      // has more points than the shoebox has pixels and one pixel's counts
+      // reach several of them, so treating its points as independent
+      // overcounts the information. Measured against DIALS, the grid fit
+      // claimed a variance 0.35 of the summed one at high resolution where
+      // DIALS has 0.84 -- errors too small by 1.6, and everything weighted
+      // by them wrong.
+      const std::vector<double> on_pixels =
+          profile_on_pixels(e, box, q.s1, q.phi, grid_spec, local);
+      if (on_pixels.empty())
+        return;
+      const ProfileFit fit =
+          fit_on_pixels(box, on_pixels, integrate_options.gain);
+      if (!fit.valid)
+        return;
+      // A fit is an extrapolation when part of the reflection is missing,
+      // and past some point it is guesswork dressed as a measurement. The
+      // intensity is still written, so it can be looked at; the flag that
+      // says it was profile fitted is not, so nothing downstream merges it
+      // by accident.
+      measured.reals[row] = fit.measured;
+      if (fit.measured < least_measured)
+        return;
+      iprf.reals[row] = fit.intensity;
+      iprf_var.reals[row] = fit.variance;
+      prf_cc.reals[row] = fit.correlation;
+      flags.ints[row] |= flag::kIntegratedPrf;
+    };
 
     std::vector<Shoebox> boxes;
     std::size_t at = 0;
@@ -986,6 +1124,47 @@ int run_program(int argc, char **argv) {
     // frame over two passes where 2.0 is the floor. Decompression was the
     // same 10 to 12 ms a frame as the spot finder; there were five times as
     // many of them.
+    // Fit every held box whose scan blocks are all final -- or every one, at
+    // the end -- in parallel, and let it go.
+    const auto fit_ready = [&](bool everything) {
+      most_held = std::max(most_held, held.size());
+      double bytes = 0.0;
+      for (const Shoebox &box : held)
+        bytes += static_cast<double>(box.data.size() * sizeof(float) +
+                                     box.mask.size());
+      most_held_bytes = std::max(most_held_bytes, bytes);
+      const int ready = final_through();
+      std::vector<std::size_t> now;
+      for (std::size_t k = 0; k < held.size(); ++k)
+        if (everything || waits_for[held_rows[k]] <= ready)
+          now.push_back(k);
+      if (now.empty())
+        return;
+      const double t0 = now_wall();
+      in_parallel(now.size(), [&](std::size_t n) {
+        fit_one(held_rows[now[n]], held[now[n]]);
+      });
+      t_fit += now_wall() - t0;
+      std::vector<bool> gone(held.size(), false);
+      for (std::size_t k : now) {
+        gone[k] = true;
+        if (save) {
+          to_dials_convention(&held[k]);
+          saved[held_rows[k]] = std::move(held[k]);
+        }
+      }
+      std::vector<Shoebox> keep;
+      std::vector<std::size_t> keep_rows;
+      for (std::size_t k = 0; k < held.size(); ++k)
+        if (!gone[k]) {
+          keep.push_back(std::move(held[k]));
+          keep_rows.push_back(held_rows[k]);
+        }
+      held.swap(keep);
+      held_rows.swap(keep_rows);
+    };
+    std::atomic<bool> learned_into_final{false};
+
     std::vector<Shoebox> active;
     std::vector<std::size_t> active_rows;
     std::int32_t chunk_start = planned.empty() ? 0 : planned[0].bbox[4];
@@ -1196,6 +1375,9 @@ int run_program(int argc, char **argv) {
       }
       const std::size_t count = boxes.size();
       chunk_start = chunk_end;
+      // Which of this chunk's boxes one pass holds for fitting: their release
+      // saves them, not the save below.
+      std::vector<bool> moved_to_held(count, false);
 
       if (pass == 0) {
         // Integrate, in parallel over boxes.
@@ -1265,6 +1447,12 @@ int run_program(int argc, char **argv) {
               const std::size_t region =
                   reference.region_of(panel, static_cast<std::size_t>(q.panel),
                                       q.px_fast, q.px_slow, q.z);
+              // Never into a block already final: that would mean the rule
+              // for when a block is complete was wrong, and the one pass's
+              // answer no longer the two passes'.
+              if (single_pass &&
+                  block_of_cell(reference, region) <= finalised_through)
+                learned_into_final.store(true);
               if (add_reference(&partial[b], region, t))
                 learned.fetch_add(1);
             }
@@ -1279,65 +1467,38 @@ int run_program(int argc, char **argv) {
           }
           references_used += learned.load();
           t_transform += now_wall() - t0;
+          if (learned_into_final.load())
+            throw std::logic_error(
+                "a reflection learned into a scan block already final: the "
+                "one pass's rule for when a block is complete is wrong");
+        }
+        if (single_pass) {
+          // Held until the blocks its profile comes from are final, without
+          // its background: the fit puts the GLM's mean back, as the second
+          // pass did. Then every block whose boxes have all closed is
+          // finalised, and whatever that makes ready is fitted and let go.
+          for (std::size_t i = 0; i < count; ++i) {
+            if (boxes[i].data.empty())
+              continue;
+            std::vector<float>().swap(boxes[i].background);
+            held.push_back(std::move(boxes[i]));
+            held_rows.push_back(rows[i]);
+            moved_to_held[i] = true;
+          }
+          finalise_closed(chunk_end);
+          fit_ready(false);
         }
       } else {
         // Fit, in parallel over boxes: each writes only its own row.
         const double t0 = now_wall();
-        in_parallel(count, [&](std::size_t i) {
-          if (boxes[i].data.empty())
-            return;
-          const std::size_t row = rows[i];
-          const Prediction &q = *planned[row].prediction;
-          // The background the GLM found in the first pass, put back so the
-          // fit subtracts the same thing the sum did.
-          boxes[i].background.assign(boxes[i].size(),
-                                     static_cast<float>(bmean.reals[row]));
-          // No transform here. The second pass fits against the pixels, so
-          // carrying the counts onto the grid is work whose answer is thrown
-          // away -- and it is the same cost as carrying the profile back, so
-          // doing both doubled this phase.
-          //
-          // A weighted average of the nearby profiles, not the nearest one:
-          // taking the nearest makes the model jump at a cell boundary, so two
-          // reflections either side of one are fitted with different profiles.
-          const std::vector<double> local =
-              profile_at(reference, panel, static_cast<std::size_t>(q.panel),
-                         q.px_fast, q.px_slow, q.z);
-          // Fitted against the PIXELS, with the profile carried onto them,
-          // rather than against the grid with the pixels carried onto it. The
-          // two give the same intensity and very different variances: the grid
-          // has more points than the shoebox has pixels and one pixel's counts
-          // reach several of them, so treating its points as independent
-          // overcounts the information. Measured against DIALS, the grid fit
-          // claimed a variance 0.35 of the summed one at high resolution where
-          // DIALS has 0.84 -- errors too small by 1.6, and everything weighted
-          // by them wrong.
-          const std::vector<double> on_pixels =
-              profile_on_pixels(e, boxes[i], q.s1, q.phi, grid_spec, local);
-          if (on_pixels.empty())
-            return;
-          const ProfileFit fit =
-              fit_on_pixels(boxes[i], on_pixels, integrate_options.gain);
-          if (!fit.valid)
-            return;
-          // A fit is an extrapolation when part of the reflection is missing,
-          // and past some point it is guesswork dressed as a measurement. The
-          // intensity is still written, so it can be looked at; the flag that
-          // says it was profile fitted is not, so nothing downstream merges it
-          // by accident.
-          measured.reals[row] = fit.measured;
-          if (fit.measured < least_measured)
-            return;
-          iprf.reals[row] = fit.intensity;
-          iprf_var.reals[row] = fit.variance;
-          prf_cc.reals[row] = fit.correlation;
-          flags.ints[row] |= flag::kIntegratedPrf;
-        });
+        in_parallel(count, [&](std::size_t i) { fit_one(rows[i], boxes[i]); });
         t_fit += now_wall() - t0;
       }
 
       if (save) {
         for (std::size_t i = 0; i < count; ++i) {
+          if (moved_to_held[i])
+            continue;
           // Into DIALS' convention before it goes to the file.
           //
           // Here a bad pixel keeps its region flag and loses only Valid, so
@@ -1355,8 +1516,18 @@ int run_program(int argc, char **argv) {
         }
       }
       if (at >= planned.size() && active.empty() && pass == 0 && fitting) {
-        // Between the passes: the profiles are what they are going to be.
-        finalise_reference(&reference);
+        // Between the passes -- or, in one pass, at the end of the scan: the
+        // profiles are what they are going to be.
+        if (single_pass) {
+          finalise_closed(std::numeric_limits<std::int32_t>::max());
+          for (int w : waiting_empty)
+            finalise_block(&reference, w, 10,
+                           std::vector<double>(reference.spec.size(), 0.0));
+          waiting_empty.clear();
+          reference.finalised = true;
+        } else {
+          finalise_reference(&reference);
+        }
         const std::string profile_path = args.value("--save-profiles", "");
         if (!profile_path.empty()) {
           std::FILE *f = std::fopen(profile_path.c_str(), "w");
@@ -1399,6 +1570,18 @@ int run_program(int argc, char **argv) {
                        "mxi_integrate: nothing to learn profiles from, so no "
                        "profile fitting: lower --reference-signal or check the "
                        "summation\n");
+          // Nothing learned, so nothing fitted: what one pass held goes out
+          // as it was, as the two passes' first pass left it.
+          if (single_pass && save)
+            for (std::size_t k = 0; k < held.size(); ++k) {
+              held[k].background.assign(
+                  held[k].size(),
+                  static_cast<float>(bmean.reals[held_rows[k]]));
+              to_dials_convention(&held[k]);
+              saved[held_rows[k]] = std::move(held[k]);
+            }
+        } else if (single_pass) {
+          fit_ready(true);
         } else {
           pass = 1;
           at = 0;
@@ -1525,6 +1708,11 @@ int run_program(int argc, char **argv) {
           "decompressing %.3f s (%.2f x), filling shoeboxes %.3f s (%.2f x)\n",
           t_fetch, per(t_fetch), t_decompress, per(t_decompress), t_fill,
           per(t_fill));
+      if (single_pass)
+        std::printf("  one pass: at most %zu shoeboxes held for fitting, %.2f "
+                    "GB of pixels and "
+                    "masks\n",
+                    most_held, most_held_bytes / 1e9);
     }
     return 0;
   } catch (const std::exception &error) {

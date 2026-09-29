@@ -127,10 +127,11 @@ where something is missing.
 * **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
   run, for the table; the choice needs only the one chosen.
 
-* **38.** **speed -- Integration decompresses every frame twice**, once a pass:
-  80 thread-seconds of a 28.4 s integration of 3600 frames, 11 ms a frame, more
-  than half the threads' time while frames are read. Profile fitting, 8.4 s, is
-  next.
+* **42.** **measure -- One pass over the images on the 16M sweep**: frames
+  read once, where two passes decompressed each twice (80 thread-seconds of a
+  28.4 s integration); the most shoeboxes held is estimated at some 49000, 1.1
+  GB. `mxi_integrate --timing` against `--two-pass`, and `cmp`.
+  `docs/integration.md`.
 * **39.** **speed -- Writing a reflection table costs about a second a million
   rows** in every program that writes one: 1.3 to 1.5 s in integration, symmetry
   and scaling on the 16M sweep.
@@ -148,6 +149,11 @@ where something is missing.
 ## Closed
 
 * **25.** dials.merge on `scaled.refl`: it takes it, run by Graeme.
+* **38.** Integration decompressing every frame twice: one pass over the
+  images now, each reflection fitted once its scan blocks are final, the table
+  byte-identical to two passes'. A sparse profile cell borrows its own scan
+  block's average rather than the whole scan's, which one pass needs, and a
+  scan block is 10 degrees by default. `docs/integration.md`.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

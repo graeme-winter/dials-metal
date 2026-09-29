@@ -54,7 +54,7 @@ what is in flight and how the work is done here.
 `mxi_integrate`, `mxi_symmetry`, `mxi_scale`, each interchangeable with DIALS at
 its boundary. Every program takes `--timing` (`src/timing.hh`).
 
-**In flight, waiting on Graeme's hardware** -- neither can run here:
+**In flight, waiting on Graeme's hardware** -- none can run here:
 
 * **The fused CUDA threshold** (`SPOTFINDER_GPU_FUSED=1`, `src/spots/dext_fused.hh`,
   `docs/spots.md`). Verified tile by tile on the CPU against `dext()` and compiled
@@ -64,16 +64,21 @@ its boundary. Every program takes `--timing` (`src/timing.hh`).
   98 thread-seconds of device work on 3600 frames of 16M pixels at 8 threads, 8.9
   ms a frame. If it is identical and faster, making it CUDA's default is the next
   step; if it is not identical, `test_dext_gpu` says which frame.
+* **One pass over the images in `mxi_integrate`** (`docs/integration.md`, item
+  42). Byte-identical to `--two-pass` on the 300 image sweep in every
+  configuration tried; its speed and memory on the 16M sweep are unmeasured.
+  Run both with `--timing` and `cmp` the tables; `--timing` reports the most
+  shoeboxes held, estimated at 49000 and 1.1 GB.
 * **`mxi_scale --threads`** (`src/parallel.hh`, `docs/scaling.md`). Byte-identical
   on any thread count; its speed is unmeasured, this container having one core.
   Serial baseline on the 16M sweep: 8.0 s wall, 7.4 s user.
 
-**Next, as Graeme asked: `mxi_integrate`, the most expensive step.** On the 16M
-sweep (3600 frames, 16 threads, a MacBook) it is 28.4 of the chain's 59 seconds:
-decompressing 80 thread-seconds, every frame decompressed twice, once a pass
-(item 38); profile fitting 8.4 s; opening shoeboxes 3.5 s; background and
-summation 3.0 s; writing 1.35 s. Prediction was 0.2 s there and 6.3 s on the
-300 image sweep, unexplained (item 36). Start from `mxi_integrate --timing`.
+**Next in `mxi_integrate`, the most expensive step.** Of its 28.4 s on the 16M
+sweep (a MacBook, 16 threads, two passes): profile fitting 8.4 s; opening
+shoeboxes 3.5 s; background and summation 3.0 s; writing 1.35 s; and
+decompressing, which one pass should halve. Prediction was 0.2 s there and 6.3
+s on the 300 image sweep, unexplained (item 36). Start from `mxi_integrate
+--timing` on the one-pass build.
 
 ### How work is done here
 
@@ -1125,6 +1130,28 @@ of 3000 boxes, which a test with a flat profile could not have seen.
 **A number measured is a number attributed.** Performance and agreement figures
 in the documents name their dataset. The documents that said "integration not
 started" were accurate when written; nothing marked them as dated.
+
+## One pass over the images: what keeps it the two passes' answer
+
+`mxi_integrate` fits in the same pass it learns in, and the table is the two
+passes' byte for byte (`python/tests/test_single_pass.py`). What that rests on:
+
+* **A block is final only when every box learning into it has closed** -- the
+  latest closing frame of the boxes whose learning region is in that block,
+  computed from the planned boxes before a frame is read. A reflection learning
+  into a final block stops the program: that would be a wrong rule.
+* **A reflection waits for the last block its interpolation weights reach**,
+  taken from `neighbours_of` exactly as the fit uses it.
+* **Blocks are finalised in order by `finalise_reference`'s own rule**: a sparse
+  cell takes its block's average, an empty block the latest earlier one's, else
+  the first later one's. A whole-scan fallback would hold boxes to the end.
+* **The first pass changes only a box's background**, to the GLM's mean, which
+  the fit sets anyway; so a held box drops its background and is the box the
+  second pass would rebuild. If that ever changes -- `close()` touching the mask
+  or pixels -- the held box must be copied first.
+* **A chunk's save skips the boxes one pass holds**: their release saves them.
+  Saving them in the chunk overwrote boxes fitted in the same chunk with the
+  emptied ones the move left, and the table failed to write.
 
 ## Symmetry and scaling: what has to stay true
 

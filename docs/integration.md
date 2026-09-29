@@ -58,7 +58,7 @@ first integration byte for byte.
 | what to integrate | `--d-min`, `--first-image`, `--last-image`, `--min-zeta` (0.05) |
 | the profile model | `--sigma-b`, `--sigma-m`, `--n-sigma` (3), `--box-scale` (1.9), `--gain` (1) |
 | reference profiles | `--scan-blocks` (one per 10 degrees), `--regions` (3), `--reference-signal` (10), `--grid-points` (4), `--subdivisions` (5) |
-| profile fitting | `--least-measured` (0.6), `--summation-only` |
+| profile fitting | `--least-measured` (0.6), `--summation-only`, `--two-pass` |
 | speed and memory | `--threads` (0, one per core), `--window` (64), `--max-boxes` (20000) |
 | output | `-o`, `--save-shoeboxes`, `--save-profiles`, `--timing` |
 
@@ -116,9 +116,10 @@ Choosing a few of them:
    September 2026. On the 300 image sweep, 30 degrees, three blocks against five:
    the same Rmeas 0.041 and CC half 0.987, the lowest shell's CC half 0.977
    against 0.979, and the error model 1.009 and 0.0244 against 1.017 and 0.0236.)
-5. **The second pass.** The frames again, each box fitted by weighted least
+5. **Fitting, in the same pass.** A box is held until the scan blocks its
+   profile is interpolated from are final, then fitted by weighted least
    squares against its own pixels, with the reference profile interpolated
-   between the neighbouring cells and carried onto the pixels. The variance is
+   between the neighbouring cells and carried onto the pixels, and let go. The variance is
    the fit's plus the background term of Leslie's equation 34.
 6. **Writing.** One row per prediction.
 
@@ -145,6 +146,37 @@ high resolution, and scaling saw it before any comparison did.
 A reflection crossing a module gap is fitted to the pixels it has, and its
 intensity is the fitted scale times the WHOLE profile, not the visible part --
 which is what lets a fitted intensity recover what the gap took.
+
+## One pass over the images
+
+Each frame is read once. A reflection's profile is interpolated from the cells
+around it, trilinearly between cell centres, so it needs the scan block whose
+centre is at or before it and the next; and a block is complete once every box
+learning into it has closed, which is known before a frame is read, from the
+predicted boxes. So after each chunk the blocks whose boxes have all closed are
+finalised, in order, against the rule `finalise_reference` applies to the whole
+scan -- a sparse cell takes its block's own average -- and every held box whose
+blocks are final is fitted and dropped. A box is held without its background
+array, which the fit restores from the GLM's mean as the second pass did: 5
+bytes a voxel.
+
+The answer is the two passes' own, byte for byte. The profiles are learned in
+the same chunks and the same order, a finished cell only has zeroes added to it
+afterwards, and the first pass never changes a box's pixels or mask -- only its
+background, to the same constant -- so a held box is the one the second pass
+would rebuild. On the 300 image sweep: identical with the defaults, with 5 x 5
+regions and ten blocks and 28 cells borrowing, with one block holding every box
+to the end, with shoeboxes saved, and on one thread and four; 300 frames read
+where two passes read 600. `--two-pass` reads twice, to compare against, and
+`python/tests/test_single_pass.py` holds the two to the same bytes. If a reflection ever
+learned into a block already final the program stops rather than give a
+different answer.
+
+`--timing` reports the most shoeboxes held and their memory: 14060 and 0.32 GB on
+the 300 image sweep, most of it, since three 100 image blocks and boxes up to
+148 images deep keep nearly everything waiting. On a 360 degree sweep of 16M
+pixels, with 36 blocks, an estimate from the same crystal is some 49000 boxes
+and 1.1 GB.
 
 ## What it writes
 
