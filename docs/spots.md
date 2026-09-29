@@ -502,8 +502,14 @@ threadgroup shape and the scheduler and would break quietly if relied on.
   3108 x 3262 pixels thresholded in 3.6 seconds, 502 a second, 1917439 signal
   pixels and 146118 spots, with the stage 0 and stage 2 tile windows.
   `ctest -R dext_gpu` is still the first thing to run on a new machine.
-* `dext_cuda.cu` is verified for 16-bit data; its 32-bit instantiation, and its
-  `stage0_tile` and `stage2_direct` kernels, have not been run.
+* **The CUDA backend agrees with the Metal one exactly.** On the same 1800
+  images of 3108 x 3262 pixels -- 16-bit, stage 0 direct and stage 2 tile, on
+  an NVIDIA GeForce RTX 4060 with 16 threads -- every count matches Metal's:
+  1917439 signal pixels, 194150 spots extracted, 48006 and 1 removed for size,
+  146118 kept. 9.2 seconds, 196 images a second, against Metal's 3.6 and 502.
+  Its 32-bit instantiation, and its `stage0_tile` and `stage2_direct` kernels,
+  have still not been run; `SPOTFINDER_GPU_STAGE0=tile SPOTFINDER_GPU_STAGE2=direct`
+  selects the two kernels.
 * **Real diffraction, since.** On a 300 image insulin sweep every filtering count
   matches `dials.find_spots` exactly -- 18755 extracted, 5683 and 5 removed for
   size, 13067 centroids, 12915 kept -- and this pipeline indexes, refines and

@@ -91,6 +91,17 @@ where something is missing.
 * **30.** **structure -- What is still duplicated** between the spot finder and the
     rest. `docs/spotfinder.md`.
 
+* **34.** **untested -- Three paths of the CUDA backend**: its 32-bit
+  instantiation, which wants 32-bit data, and its `stage0_tile` and
+  `stage2_direct` kernels, which
+  `SPOTFINDER_GPU_STAGE0=tile SPOTFINDER_GPU_STAGE2=direct` selects on any data.
+  The paths it does run agree with Metal exactly. `docs/spots.md`.
+* **35.** **speed -- Where the CUDA run's time goes**: 196 images a second on an
+  RTX 4060 against Metal's 502. A 16-bit frame of 3108 x 3262 pixels is 20 MB,
+  so 196 a second is 4 GB/s across PCIe, which Apple silicon's unified memory
+  does not pay; decompression on the host is the other candidate. A run
+  without `-gpu` on each machine would say which. `docs/spots.md`.
+
 ## Infrastructure
 
 * **31.** **The C++ suite takes about two minutes**, most of it a handful of older
