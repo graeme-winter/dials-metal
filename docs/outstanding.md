@@ -133,9 +133,6 @@ where something is missing.
   passes decompressed for 80 thread-seconds of a 28.4 s integration, the saving
   and the most shoeboxes held -- estimated at 49000 and 1.1 GB -- are still to be
   measured: `mxi_integrate --timing` against `--two-pass`. `docs/integration.md`.
-* **39.** **speed -- Writing a reflection table costs about a second a million
-  rows** in every program that writes one: 1.3 to 1.5 s in integration, symmetry
-  and scaling on the 16M sweep.
 * **40.** **speed -- `mxi_symmetry` scores its elements by ordered-map lookup**,
   1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
 
@@ -155,6 +152,11 @@ where something is missing.
   byte-identical to two passes'. A sparse profile cell borrows its own scan
   block's average rather than the whole scan's, which one pass needs, and a
   scan block is 10 degrees by default. `docs/integration.md`.
+* **39.** Writing a reflection table at about a second a million rows: a
+  column is copied, not appended a byte at a time, and written straight to the
+  file rather than built into one string first. 630930 rows, 261 MB: 0.875 s to
+  0.14-0.19, of which the disk is 0.06; reading 0.29 to 0.24. Every table
+  byte-identical. `src/refl.cc`.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

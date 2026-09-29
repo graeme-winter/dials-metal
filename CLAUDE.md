@@ -73,12 +73,17 @@ its boundary. Every program takes `--timing` (`src/timing.hh`).
   on any thread count; its speed is unmeasured, this container having one core.
   Serial baseline on the 16M sweep: 8.0 s wall, 7.4 s user.
 
-**Next in `mxi_integrate`, the most expensive step.** Of its 28.4 s on the 16M
-sweep (a MacBook, 16 threads, two passes): profile fitting 8.4 s; opening
-shoeboxes 3.5 s; background and summation 3.0 s; writing 1.35 s; and
-decompressing, which one pass should halve. Prediction was 0.2 s there and 6.3
-s on the 300 image sweep, unexplained (item 36). Start from `mxi_integrate
---timing` on the one-pass build.
+**Next in `mxi_integrate`, the most expensive step.** Graeme's one-pass run on
+1800 frames of a MacBook took 6.6 s: profile fitting 2.4, reading frames 1.1,
+writing 0.7, the profile model, background and summation, and opening shoeboxes
+about 0.45 each. Since then profile fitting is some 52 per cent less on one
+thread (`pixel_cells`, and a learned box's cells kept for its fit;
+`docs/gpu.md`) and writing about a fifth of what it was (item 39) -- both to be
+measured on the MacBook, with a `shasum` against the last `integrated.refl`,
+since Apple silicon's fused multiply-adds are the one way the answer could
+move. What is left of fitting: the least squares, and the exact geometry at
+pixel corners. Then the profile model step and opening shoeboxes. Prediction
+was 6.3 s on the 300 image sweep and 0.2 s elsewhere, unexplained (item 36).
 
 ### How work is done here
 

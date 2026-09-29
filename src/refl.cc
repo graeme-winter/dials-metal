@@ -1,8 +1,10 @@
 #include "refl.hh"
 
+#include <bit>
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <type_traits>
 
 namespace mxi {
 
@@ -193,7 +195,9 @@ private:
   const std::uint8_t *end_;
 };
 
-double read_double_le(const std::uint8_t *p) {
+// Used only on a big-endian machine, where the file's bytes are not the
+// doubles.
+[[maybe_unused]] double read_double_le(const std::uint8_t *p) {
   std::uint64_t bits = 0;
   for (int i = 7; i >= 0; --i)
     bits = (bits << 8) | p[static_cast<std::size_t>(i)];
@@ -289,19 +293,66 @@ void check_blob_size(std::uint64_t size) {
 
 namespace {
 
-void put_blob(std::string &out, const std::string &bytes) {
-  check_blob_size(bytes.size());
-  if (bytes.size() < 256) {
+//: A binary's header, for a binary of `size` bytes that follows it.
+void put_blob_header(std::string &out, std::size_t size) {
+  check_blob_size(size);
+  if (size < 256) {
     put(out, 0xC4);
-    put_big_endian(out, bytes.size(), 1);
-  } else if (bytes.size() < 65536) {
+    put_big_endian(out, size, 1);
+  } else if (size < 65536) {
     put(out, 0xC5);
-    put_big_endian(out, bytes.size(), 2);
+    put_big_endian(out, size, 2);
   } else {
     put(out, 0xC6);
-    put_big_endian(out, bytes.size(), 4);
+    put_big_endian(out, size, 4);
   }
-  out += bytes;
+}
+
+//: A column's values as the file has them, little-endian, straight onto `out`.
+//: On a little-endian machine -- x86-64 and Apple silicon both -- a double's
+//: bytes in memory are the file's, so a column of them is one copy; an integer
+//: narrower than the int64 it is kept in is one copy of its low bytes. It was a
+//: push_back a byte, each checking the string's capacity, into a buffer then
+//: copied again onto `out`: 0.88 s for a table of 630000 rows. Anywhere else
+//: the bytes are taken out by shifting, as they were.
+[[maybe_unused]] void put_reals(std::string &out, const double *values,
+                                std::size_t count) {
+  if constexpr (std::endian::native == std::endian::little) {
+    // Appended, not resized and then copied into: a resize zero-fills first.
+    out.append(reinterpret_cast<const char *>(values), count * sizeof(double));
+  } else {
+    const std::size_t at = out.size();
+    out.resize(at + count * sizeof(double));
+    char *to = out.data() + at;
+    for (std::size_t i = 0; i < count; ++i) {
+      std::uint64_t bits;
+      std::memcpy(&bits, &values[i], sizeof(bits));
+      for (std::size_t b = 0; b < 8; ++b)
+        to[i * 8 + b] = static_cast<char>((bits >> (8 * b)) & 0xFF);
+    }
+  }
+}
+
+void put_ints(std::string &out, const std::vector<std::int64_t> &values,
+              std::size_t count, std::size_t bytes) {
+  const std::size_t at = out.size();
+  out.resize(at + count * bytes);
+  char *to = out.data() + at;
+  if constexpr (std::endian::native == std::endian::little) {
+    if (bytes == sizeof(std::int64_t)) {
+      if (count > 0)
+        std::memcpy(to, values.data(), count * bytes);
+    } else {
+      for (std::size_t i = 0; i < count; ++i)
+        std::memcpy(to + i * bytes, &values[i], bytes); // the low bytes
+    }
+  } else {
+    for (std::size_t i = 0; i < count; ++i) {
+      const auto bits = static_cast<std::uint64_t>(values[i]);
+      for (std::size_t b = 0; b < bytes; ++b)
+        to[i * bytes + b] = static_cast<char>((bits >> (8 * b)) & 0xFF);
+    }
+  }
 }
 
 void put_map_header(std::string &out, std::size_t n) {
@@ -313,21 +364,6 @@ void put_map_header(std::string &out, std::size_t n) {
   } else {
     put(out, 0xDF);
     put_big_endian(out, n, 4);
-  }
-}
-
-void append_double_le(std::string &out, double v) {
-  std::uint64_t bits;
-  std::memcpy(&bits, &v, sizeof(bits));
-  for (std::size_t i = 0; i < 8; ++i) {
-    out.push_back(static_cast<char>((bits >> (8 * i)) & 0xFF));
-  }
-}
-
-void append_int_le(std::string &out, std::int64_t v, std::size_t bytes) {
-  const auto bits = static_cast<std::uint64_t>(v);
-  for (std::size_t i = 0; i < bytes; ++i) {
-    out.push_back(static_cast<char>((bits >> (8 * i)) & 0xFF));
   }
 }
 
@@ -530,15 +566,47 @@ Table read_reflections(const std::string &path) {
     const std::size_t count = table.nrows * c.width;
     if (c.integral) {
       c.ints.resize(count);
-      for (std::size_t i = 0; i < count; ++i) {
-        c.ints[i] =
-            read_int_le(p.data + i * info->second.element_bytes,
-                        info->second.element_bytes, info->second.is_unsigned);
+      const std::size_t bytes = info->second.element_bytes;
+      const bool is_unsigned = info->second.is_unsigned;
+      // On a little-endian machine each value is one load of its own width,
+      // widened as read_int_le widens it -- sign-extended, or not if unsigned.
+      // A byte at a time, and a switch a value, anywhere else.
+      if constexpr (std::endian::native == std::endian::little) {
+        const auto widen = [&](auto narrow) {
+          using N = decltype(narrow);
+          using U = std::make_unsigned_t<N>;
+          for (std::size_t i = 0; i < count; ++i) {
+            N v;
+            std::memcpy(&v, p.data + i * sizeof(N), sizeof(N));
+            c.ints[i] = is_unsigned
+                            ? static_cast<std::int64_t>(static_cast<U>(v))
+                            : static_cast<std::int64_t>(v);
+          }
+        };
+        if (bytes == 1)
+          widen(std::int8_t{});
+        else if (bytes == 2)
+          widen(std::int16_t{});
+        else if (bytes == 4)
+          widen(std::int32_t{});
+        else if (bytes == 8)
+          widen(std::int64_t{});
+        else
+          for (std::size_t i = 0; i < count; ++i)
+            c.ints[i] = read_int_le(p.data + i * bytes, bytes, is_unsigned);
+      } else {
+        for (std::size_t i = 0; i < count; ++i)
+          c.ints[i] = read_int_le(p.data + i * bytes, bytes, is_unsigned);
       }
     } else {
       c.reals.resize(count);
-      for (std::size_t i = 0; i < count; ++i) {
-        c.reals[i] = read_double_le(p.data + i * 8);
+      if constexpr (std::endian::native == std::endian::little) {
+        // The file's bytes are the doubles.
+        if (count > 0)
+          std::memcpy(c.reals.data(), p.data, count * sizeof(double));
+      } else {
+        for (std::size_t i = 0; i < count; ++i)
+          c.reals[i] = read_double_le(p.data + i * 8);
       }
     }
     table.set(p.name, std::move(c));
@@ -549,38 +617,16 @@ Table read_reflections(const std::string &path) {
 
 void write_reflections(const std::string &path, const Table &table) {
   table.validate();
-  std::string out;
-  // Reserved rather than grown. The opaque columns alone are most of the file
-  // -- 79 MB of 100 on a table with shoeboxes -- and a string that doubles its
-  // way there copies everything it has each time it runs out.
-  {
-    std::size_t expected = 4096;
-    for (const auto &entry : table.opaque())
-      expected += entry.second.bytes.size();
-    for (const std::string &name : table.names()) {
-      const Column &c = table.at(name);
-      expected += name.size() + 32;
-      expected += (c.integral ? c.ints.size() : c.reals.size()) * 8;
-    }
-    out.reserve(expected);
-  }
-
-  put(out, 0x93);
-  put_text(out, kTag);
-  put_uint(out, static_cast<std::uint64_t>(table.version));
-  put_map_header(out, 3);
-
-  put_text(out, "identifiers");
-  put_map_header(out, table.identifiers.size());
-  for (const auto &entry : table.identifiers) {
-    put_uint(out, entry.first);
-    put_text(out, entry.second);
-  }
-
-  put_text(out, "nrows");
-  put_uint(out, table.nrows);
-
   const std::vector<std::string> names = table.names();
+  // Everything that can refuse the table is checked before the file is
+  // opened, so a refused table leaves no file behind.
+  for (const std::string &name : names) {
+    const Column &c = table.at(name);
+    if (type_table().find(c.type) == type_table().end()) {
+      throw ReflError("cannot write column '" + name + "' of type '" + c.type +
+                      "'");
+    }
+  }
   // Opaque columns are written back only while they still describe this table.
   // A shoebox whose row count no longer matches is exactly the silent
   // corruption that dropping them was meant to avoid.
@@ -599,35 +645,69 @@ void write_reflections(const std::string &path, const Table &table) {
           "; this package cannot subset that type, so it cannot be written "
           "back. Remove it deliberately if that is what you want.");
     }
+    check_blob_size(entry.second.bytes.size());
     opaque_names.push_back(entry.first);
   }
+
+  // Straight to the file, a column at a time: the headers through a small
+  // buffer, a column of doubles from its own storage, an opaque column from
+  // where it already is. The whole file was built in one string first -- 261
+  // MB for 630000 rows, every page of it touched on allocation and copied again
+  // on the way out -- which was most of what writing cost once the bytes were
+  // no longer appended one at a time.
+  std::ofstream file(path, std::ios::binary);
+  if (!file)
+    throw ReflError("cannot write " + path);
+  std::string out;
+  const auto flush = [&]() {
+    file.write(out.data(), static_cast<std::streamsize>(out.size()));
+    out.clear();
+  };
+  const auto raw = [&](const char *data, std::size_t size) {
+    flush();
+    if (size > 0)
+      file.write(data, static_cast<std::streamsize>(size));
+  };
+
+  put(out, 0x93);
+  put_text(out, kTag);
+  put_uint(out, static_cast<std::uint64_t>(table.version));
+  put_map_header(out, 3);
+
+  put_text(out, "identifiers");
+  put_map_header(out, table.identifiers.size());
+  for (const auto &entry : table.identifiers) {
+    put_uint(out, entry.first);
+    put_text(out, entry.second);
+  }
+
+  put_text(out, "nrows");
+  put_uint(out, table.nrows);
+
   put_text(out, "data");
   put_map_header(out, names.size() + opaque_names.size());
   for (const std::string &name : names) {
     const Column &c = table.at(name);
-    auto info = type_table().find(c.type);
-    if (info == type_table().end()) {
-      throw ReflError("cannot write column '" + name + "' of type '" + c.type +
-                      "'");
-    }
+    const auto info = type_table().find(c.type);
     put_text(out, name);
     put(out, 0x92);
     put_text(out, c.type);
     put(out, 0x92);
     put_uint(out, table.nrows);
-
-    std::string blob;
-    blob.reserve(table.nrows * info->second.width * info->second.element_bytes);
     const std::size_t count = table.nrows * c.width;
     if (c.integral) {
-      for (std::size_t i = 0; i < count; ++i) {
-        append_int_le(blob, c.ints[i], info->second.element_bytes);
-      }
+      put_blob_header(out, count * info->second.element_bytes);
+      put_ints(out, c.ints, count, info->second.element_bytes);
     } else {
-      for (std::size_t i = 0; i < count; ++i)
-        append_double_le(blob, c.reals[i]);
+      put_blob_header(out, count * sizeof(double));
+      if constexpr (std::endian::native == std::endian::little) {
+        raw(reinterpret_cast<const char *>(c.reals.data()),
+            count * sizeof(double));
+      } else {
+        put_reals(out, c.reals.data(), count);
+      }
     }
-    put_blob(out, blob);
+    flush();
   }
 
   for (const std::string &name : opaque_names) {
@@ -637,13 +717,13 @@ void write_reflections(const std::string &path, const Table &table) {
     put_text(out, keep.type);
     put(out, 0x92);
     put_uint(out, table.nrows);
-    put_blob(out, keep.bytes);
+    put_blob_header(out, keep.bytes.size());
+    raw(keep.bytes.data(), keep.bytes.size());
   }
-
-  std::ofstream file(path, std::ios::binary);
+  flush();
+  file.close();
   if (!file)
-    throw ReflError("cannot write " + path);
-  file.write(out.data(), static_cast<std::streamsize>(out.size()));
+    throw ReflError("error writing " + path);
 }
 
 Table select_rows(const Table &table, const std::vector<std::size_t> &rows) {
