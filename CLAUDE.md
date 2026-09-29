@@ -103,7 +103,8 @@ summation 3.0 s; writing 1.35 s. Prediction was 0.2 s there and 6.3 s on the
   `mxi_integrate refined.expt refined.refl --threads 4`;
   `mxi_symmetry integrated.expt integrated.refl`;
   `mxi_scale symmetrized.expt symmetrized.refl`. It gives I 2 3 by
-  b+c,a+c,a+b, Rmeas 0.041, error model a 1.017 and b 0.0236.
+  b+c,a+c,a+b, Rmeas 0.041, error model a 1.009 and b 0.0244 (1.017 and 0.0236
+  with five scan blocks, the default before 29 September 2026).
 * **A CUDA compile check** is possible here, not a run: `apt-get install
   nvidia-cuda-toolkit` (12.0, some 5 GB), then `cmake -DSPOTFINDER_CUDA=ON
   -DCMAKE_CUDA_ARCHITECTURES=89`. A GPU branch of `find_spots.cc` alone can be

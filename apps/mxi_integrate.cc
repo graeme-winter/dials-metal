@@ -211,7 +211,8 @@ void usage(const char *program) {
       "  --grid-points N   the profile grid is 2N+1 a side (4)\n"
       "  --subdivisions N  pixel subdivisions per axis (5, as Kabsch uses)\n"
       "  --regions N       detector divided N by N for reference profiles (3)\n"
-      "  --scan-blocks N   the scan divided N ways as well (5)\n"
+      "  --scan-blocks N   the scan divided N ways as well (one per 10 "
+      "degrees)\n"
       "  --reference-signal S   learn from reflections above S sigma (10)\n"
       "  --least-measured F  a fit needs this fraction of the reflection to\n"
       "                    have been recorded (0.6); below it the intensity "
@@ -945,10 +946,21 @@ int run_program(int argc, char **argv) {
     grid_spec.half_width = mask_options.n_sigma;
     grid_spec.subdivisions =
         static_cast<int>(args.number("--subdivisions", 5.0));
+    // One scan block per 10 degrees of the range integrated, unless told: the
+    // profile drifts along the scan, so a block should be a fixed ANGLE rather
+    // than a fixed fraction of the scan -- and a reflection is fitted only once
+    // the block after its own is complete, so the block's length is how long
+    // its shoebox must wait in a single pass. Five blocks whatever the scan,
+    // the old default, made 72 degree blocks of a 360 degree scan.
+    const double range_degrees =
+        std::abs(e.scan.osc_width) * std::max(last_image - first_image, 1.0);
+    const int scan_blocks =
+        args.has("--scan-blocks")
+            ? std::max(1, static_cast<int>(args.number("--scan-blocks", 1.0)))
+            : std::max(1, static_cast<int>(std::lround(range_degrees / 10.0)));
     ReferenceProfiles reference = make_reference(
-        grid_spec, static_cast<int>(args.number("--regions", 3.0)),
-        static_cast<int>(args.number("--scan-blocks", 5.0)), e.detector.size(),
-        first_image, last_image);
+        grid_spec, static_cast<int>(args.number("--regions", 3.0)), scan_blocks,
+        e.detector.size(), first_image, last_image);
     const bool fitting = !args.has("--summation-only");
     // Which reflections are worth learning from: strong, nearly whole, and
     // mostly inside the grid. DIALS marks these `reference_spot`.

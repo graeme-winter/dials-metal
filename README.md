@@ -168,9 +168,9 @@ mxi_index     imported.expt strong.refl                         # -> indexed.*
 mxi_refine    indexed.expt indexed.refl --analytic              # -> refined.*
               # static by default; --scan-varying N for a crystal that moves,
               # which on real data is nearly every crystal
-mxi_integrate refined.expt refined.refl --scan-blocks 36         # -> integrated.*
+mxi_integrate refined.expt refined.refl                         # -> integrated.*
 # or, refining against the centres integration measures and integrating again:
-mxi_integrate refined.expt refined.refl --scan-blocks 36 --postrefine
+mxi_integrate refined.expt refined.refl --postrefine
 mxi_symmetry  integrated.expt integrated.refl                   # -> symmetrized.*
 mxi_scale     symmetrized.expt symmetrized.refl                 # -> scaled.*
 ```

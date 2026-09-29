@@ -36,7 +36,7 @@ Speed, on a 3600 image Eiger 16M sweep, 1.08 million reflections, 16 threads
 
 ## Running it
 
-    mxi_integrate refined.expt refined.refl -o integrated.refl --scan-blocks 36
+    mxi_integrate refined.expt refined.refl -o integrated.refl
 
 `refined.expt` is a refined experiment, scan-static or scan-varying.
 `refined.refl` is optional: given, the profile model is estimated from its
@@ -57,7 +57,7 @@ first integration byte for byte.
 | --- | --- |
 | what to integrate | `--d-min`, `--first-image`, `--last-image`, `--min-zeta` (0.05) |
 | the profile model | `--sigma-b`, `--sigma-m`, `--n-sigma` (3), `--box-scale` (1.9), `--gain` (1) |
-| reference profiles | `--scan-blocks` (5), `--regions` (3), `--reference-signal` (10), `--grid-points` (4), `--subdivisions` (5) |
+| reference profiles | `--scan-blocks` (one per 10 degrees), `--regions` (3), `--reference-signal` (10), `--grid-points` (4), `--subdivisions` (5) |
 | profile fitting | `--least-measured` (0.6), `--summation-only` |
 | speed and memory | `--threads` (0, one per core), `--window` (64), `--max-boxes` (20000) |
 | output | `-o`, `--save-shoeboxes`, `--save-profiles`, `--timing` |
@@ -109,6 +109,13 @@ Choosing a few of them:
    29 September 2026. On the 300 image sweep with 5 x 5 regions and ten blocks,
    28 of 250 cells borrow; 21 of 21031 fitted intensities moved by more than 0.1
    sigma, none by more than 0.31, and the merging statistics not at all.)
+   The scan is divided into one block per 10 degrees of the range integrated
+   unless `--scan-blocks` says otherwise: a block should be a fixed angle, since
+   that is what the profile drifts over, and in a single pass its length is how
+   long a shoebox waits to be fitted. (Five blocks whatever the scan until 29
+   September 2026. On the 300 image sweep, 30 degrees, three blocks against five:
+   the same Rmeas 0.041 and CC half 0.987, the lowest shell's CC half 0.977
+   against 0.979, and the error model 1.009 and 0.0244 against 1.017 and 0.0236.)
 5. **The second pass.** The frames again, each box fitted by weighted least
    squares against its own pixels, with the reference profile interpolated
    between the neighbouring cells and carried onto the pixels. The variance is
