@@ -1834,6 +1834,15 @@ int run_program(int argc, char **argv) {
           "decompressing %.3f s (%.2f x), filling shoeboxes %.3f s (%.2f x)\n",
           t_fetch, per(t_fetch), t_decompress, per(t_decompress), t_fill,
           per(t_fill));
+      {
+        std::uint64_t direct = 0, through_hdf5 = 0;
+        series::nxmx_read_counts(&direct, &through_hdf5);
+        std::printf("  frames read by chunk offset, outside HDF5's lock: %llu; "
+                    "through HDF5: "
+                    "%llu\n",
+                    static_cast<unsigned long long>(direct),
+                    static_cast<unsigned long long>(through_hdf5));
+      }
       if (use_gpu) {
         double device[3] = {0.0, 0.0, 0.0};
         fit_device_times(device);

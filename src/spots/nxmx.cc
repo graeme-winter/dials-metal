@@ -11,6 +11,8 @@
 #include <hdf5.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -24,6 +26,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "series.hh"
 
@@ -176,6 +181,31 @@ std::string_view algorithm_of(hid_t dcpl) {
   return {};
 }
 
+//: Where one frame's compressed chunk is in its file, read once from HDF5.
+struct ChunkPlace {
+  std::uint64_t address =
+      0; //: from the start of the file, the user block included
+  std::uint64_t size = 0; //: 0 for a chunk never written
+  unsigned mask = 0;      //: filters skipped, as H5Dread_chunk reports them
+};
+
+//: A file descriptor, closed with its owner.
+struct Descriptor {
+  int fd = -1;
+  Descriptor() = default;
+  Descriptor(const Descriptor &) = delete;
+  Descriptor &operator=(const Descriptor &) = delete;
+  Descriptor(Descriptor &&other) noexcept : fd(other.fd) { other.fd = -1; }
+  Descriptor &operator=(Descriptor &&other) noexcept {
+    std::swap(fd, other.fd);
+    return *this;
+  }
+  ~Descriptor() {
+    if (fd >= 0)
+      ::close(fd);
+  }
+};
+
 struct SourceDataset {
   Handle file;
   Handle dataset;
@@ -183,22 +213,94 @@ struct SourceDataset {
   std::uint64_t width = 0;
   unsigned bit_depth = 0;
   std::string_view algorithm;
+  // Reading without HDF5: every chunk's place, found once when the dataset is
+  // opened, and the file it is in, opened for pread. Empty when that cannot
+  // be done -- another file driver, a file that will not open -- and the
+  // frames are read through HDF5 instead.
+  std::vector<ChunkPlace> chunks;
+  Descriptor direct;
 };
+
+std::atomic<std::uint64_t> g_direct_reads{0}, g_hdf5_reads{0};
+
+//: Whether frames may be read without HDF5: MXI_HDF5_DIRECT=0 says not, to
+//: compare against.
+bool direct_reads_allowed() {
+  const char *asked = std::getenv("MXI_HDF5_DIRECT");
+  return !(asked && std::string(asked) == "0");
+}
+
+//: The whole of `size` bytes from `fd` at `address`, however many preads that
+//: takes.
+bool pread_all(int fd, std::uint8_t *to, std::uint64_t size,
+               std::uint64_t address) {
+  std::uint64_t done = 0;
+  while (done < size) {
+    const ssize_t got =
+        ::pread(fd, to + done, static_cast<std::size_t>(size - done),
+                static_cast<off_t>(address + done));
+    if (got < 0) {
+      if (errno == EINTR)
+        continue;
+      return false;
+    }
+    if (got == 0)
+      return false;
+    done += static_cast<std::uint64_t>(got);
+  }
+  return true;
+}
 
 class NxmxReader : public Reader {
 public:
   explicit NxmxReader(std::vector<Block> blocks) : blocks_(std::move(blocks)) {}
 
   bool read(const std::string &key, Frame *frame) override {
-    const Guard guard(hdf5_mutex());
     const std::uint64_t index = std::strtoull(key.c_str(), nullptr, 10);
     const Block &block = locate(index);
-    SourceDataset &source = open(block);
+    SourceDataset *found_source = nullptr;
+    {
+      const Guard guard(hdf5_mutex());
+      found_source = &open(block);
+    }
+    SourceDataset &source = *found_source;
+    const std::uint64_t within = index - block.first + block.offset;
+
+    // Without HDF5, and so without its lock: the chunk's place was found when
+    // the dataset was opened, and the bytes are the ones H5Dread_chunk would
+    // give. HDF5 serialises every call through one lock, so on 32 threads the
+    // frames came off the file one at a time -- 43.6 thread-seconds fetching
+    // in an integration of 1800 frames, 13 times the wall.
+    if (source.direct.fd >= 0 && within < source.chunks.size()) {
+      const ChunkPlace &place = source.chunks[static_cast<std::size_t>(within)];
+      if (place.size == 0)
+        return false; // never written, as below
+      frame->storage.resize(static_cast<std::size_t>(place.size));
+      if (!pread_all(source.direct.fd,
+                     reinterpret_cast<std::uint8_t *>(frame->storage.data()),
+                     place.size, place.address))
+        throw std::runtime_error("reading frame " + std::to_string(index) +
+                                 " from " + block.filename +
+                                 " without HDF5 failed");
+      frame->height = source.height;
+      frame->width = source.width;
+      frame->bit_depth = source.bit_depth;
+      frame->algorithm =
+          (place.mask & 1u) ? std::string_view() : source.algorithm;
+      frame->data = {
+          reinterpret_cast<const std::uint8_t *>(frame->storage.data()),
+          frame->storage.size()};
+      frame->number = static_cast<std::int64_t>(index);
+      g_direct_reads.fetch_add(1, std::memory_order_relaxed);
+      return true;
+    }
+
+    const Guard guard(hdf5_mutex());
+    g_hdf5_reads.fetch_add(1, std::memory_order_relaxed);
 
     // The chunk holds one frame, so its coordinate is the frame's own index
     // within the data file, and the other two are zero by construction.
-    hsize_t offset[3] = {
-        static_cast<hsize_t>(index - block.first + block.offset), 0, 0};
+    hsize_t offset[3] = {static_cast<hsize_t>(within), 0, 0};
 
     unsigned mask = 0;
     haddr_t address = 0;
@@ -286,7 +388,68 @@ private:
                       H5Tclose);
     source.bit_depth = static_cast<unsigned>(8 * H5Tget_size(type.get()));
 
+    if (direct_reads_allowed())
+      place_chunks(&source);
+
     return open_.emplace(key, std::move(source)).first->second;
+  }
+
+  // Every chunk's place in the dataset's own file, and that file opened for
+  // pread -- or nothing, and the dataset read through HDF5. Only for the
+  // default file driver, whose addresses are offsets into one file; the user
+  // block, if any, is added, since HDF5's addresses start after it. The file is
+  // the dataset's own, as HDF5 names it: the external file, when the master
+  // links to its data.
+  static void place_chunks(SourceDataset *source) {
+    const hid_t dataset = source->dataset.get();
+    const Handle fapl(H5Fget_access_plist(source->file.get()), H5Pclose);
+    if (fapl.get() < 0 || H5Pget_driver(fapl.get()) != H5FD_SEC2)
+      return;
+    const hid_t file_of_dataset = H5Iget_file_id(dataset);
+    if (file_of_dataset < 0)
+      return;
+    const Handle own_file(file_of_dataset, H5Fclose);
+    const Handle own_fapl(H5Fget_access_plist(own_file.get()), H5Pclose);
+    if (own_fapl.get() < 0 || H5Pget_driver(own_fapl.get()) != H5FD_SEC2)
+      return;
+    const ssize_t length = H5Fget_name(own_file.get(), nullptr, 0);
+    if (length <= 0)
+      return;
+    std::string name(static_cast<std::size_t>(length) + 1, '\0');
+    H5Fget_name(own_file.get(), name.data(), name.size());
+    name.resize(static_cast<std::size_t>(length));
+    hsize_t user_block = 0;
+    {
+      const Handle fcpl(H5Fget_create_plist(own_file.get()), H5Pclose);
+      if (fcpl.get() < 0 || H5Pget_userblock(fcpl.get(), &user_block) < 0)
+        return;
+    }
+    const Handle space(H5Dget_space(dataset), H5Sclose);
+    hsize_t dims[3] = {0, 0, 0};
+    if (space.get() < 0 || H5Sget_simple_extent_ndims(space.get()) != 3 ||
+        H5Sget_simple_extent_dims(space.get(), dims, nullptr) != 3)
+      return;
+    std::vector<ChunkPlace> chunks(static_cast<std::size_t>(dims[0]));
+    for (hsize_t i = 0; i < dims[0]; ++i) {
+      hsize_t offset[3] = {i, 0, 0};
+      unsigned mask = 0;
+      haddr_t address = 0;
+      hsize_t size = 0;
+      if (H5Dget_chunk_info_by_coord(dataset, offset, &mask, &address, &size) <
+          0)
+        return;
+      if (address == HADDR_UNDEF || size == 0)
+        continue; // never written: size 0
+      chunks[static_cast<std::size_t>(i)] = {
+          static_cast<std::uint64_t>(address) + user_block,
+          static_cast<std::uint64_t>(size), mask};
+    }
+    Descriptor direct;
+    direct.fd = ::open(name.c_str(), O_RDONLY);
+    if (direct.fd < 0)
+      return;
+    source->chunks = std::move(chunks);
+    source->direct = std::move(direct);
   }
 
   std::vector<Block> blocks_;
@@ -469,6 +632,11 @@ private:
 };
 
 } // namespace
+
+void nxmx_read_counts(std::uint64_t *direct, std::uint64_t *through_hdf5) {
+  *direct = g_direct_reads.load();
+  *through_hdf5 = g_hdf5_reads.load();
+}
 
 std::unique_ptr<Series> nxmx(std::string master) {
   return std::unique_ptr<Series>(new Nxmx(std::move(master)));

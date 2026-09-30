@@ -496,6 +496,20 @@ order by construction and each holds about four pixels. O(n) rather than
 O(n log n), and it uses nothing about the emit order, which is a property of the
 threadgroup shape and the scheduler and would break quietly if relied on.
 
+## Reading frames without HDF5's lock
+
+A frame is one compressed chunk of an HDF5 dataset. HDF5 serialises every call
+through one lock, so threads reading frames queue for it: on 32 threads,
+fetching took 13 times the wall in an integration. So when a source dataset is
+first opened the reader asks HDF5, once, where every chunk is in its file
+(`H5Dget_chunk_info_by_coord`, the user block added), opens that file -- the
+dataset's own, as HDF5 names it, the external file when the master links to
+its data -- and then reads each frame with `pread`, the lock taken only to find
+the frame's source. The bytes are the ones `H5Dread_chunk` returns, and every
+table is the same either way. Another file driver, a file that will not open,
+or `MXI_HDF5_DIRECT=0` reads through HDF5 as before; `--timing` in `mxi_find` and
+`mxi_integrate` says how many frames went each way.
+
 ## The fused kernel
 
 `SPOTFINDER_GPU_FUSED=1` runs the three stages as one CUDA kernel

@@ -135,13 +135,17 @@ where something is missing.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
-* **46.** **speed -- HDF5's lock serialises reading.** On 32 threads,
-  integrating 1800 frames: reading frames 3.27 s of a 7.4 s run, fetching 43.6
-  thread-seconds -- 13 times the wall -- against decompressing's 29; and 39 per
-  cent of the spot finder's threads' time on the MacBook. The way round it is to
-  ask HDF5 once for each chunk's offset and size and read them with pread, which
-  takes no lock; reading would then be bound by decompression, some 0.9 s here.
-  The same bytes, so every output byte-identical. `docs/gpu.md`, item 35.
+* **46.** **measure -- Reading frames outside HDF5's lock.** HDF5 serialised
+  every chunk read through its one lock: on 32 threads, integrating 1800 frames,
+  fetching was 43.6 thread-seconds, 13 times the wall, against decompressing's
+  29. The NXmx reader now finds every chunk's place once when a dataset is
+  opened -- by coordinate, the user block added, in the dataset's own file as
+  HDF5 names it -- and reads a frame with pread, taking the lock only to find its
+  source; HDF5's own path where that cannot be done, and with
+  `MXI_HDF5_DIRECT=0`. Every table byte-identical either way;
+  `python/tests/test_direct_reads.py`. One core here cannot show the gain: to
+  measure on the 32 thread machine, fetching in `--timing`, which also says
+  which path the frames took.
 
 ## Infrastructure
 

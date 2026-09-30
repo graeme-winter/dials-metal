@@ -1019,6 +1019,13 @@ int main(int argc, char **argv) {
         stdout,
         "  and in the main thread: grouping %.3f s of the %.3f s wall\n",
         t_group.seconds(), wall);
+    std::uint64_t direct = 0, through_hdf5 = 0;
+    series::nxmx_read_counts(&direct, &through_hdf5);
+    std::fprintf(stdout,
+                 "  frames read by chunk offset, outside HDF5's lock: %llu; "
+                 "through HDF5: %llu\n",
+                 static_cast<unsigned long long>(direct),
+                 static_cast<unsigned long long>(through_hdf5));
   }
 
   return failed.load() == 0 ? 0 : 1;
