@@ -21,6 +21,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -1180,6 +1181,24 @@ int run_program(int argc, char **argv) {
     ThreadSeconds t_fit_batched, t_gpu_prepare, t_gpu_pack, t_gpu_device;
     std::size_t gpu_boxes = 0;
     double gpu_bytes = 0.0;
+    // Batches started on the device and not yet collected, oldest first.
+    struct PendingFit {
+      int ticket;
+      std::vector<std::size_t> rows;
+    };
+    std::deque<PendingFit> pending_fits;
+    ThreadSeconds t_gpu_wait;
+    const auto collect_oldest_fit = [&]() {
+      PendingFit p = std::move(pending_fits.front());
+      pending_fits.pop_front();
+      std::vector<fitdev::FitF> fits;
+      const double t0 = Timing::now();
+      if (!fit_batch_collect(p.ticket, &fits))
+        throw std::runtime_error("profile fitting on the device failed");
+      t_gpu_wait.add(Timing::now() - t0);
+      for (std::size_t n = 0; n < p.rows.size(); ++n)
+        record_fit(p.rows[n], to_profile_fit(fits[n]));
+    };
     const auto fit_on_gpu = [&](const std::vector<std::size_t> &which) {
       const std::size_t chunk = 4096;
       for (std::size_t from = 0; from < which.size(); from += chunk) {
@@ -1223,12 +1242,24 @@ int run_program(int argc, char **argv) {
             static_cast<double>(fit_batch.reference.size()) * sizeof(float);
         const double t_device = Timing::now();
         t_gpu_pack.add(t_device - t_packing);
-        std::vector<fitdev::FitF> fits;
-        if (!(on_device && fit_batch_device(fit_batch, &fits)))
-          fits = fit_batch_emulated(fit_batch);
+        // On a device the batch is started and not waited for: the threads go
+        // back to reading frames while it fits, and its fits are collected
+        // when a slot is wanted again or the last boxes are done. The GPU and
+        // the CPU took turns before, each idle while the other worked.
+        int ticket = -1;
+        if (on_device) {
+          while (static_cast<int>(pending_fits.size()) >= kFitSlots)
+            collect_oldest_fit();
+          ticket = fit_batch_submit(fit_batch);
+        }
+        if (ticket >= 0) {
+          pending_fits.push_back({ticket, std::move(in_batch)});
+        } else {
+          const std::vector<fitdev::FitF> fits = fit_batch_emulated(fit_batch);
+          for (std::size_t n = 0; n < in_batch.size(); ++n)
+            record_fit(in_batch[n], to_profile_fit(fits[n]));
+        }
         t_gpu_device.add(Timing::now() - t_device);
-        for (std::size_t n = 0; n < in_batch.size(); ++n)
-          record_fit(in_batch[n], to_profile_fit(fits[n]));
         t_fit_batched.add(Timing::now() - t_prepare);
       }
     };
@@ -1251,12 +1282,23 @@ int run_program(int argc, char **argv) {
       for (std::size_t k = 0; k < held.size(); ++k)
         if (everything || waits_for[held_rows[k]] <= ready)
           now.push_back(k);
-      if (now.empty())
+      // The last call collects every fit still on the device before the table
+      // is written -- whether or not it has boxes of its own to fit, since
+      // earlier calls have usually fitted them all.
+      const auto collect_everything = [&]() {
+        if (everything)
+          while (!pending_fits.empty())
+            collect_oldest_fit();
+      };
+      if (now.empty()) {
+        collect_everything();
         return;
+      }
       const double t0 = now_wall();
-      if (use_gpu)
+      if (use_gpu) {
         fit_on_gpu(now);
-      else
+        collect_everything();
+      } else
         in_parallel(now.size(), [&](std::size_t n) {
           fit_one(held_rows[now[n]], held[now[n]], &held_cells[now[n]]);
         });
@@ -1837,12 +1879,15 @@ int run_program(int argc, char **argv) {
       if (use_gpu) {
         double device[3] = {0.0, 0.0, 0.0};
         fit_device_times(device);
-        std::printf("  profile fitting in single precision, %s: %.3f s -- "
-                    "preparing %.3f s "
-                    "(the local references), packing %.3f s, fitting %.3f s",
+        std::printf("  profile fitting in single precision, %s: %.3f s on the "
+                    "CPU's side -- "
+                    "preparing %.3f s (the local references), packing %.3f s, "
+                    "handing over "
+                    "%.3f s, waiting for the device %.3f s",
                     on_device ? fit_device_name() : "emulated on the CPU",
-                    t_fit_batched.seconds(), t_gpu_prepare.seconds(),
-                    t_gpu_pack.seconds(), t_gpu_device.seconds());
+                    t_fit_batched.seconds() + t_gpu_wait.seconds(),
+                    t_gpu_prepare.seconds(), t_gpu_pack.seconds(),
+                    t_gpu_device.seconds(), t_gpu_wait.seconds());
         if (on_device)
           std::printf(" (on the device: uploading %.3f s, %.2f GB for %zu "
                       "boxes, %.1f GB/s; the "

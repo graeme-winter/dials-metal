@@ -59,12 +59,11 @@ its boundary. Every program takes `--timing` (`src/timing.hh`).
 **In flight, waiting on Graeme's hardware** -- none can run here:
 
 * **Profile fitting on the device** (`mxi_integrate --gpu`, `src/fit_device.hh`,
-  `src/fit_cuda.cu`, `src/fit_metal.metal`, `docs/gpu.md`). The single-precision
-  steps verified on the CPU with `--gpu-emulate`. CUDA ran on the RTX 4060,
-  slower than 32 CPU threads, mostly moving data; the pinned upload not yet
-  rerun. The Metal kernel and host (`src/fit_device_metal.cc`) never compiled:
-  build with `-DSPOTFINDER_METAL=ON`, compare `--gpu` with the default, read
-  `--timing`.
+  `src/fit_cuda.cu`, `src/fit_metal.metal`, `docs/gpu.md`). Verified on the CPU
+  with `--gpu-emulate`; Metal 16.6 s against the CPU's 20.0 on the 16M sweep;
+  CUDA slower than 32 threads before the pinned upload. The batches now overlap
+  reading frames, two in flight: tested here with `MXI_FIT_FAKE_DEVICE=1`, not
+  yet on a real device -- the next Metal and CUDA runs are its test.
 
 * **The fused CUDA threshold** (`SPOTFINDER_GPU_FUSED=1`, `src/spots/dext_fused.hh`,
   `docs/spots.md`). Verified tile by tile on the CPU against `dext()` and compiled

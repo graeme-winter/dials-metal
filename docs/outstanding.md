@@ -128,10 +128,12 @@ where something is missing.
 
 * **43.** **try -- A device for each stage**, `docs/gpu.md`. Profile fitting,
   `mxi_integrate --gpu`, single precision: verified on the CPU through
-  `--gpu-emulate` (a median of 9e-6 sigma from the double fit, at most 0.036);
-  CUDA run on an RTX 4060 -- 2.09 s against the CPU's 1.46 on 32 threads, three
-  quarters of it moving data, the upload since moved to pinned memory and not
-  yet rerun; Metal written and not yet compiled. Then the refinement target and
+  `--gpu-emulate` (a median of 9e-6 sigma from the double fit, at most 0.036).
+  Metal on an M4 Max, the 16M sweep: the integration 16.6 s against the CPU's
+  20.0, the kernel 1.75 s. CUDA on an RTX 4060: slower than 32 CPU threads,
+  mostly moving data, before the pinned upload. Now overlapped with reading
+  frames -- two batches in flight -- verified here with a pretended device and
+  not yet run on either real one. Then the refinement target and
   decompression, each judged against every CPU thread on its machine and
   against the CPU's answer, and recorded if it loses.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against

@@ -1,7 +1,8 @@
 // Profile fitting on a Metal device: the batch's arrays into buffers the GPU
 // shares with the CPU -- on Apple silicon one memory, so nothing crosses a bus
 // -- one threadgroup of 128 a box running fit_metal.metal, and the fits read
-// back where the GPU wrote them.
+// back where the GPU wrote them. Two batches may be in flight, each in its own
+// buffers, so that one fits while the CPU packs the next.
 
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
@@ -60,7 +61,15 @@ struct FitMetal {
   MTL::CommandQueue *queue = nullptr;
   MTL::ComputePipelineState *pipeline = nullptr;
   std::string name;
-  Shared panels, boxes, data, mask, reference, corners, profile, out;
+  //: One batch in flight each: its own buffers, and its command buffer until
+  //: it is collected, so that one fits while the next is packed and copied.
+  struct Slot {
+    Shared panels, boxes, data, mask, reference, corners, profile, out;
+    MTL::CommandBuffer *command = nullptr;
+    std::size_t n_boxes = 0;
+  };
+  Slot slots[kFitSlots];
+  int next_ticket = 0;
   double seconds[3] = {0.0, 0.0, 0.0}; // copying in, the kernel, reading back
 
   bool ready() const { return pipeline != nullptr; }
@@ -132,74 +141,98 @@ double now() {
 
 } // namespace
 
-bool fit_batch_device(const FitBatch &batch, std::vector<fitdev::FitF> *out) {
+int fit_batch_submit(const FitBatch &batch) {
   FitMetal &m = FitMetal::instance();
-  if (!m.ready())
-    return false;
-  out->assign(batch.boxes.size(), fitdev::FitF{});
-  if (batch.boxes.empty())
-    return true;
+  if (!m.ready() || batch.boxes.empty())
+    return -1;
+  const int ticket = m.next_ticket;
+  FitMetal::Slot &s = m.slots[ticket % kFitSlots];
+  if (s.command != nullptr)
+    return -1; // not collected: the caller collects before reusing a slot
   Pool pool;
   const int n_boxes = static_cast<int>(batch.boxes.size());
   const double t0 = now();
-  if (!m.panels.reserve(m.device,
+  if (!s.panels.reserve(m.device,
                         sizeof(fitdev::PanelF) * batch.panels.size()) ||
-      !m.boxes.reserve(m.device, sizeof(fitdev::BoxF) * batch.boxes.size()) ||
-      !m.data.reserve(m.device, sizeof(float) * batch.voxels) ||
-      !m.mask.reserve(m.device, batch.voxels) ||
-      !m.reference.reserve(m.device, sizeof(float) * batch.reference.size()) ||
-      !m.corners.reserve(m.device, sizeof(float) * batch.corner_floats) ||
-      !m.profile.reserve(m.device, sizeof(float) * batch.voxels) ||
-      !m.out.reserve(m.device, sizeof(fitdev::FitF) * batch.boxes.size()))
-    return false;
-  std::memcpy(m.panels.contents(), batch.panels.data(),
+      !s.boxes.reserve(m.device, sizeof(fitdev::BoxF) * batch.boxes.size()) ||
+      !s.data.reserve(m.device, sizeof(float) * batch.voxels) ||
+      !s.mask.reserve(m.device, batch.voxels) ||
+      !s.reference.reserve(m.device, sizeof(float) * batch.reference.size()) ||
+      !s.corners.reserve(m.device, sizeof(float) * batch.corner_floats) ||
+      !s.profile.reserve(m.device, sizeof(float) * batch.voxels) ||
+      !s.out.reserve(m.device, sizeof(fitdev::FitF) * batch.boxes.size()))
+    return -1;
+  std::memcpy(s.panels.contents(), batch.panels.data(),
               sizeof(fitdev::PanelF) * batch.panels.size());
-  std::memcpy(m.boxes.contents(), batch.boxes.data(),
+  std::memcpy(s.boxes.contents(), batch.boxes.data(),
               sizeof(fitdev::BoxF) * batch.boxes.size());
-  std::memcpy(m.data.contents(), batch.data.data(),
+  std::memcpy(s.data.contents(), batch.data.data(),
               sizeof(float) * batch.voxels);
-  std::memcpy(m.mask.contents(), batch.mask.data(), batch.voxels);
-  std::memcpy(m.reference.contents(), batch.reference.data(),
+  std::memcpy(s.mask.contents(), batch.mask.data(), batch.voxels);
+  std::memcpy(s.reference.contents(), batch.reference.data(),
               sizeof(float) * batch.reference.size());
-  const double t1 = now();
+  m.seconds[0] += now() - t0;
 
   MTL::CommandBuffer *command = m.queue->commandBuffer();
   if (command == nullptr)
-    return false;
+    return -1;
   MTL::ComputeCommandEncoder *encoder = command->computeCommandEncoder();
   if (encoder == nullptr)
-    return false;
+    return -1;
   encoder->setComputePipelineState(m.pipeline);
   encoder->setBytes(&batch.setup, sizeof(fitdev::Setup), 0);
-  encoder->setBuffer(m.panels.buffer, 0, 1);
-  encoder->setBuffer(m.boxes.buffer, 0, 2);
+  encoder->setBuffer(s.panels.buffer, 0, 1);
+  encoder->setBuffer(s.boxes.buffer, 0, 2);
   encoder->setBytes(&n_boxes, sizeof(int), 3);
-  encoder->setBuffer(m.data.buffer, 0, 4);
-  encoder->setBuffer(m.mask.buffer, 0, 5);
-  encoder->setBuffer(m.reference.buffer, 0, 6);
-  encoder->setBuffer(m.corners.buffer, 0, 7);
-  encoder->setBuffer(m.profile.buffer, 0, 8);
-  encoder->setBuffer(m.out.buffer, 0, 9);
+  encoder->setBuffer(s.data.buffer, 0, 4);
+  encoder->setBuffer(s.mask.buffer, 0, 5);
+  encoder->setBuffer(s.reference.buffer, 0, 6);
+  encoder->setBuffer(s.corners.buffer, 0, 7);
+  encoder->setBuffer(s.profile.buffer, 0, 8);
+  encoder->setBuffer(s.out.buffer, 0, 9);
   // dispatchThreadgroups, a threadgroup a box, as the kernel indexes them.
   encoder->dispatchThreadgroups(
       MTL::Size(static_cast<NS::UInteger>(n_boxes), 1, 1),
       MTL::Size(kThreads, 1, 1));
   encoder->endEncoding();
   command->commit();
-  command->waitUntilCompleted();
-  if (command->status() != MTL::CommandBufferStatusCompleted) {
-    std::fprintf(stderr, "Metal profile fitting: the command buffer failed\n");
+  // Kept past this pool's end, until it is collected.
+  s.command = command->retain();
+  s.n_boxes = batch.boxes.size();
+  ++m.next_ticket;
+  return ticket;
+}
+
+bool fit_batch_collect(int ticket, std::vector<fitdev::FitF> *out) {
+  FitMetal &m = FitMetal::instance();
+  FitMetal::Slot &s = m.slots[ticket % kFitSlots];
+  if (s.command == nullptr)
     return false;
-  }
-  const double kernel = command->GPUEndTime() - command->GPUStartTime();
-  const double t2 = now();
-  std::memcpy(out->data(), m.out.contents(),
-              sizeof(fitdev::FitF) * batch.boxes.size());
-  const double t3 = now();
-  m.seconds[0] += t1 - t0;
-  m.seconds[1] += kernel;
-  m.seconds[2] += t3 - t2;
+  Pool pool;
+  s.command->waitUntilCompleted();
+  const bool done = s.command->status() == MTL::CommandBufferStatusCompleted;
+  if (done)
+    m.seconds[1] += s.command->GPUEndTime() - s.command->GPUStartTime();
+  else
+    std::fprintf(stderr, "Metal profile fitting: the command buffer failed\n");
+  s.command->release();
+  s.command = nullptr;
+  if (!done)
+    return false;
+  const double t0 = now();
+  out->resize(s.n_boxes);
+  std::memcpy(out->data(), s.out.contents(), sizeof(fitdev::FitF) * s.n_boxes);
+  m.seconds[2] += now() - t0;
   return true;
+}
+
+bool fit_batch_device(const FitBatch &batch, std::vector<fitdev::FitF> *out) {
+  if (batch.boxes.empty()) {
+    out->clear();
+    return true;
+  }
+  const int ticket = fit_batch_submit(batch);
+  return ticket >= 0 && fit_batch_collect(ticket, out);
 }
 
 const char *fit_device_name() {

@@ -60,6 +60,18 @@ std::vector<fitdev::FitF> fit_batch_emulated(const FitBatch &batch);
 //: and nothing done otherwise.
 bool fit_batch_device(const FitBatch &batch, std::vector<fitdev::FitF> *out);
 
+//: Fitting without waiting, so that the CPU goes on reading frames while the
+//: device fits: a batch is copied into one of kFitSlots slots and started, and
+//: the ticket returned collects it; -1, and nothing started, if there is no
+//: device or the slot could not be filled. At most kFitSlots tickets may be
+//: outstanding -- the caller collects the oldest before submitting another --
+//: and the batch may be refilled as soon as submit returns.
+constexpr int kFitSlots = 2;
+int fit_batch_submit(const FitBatch &batch);
+//: Waits for a submitted batch and gives its fits, in the order its boxes were
+//: added; false if the device failed.
+bool fit_batch_collect(int ticket, std::vector<fitdev::FitF> *out);
+
 //: The name of the device the fits would run on, or nullptr if none.
 const char *fit_device_name();
 

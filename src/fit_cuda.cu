@@ -29,12 +29,6 @@ constexpr int kThreads = 128;
 // floats, 24 KB.
 constexpr int kBlend = 6144;
 
-// The device's own clock around the upload, the kernel and the download,
-// summed across batches.
-cudaEvent_t g_marks[4];
-bool g_marks_made = false;
-double g_seconds[3] = {0.0, 0.0, 0.0};
-
 __device__ float block_sum(float value, float *scratch) {
   const int t = static_cast<int>(threadIdx.x);
   scratch[t] = value;
@@ -266,81 +260,124 @@ bool ok(cudaError_t e, const char *what) {
 
 } // namespace
 
-bool fit_cuda_run(const Setup &setup, const PanelF *panels, int n_panels,
-                  const BoxF *boxes, int n_boxes, const float *data,
-                  const std::uint8_t *mask, std::size_t voxels,
-                  const float *reference, std::size_t reference_floats,
-                  std::size_t corner_floats, FitF *out) {
-  static Buffer d_panels, d_boxes, d_data, d_mask, d_reference, d_corners,
-      d_profile, d_out;
-  if (!d_panels.reserve(sizeof(PanelF) * static_cast<std::size_t>(n_panels)) ||
-      !d_boxes.reserve(sizeof(BoxF) * static_cast<std::size_t>(n_boxes)) ||
-      !d_data.reserve(sizeof(float) * voxels) || !d_mask.reserve(voxels) ||
-      !d_reference.reserve(sizeof(float) * reference_floats) ||
-      !d_corners.reserve(sizeof(float) * corner_floats) ||
-      !d_profile.reserve(sizeof(float) * voxels) ||
-      !d_out.reserve(sizeof(FitF) * static_cast<std::size_t>(n_boxes)))
-    return ok(cudaErrorMemoryAllocation, "allocating device memory");
-  if (!g_marks_made) {
-    for (cudaEvent_t &e : g_marks)
-      cudaEventCreate(&e);
-    g_marks_made = true;
+namespace {
+
+//: One batch in flight: its own staging, device memory, stream and clock, so
+//: that one batch can fit while the next is packed and copied.
+struct Slot {
+  Pinned h_data, h_mask, h_reference, h_out;
+  Buffer d_panels, d_boxes, d_data, d_mask, d_reference, d_corners, d_profile,
+      d_out;
+  cudaStream_t stream = nullptr;
+  cudaEvent_t marks[4] = {nullptr, nullptr, nullptr, nullptr};
+  int n_boxes = 0;
+  bool busy = false;
+  bool make() {
+    if (stream != nullptr)
+      return true;
+    if (cudaStreamCreate(&stream) != cudaSuccess)
+      return false;
+    for (cudaEvent_t &e : marks)
+      if (cudaEventCreate(&e) != cudaSuccess)
+        return false;
+    return true;
   }
-  cudaEventRecord(g_marks[0]);
-  // The pixels, masks and references -- nearly all of what goes -- through
-  // pinned memory: a host copy into it, then the device reads it at the link's
-  // speed.
-  static Pinned h_data, h_mask, h_reference;
-  if (!h_data.reserve(sizeof(float) * voxels) || !h_mask.reserve(voxels) ||
-      !h_reference.reserve(sizeof(float) * reference_floats))
-    return ok(cudaErrorMemoryAllocation, "allocating pinned memory");
-  std::memcpy(h_data.p, data, sizeof(float) * voxels);
-  std::memcpy(h_mask.p, mask, voxels);
-  std::memcpy(h_reference.p, reference, sizeof(float) * reference_floats);
-  if (!ok(cudaMemcpy(d_panels.p, panels, sizeof(PanelF) * n_panels,
+};
+
+constexpr int kSlots = 2; // fit_batch.hh's kFitSlots
+Slot g_slots[kSlots];
+// The device's own clock around the upload, the kernel and the download,
+// summed across batches.
+double g_seconds[3] = {0.0, 0.0, 0.0};
+
+} // namespace
+
+bool fit_cuda_submit(int slot_index, const Setup &setup, const PanelF *panels,
+                     int n_panels, const BoxF *boxes, int n_boxes,
+                     const float *data, const std::uint8_t *mask,
+                     std::size_t voxels, const float *reference,
+                     std::size_t reference_floats, std::size_t corner_floats) {
+  Slot &s = g_slots[slot_index % kSlots];
+  if (s.busy || !s.make())
+    return false;
+  if (!s.d_panels.reserve(sizeof(PanelF) *
+                          static_cast<std::size_t>(n_panels)) ||
+      !s.d_boxes.reserve(sizeof(BoxF) * static_cast<std::size_t>(n_boxes)) ||
+      !s.d_data.reserve(sizeof(float) * voxels) || !s.d_mask.reserve(voxels) ||
+      !s.d_reference.reserve(sizeof(float) * reference_floats) ||
+      !s.d_corners.reserve(sizeof(float) * corner_floats) ||
+      !s.d_profile.reserve(sizeof(float) * voxels) ||
+      !s.d_out.reserve(sizeof(FitF) * static_cast<std::size_t>(n_boxes)) ||
+      !s.h_data.reserve(sizeof(float) * voxels) || !s.h_mask.reserve(voxels) ||
+      !s.h_reference.reserve(sizeof(float) * reference_floats) ||
+      !s.h_out.reserve(sizeof(FitF) * static_cast<std::size_t>(n_boxes)))
+    return ok(cudaErrorMemoryAllocation, "allocating memory");
+  // The batch into this slot's pinned memory, so that the caller may refill it
+  // at once; then everything else queued on the slot's stream.
+  std::memcpy(s.h_data.p, data, sizeof(float) * voxels);
+  std::memcpy(s.h_mask.p, mask, voxels);
+  std::memcpy(s.h_reference.p, reference, sizeof(float) * reference_floats);
+  if (!ok(cudaMemcpy(s.d_panels.p, panels, sizeof(PanelF) * n_panels,
                      cudaMemcpyHostToDevice),
           "copying panels") ||
-      !ok(cudaMemcpy(d_boxes.p, boxes, sizeof(BoxF) * n_boxes,
+      !ok(cudaMemcpy(s.d_boxes.p, boxes, sizeof(BoxF) * n_boxes,
                      cudaMemcpyHostToDevice),
-          "copying boxes") ||
-      !ok(cudaMemcpyAsync(d_data.p, h_data.p, sizeof(float) * voxels,
-                          cudaMemcpyHostToDevice),
+          "copying boxes"))
+    return false;
+  cudaEventRecord(s.marks[0], s.stream);
+  if (!ok(cudaMemcpyAsync(s.d_data.p, s.h_data.p, sizeof(float) * voxels,
+                          cudaMemcpyHostToDevice, s.stream),
           "copying pixels") ||
-      !ok(cudaMemcpyAsync(d_mask.p, h_mask.p, voxels, cudaMemcpyHostToDevice),
+      !ok(cudaMemcpyAsync(s.d_mask.p, s.h_mask.p, voxels,
+                          cudaMemcpyHostToDevice, s.stream),
           "copying masks") ||
-      !ok(cudaMemcpyAsync(d_reference.p, h_reference.p,
+      !ok(cudaMemcpyAsync(s.d_reference.p, s.h_reference.p,
                           sizeof(float) * reference_floats,
-                          cudaMemcpyHostToDevice),
+                          cudaMemcpyHostToDevice, s.stream),
           "copying references"))
     return false;
-  cudaEventRecord(g_marks[1]);
-  fit_kernel<<<n_boxes, kThreads>>>(
-      setup, static_cast<const PanelF *>(d_panels.p),
-      static_cast<const BoxF *>(d_boxes.p), n_boxes,
-      static_cast<const float *>(d_data.p),
-      static_cast<const std::uint8_t *>(d_mask.p),
-      static_cast<const float *>(d_reference.p),
-      static_cast<float *>(d_corners.p), static_cast<float *>(d_profile.p),
-      static_cast<FitF *>(d_out.p));
+  cudaEventRecord(s.marks[1], s.stream);
+  fit_kernel<<<n_boxes, kThreads, 0, s.stream>>>(
+      setup, static_cast<const PanelF *>(s.d_panels.p),
+      static_cast<const BoxF *>(s.d_boxes.p), n_boxes,
+      static_cast<const float *>(s.d_data.p),
+      static_cast<const std::uint8_t *>(s.d_mask.p),
+      static_cast<const float *>(s.d_reference.p),
+      static_cast<float *>(s.d_corners.p), static_cast<float *>(s.d_profile.p),
+      static_cast<FitF *>(s.d_out.p));
   if (!ok(cudaGetLastError(), "launching the fit"))
     return false;
-  cudaEventRecord(g_marks[2]);
-  const bool copied = ok(
-      cudaMemcpy(out, d_out.p, sizeof(FitF) * n_boxes, cudaMemcpyDeviceToHost),
-      "copying the fits back");
-  cudaEventRecord(g_marks[3]);
-  cudaEventSynchronize(g_marks[3]);
-  for (int s = 0; s < 3; ++s) {
+  cudaEventRecord(s.marks[2], s.stream);
+  if (!ok(cudaMemcpyAsync(s.h_out.p, s.d_out.p, sizeof(FitF) * n_boxes,
+                          cudaMemcpyDeviceToHost, s.stream),
+          "copying the fits back"))
+    return false;
+  cudaEventRecord(s.marks[3], s.stream);
+  s.n_boxes = n_boxes;
+  s.busy = true;
+  return true;
+}
+
+bool fit_cuda_collect(int slot_index, FitF *out) {
+  Slot &s = g_slots[slot_index % kSlots];
+  if (!s.busy)
+    return false;
+  s.busy = false;
+  if (!ok(cudaStreamSynchronize(s.stream), "fitting"))
+    return false;
+  std::memcpy(out, s.h_out.p,
+              sizeof(FitF) * static_cast<std::size_t>(s.n_boxes));
+  for (int m = 0; m < 3; ++m) {
     float ms = 0.0f;
-    if (cudaEventElapsedTime(&ms, g_marks[s], g_marks[s + 1]) == cudaSuccess)
-      g_seconds[s] += 1e-3 * static_cast<double>(ms);
+    if (cudaEventElapsedTime(&ms, s.marks[m], s.marks[m + 1]) == cudaSuccess)
+      g_seconds[m] += 1e-3 * static_cast<double>(ms);
   }
-  return copied;
+  return true;
 }
 
 void fit_cuda_times(double out[3]) {
-  for (int s = 0; s < 3; ++s)
-    out[s] = g_seconds[s];
+  for (int m = 0; m < 3; ++m)
+    out[m] = g_seconds[m];
 }
 
 const char *fit_cuda_name() {

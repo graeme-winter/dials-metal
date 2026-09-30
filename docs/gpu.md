@@ -200,6 +200,24 @@ wall hardly moved because the GPU and CPU take turns -- fitting between chunks,
 the threads idle while the device fits and the device idle while they read --
 which overlapping them would remove.
 
+**With a pixel's cells found once**, on the same M4 Max run: the kernel 3.83 s
+to 1.75, profile fitting 5.82 to 3.69, the integration 18.9 s to 16.6 against
+the CPU path's 20.0. Denser data, more spots on the same pixels, should favour it
+further.
+
+**The device and the CPU no longer take turns.** A batch is now started on the
+device and not waited for: the threads go back to reading frames while it fits,
+and its fits are collected when its slot is wanted again -- two slots, each
+with its own buffers (and on CUDA its own pinned staging and stream), so the
+next batch is packed while one fits -- or at the end, every one before the table
+is written. `--timing` splits the CPU's side into preparing, packing, handing
+over, and waiting for the device. Where there is no device,
+`MXI_FIT_FAKE_DEVICE=1` pretends to be one, fitting a submitted batch by the
+emulation, so that the integrator's path for a device runs here: it must give
+`--gpu-emulate`'s table byte for byte. It did not at first -- the last call
+returned before collecting when it had no boxes of its own, and 6089 fits were
+lost -- and `python/tests/test_gpu_fit.py` now holds it to it.
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass
