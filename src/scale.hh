@@ -214,6 +214,10 @@ std::vector<MergingShell> merging_statistics(const ScaleData &data,
 struct ScaleRunOptions {
   bool combine = true;    //: choose profile, summation or a mix by Rmeas
   bool absorption = true; //: when the sweep is wide enough for it
+  //: The absorption surface's degree: -1 for the sweep's default -- 4 from 60
+  //: degrees, none below -- or 0 for none; lmax (lmax + 2) terms, 24 at 4 and
+  //: 48 at 6.
+  int lmax = -1;
   double d_min = 0.0;
   ScaleFitOptions fit;
 };

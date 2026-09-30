@@ -1055,6 +1055,8 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
   const Experiment &e = experiments[0];
   const double degrees = std::abs(e.scan.osc_width) * e.scan.num_images();
   ScaleModelShape shape = default_shape(degrees);
+  if (options.lmax >= 0)
+    shape.lmax = options.lmax; // asked for, whatever the sweep's width
   if (!options.absorption)
     shape.lmax = 0;
   ScaleDataOptions data_options;

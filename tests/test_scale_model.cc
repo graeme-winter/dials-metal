@@ -157,4 +157,40 @@ TEST(normalising_centres_the_relative_b) {
                "at both ends");
 }
 
+TEST(the_harmonics_to_degrees_six_and_eight_are_orthonormal) {
+  // For --l-max: the same quadrature, exact for these products too -- degree
+  // 16 at most in cos(theta), against 31 for sixteen Gauss-Legendre points, and
+  // order 16 in phi against 31 for thirty-two steps.
+  for (const int lmax : {6, 8}) {
+    const std::size_t n = harmonic_count(lmax);
+    check::equal(static_cast<long long>(n),
+                 static_cast<long long>(lmax * (lmax + 2)),
+                 "lmax (lmax + 2) terms");
+    std::vector<double> xs, ws;
+    gauss_legendre(16, &xs, &ws);
+    std::vector<double> gram(n * n, 0.0), y;
+    const double pi = std::acos(-1.0);
+    for (std::size_t i = 0; i < xs.size(); ++i) {
+      const double z = xs[i], s = std::sqrt(1.0 - z * z);
+      for (int j = 0; j < 32; ++j) {
+        const double phi = 2.0 * pi * j / 32.0;
+        real_spherical_harmonics(lmax,
+                                 {s * std::cos(phi), s * std::sin(phi), z}, &y);
+        const double w = ws[i] * 2.0 * pi / 32.0;
+        for (std::size_t a = 0; a < n; ++a)
+          for (std::size_t b = 0; b < n; ++b)
+            gram[a * n + b] += w * y[a] * y[b];
+      }
+    }
+    double worst = 0.0;
+    for (std::size_t a = 0; a < n; ++a)
+      for (std::size_t b = 0; b < n; ++b)
+        worst =
+            std::fmax(worst, std::abs(gram[a * n + b] - (a == b ? 1.0 : 0.0)));
+    check::is_true(worst < 1e-12,
+                   "the Gram matrix to degree " + std::to_string(lmax) +
+                       " is the identity, worst " + std::to_string(worst));
+  }
+}
+
 } // namespace mxi

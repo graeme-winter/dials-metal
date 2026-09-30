@@ -33,8 +33,15 @@ Inverse scale g = C(r) . T(t, d) . S(s0, s1), as the paper's physical model.
 * **Absorption S = 1 + sum P_lm [Y_lm(s1) + Y_lm(s0)] / 2** in the crystal frame,
   as the paper's equation 7: l_max = 4 by default, 24 parameters, odd terms
   included since they absorb miscentring, with a restraint of sum P_lm^2 toward
-  zero. Off for narrow sweeps, as DIALS turns it off, since there is not the
-  angular coverage to determine it.
+  zero. Off for narrow sweeps -- below 60 degrees -- as DIALS turns it off,
+  since there is not the angular coverage to determine it. `--l-max L` sets the
+  degree, dials.scale's `lmax`: L (L + 2) terms, 48 at 6; 0 for none; asked
+  for, it is used whatever the sweep's width, and it contradicts
+  `--no-absorption`. More terms fit better and can fit noise: on the 30 degree
+  sweep degree 4 and 6 both take Rmeas from 0.041 to 0.039, and degree 6 the
+  error model's a to 0.90 -- the signature of a model absorbing noise, which a
+  narrow sweep cannot rule out. Free-set validation, not yet built (item 22), is
+  what would say which degree a sweep supports.
 
 One overall scale is degenerate with the merged intensities and must be fixed:
 the mean of C, or one control point.

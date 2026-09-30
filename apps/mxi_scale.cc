@@ -41,6 +41,9 @@ void usage() {
       "                    within the data at all\n"
       "  --cc-half-limit C   the CC half the limit is set at (0.3)\n"
       "  --no-absorption   no absorption surface, whatever the sweep\n"
+      "  --l-max L         the absorption surface to degree L, lmax (lmax + "
+      "2)\n"
+      "                    terms: 4 by default from 60 degrees (24), 6 for 48\n"
       "  --profile-only    profile-fitted intensities alone, not a mix with\n"
       "                    summation chosen by Rmeas\n"
       "  --shells N        resolution shells in the table (20)\n"
@@ -56,17 +59,14 @@ void usage() {
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
-      "--d-min-auto",   "--cc-half-limit",   "--threads", "--timing",
-      "--space-group",  "--change-of-basis", "--d-min",   "--no-absorption",
-      "--profile-only", "--shells",          "-o",        "--output-expt"};
-  const std::set<std::string> takes_value = {"--cc-half-limit",
-                                             "--threads",
-                                             "--space-group",
-                                             "--change-of-basis",
-                                             "--d-min",
-                                             "--shells",
-                                             "-o",
-                                             "--output-expt"};
+      "--l-max",         "--d-min-auto",   "--cc-half-limit",   "--threads",
+      "--timing",        "--space-group",  "--change-of-basis", "--d-min",
+      "--no-absorption", "--profile-only", "--shells",          "-o",
+      "--output-expt"};
+  const std::set<std::string> takes_value = {
+      "--l-max",           "--cc-half-limit", "--threads", "--space-group",
+      "--change-of-basis", "--d-min",         "--shells",  "-o",
+      "--output-expt"};
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
     usage();
@@ -75,6 +75,22 @@ int run_program(int argc, char **argv) {
   if (!args.ok) {
     std::fprintf(stderr, "mxi_scale: %s\n", args.error.c_str());
     return 2;
+  }
+  if (args.has("--l-max")) {
+    const double l = args.number("--l-max", -1.0);
+    if (!(l >= 0.0 && l <= 12.0 && l == std::floor(l))) {
+      std::fprintf(
+          stderr,
+          "mxi_scale: --l-max is a whole number from 0 to 12, not '%s'\n",
+          args.value("--l-max", "").c_str());
+      return 2;
+    }
+    if (args.has("--no-absorption")) {
+      std::fprintf(
+          stderr,
+          "mxi_scale: --l-max and --no-absorption contradict each other\n");
+      return 2;
+    }
   }
   if (args.has("--d-min") && args.has("--d-min-auto")) {
     std::fprintf(
@@ -124,6 +140,7 @@ int run_program(int argc, char **argv) {
     ScaleRunOptions options;
     options.combine = !args.has("--profile-only");
     options.absorption = !args.has("--no-absorption");
+    options.lmax = static_cast<int>(args.number("--l-max", -1.0));
     options.d_min = args.number("--d-min", 0.0);
     const double cc_half_limit = args.number("--cc-half-limit", 0.3);
     phase("reindexing");
