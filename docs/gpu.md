@@ -110,8 +110,9 @@ symmetry and scaling alongside, as they are cheaper and certain.
 ## The first experiment: profile fitting on the device
 
 `mxi_integrate -g` (or `--gpu`) fits profiles on the device in single
-precision; the default stays the CPU's double. Written and verified on the CPU;
-the CUDA kernel is not yet run, Metal not yet written.
+precision; the default stays the CPU's double. Verified on the CPU; the CUDA
+kernel has run on an RTX 4060; the Metal kernel is written and not yet
+compiled.
 
 **What moves.** Carrying the reference onto a box's pixels -- the corners' Kabsch
 coordinates, parallax included; each pixel's 25 subdivisions into the grid's
@@ -171,6 +172,18 @@ the same run shows larger: reading frames is 3.27 s of the 7.4, and fetching
 from HDF5 43.6 thread-seconds of it, more than decompressing -- HDF5's one
 lock, every thread's chunk read queued behind every other's. Reading around
 the lock was tried and removed: it made a MacBook's integration slower (item 46).
+
+**Metal**, where a Mac's GPU shares the CPU's memory: `src/fit_metal.metal`
+transcribes `fit_device.hh`'s steps -- the shading language cannot include it,
+wanting every pointer's address space and having no <cmath> -- into the same
+threadgroup of 128 a box, and `src/fit_device_metal.cc` copies a batch into
+shared buffers the GPU reads where they are, with nothing to cross a bus: the
+0.54 s the RTX 4060 spent uploading has no counterpart. fit_batch.cc checks the
+structs are the sizes the shader declares them. The MacBook's CPU is also the
+weaker opponent: profile fitting was 35 per cent of its integration, against 20
+on the 32 thread machine. Built with `-DSPOTFINDER_METAL=ON` as the spot finder
+is; `--timing` gives copying in, the kernel from the command buffer's own clock,
+and reading back.
 
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is

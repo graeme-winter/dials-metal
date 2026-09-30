@@ -266,6 +266,36 @@ endif()
 # precision on the CPU instead.
 if(SPOTFINDER_CUDA)
     target_sources(mxi_integrate PRIVATE src/fit_device_cuda.cc src/fit_cuda.cu)
+elseif(SPOTFINDER_METAL)
+    # The shader compiled, linked and embedded as the spot finder's is, with the
+    # same flags, under a name of its own.
+    set(fit_metal_air "${CMAKE_CURRENT_BINARY_DIR}/fit_metal.air")
+    set(fit_metallib "${CMAKE_CURRENT_BINARY_DIR}/fit_metal.metallib")
+    set(fit_metallib_cc "${CMAKE_CURRENT_BINARY_DIR}/fit_metal_library.cc")
+    add_custom_command(
+        OUTPUT ${fit_metal_air}
+        COMMAND ${SPOTFINDER_XCRUN} -sdk macosx metal
+                -std=metal3.0 ${spotfinder_metal_math} -Wall -Werror
+                -c "${CMAKE_CURRENT_SOURCE_DIR}/src/fit_metal.metal"
+                -o ${fit_metal_air}
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/fit_metal.metal"
+        COMMENT "Compiling src/fit_metal.metal")
+    add_custom_command(
+        OUTPUT ${fit_metallib}
+        COMMAND ${SPOTFINDER_XCRUN} -sdk macosx metallib ${fit_metal_air} -o ${fit_metallib}
+        DEPENDS ${fit_metal_air}
+        COMMENT "Linking fit_metal.metallib")
+    add_custom_command(
+        OUTPUT ${fit_metallib_cc}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${fit_metallib} -DOUTPUT=${fit_metallib_cc}
+                -DSYMBOL=mxi_fit_metallib
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_metallib.cmake"
+        DEPENDS ${fit_metallib} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_metallib.cmake"
+        COMMENT "Embedding fit_metal.metallib")
+    target_sources(mxi_integrate PRIVATE src/fit_device_metal.cc ${fit_metallib_cc})
+    # SYSTEM: metal-cpp is not clean under -Wall -Wextra.
+    target_include_directories(mxi_integrate SYSTEM PRIVATE ${METAL_CPP_INCLUDE_DIR})
+    target_link_libraries(mxi_integrate PRIVATE ${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
 else()
     target_sources(mxi_integrate PRIVATE src/fit_device_none.cc)
 endif()

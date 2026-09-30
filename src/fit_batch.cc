@@ -11,6 +11,14 @@ static_assert(fitdev::kBackground == shoebox_mask::kBackground,
               "the mask's bits");
 static_assert(fitdev::kForeground == shoebox_mask::kForeground,
               "the mask's bits");
+// fit_metal.metal declares these structs again, the shading language unable to
+// include fit_device.hh: every field four bytes, in the same order, and these
+// sizes are what it assumes.
+static_assert(sizeof(fitdev::F3) == 12, "F3 as the shader has it");
+static_assert(sizeof(fitdev::PanelF) == 72, "PanelF as the shader has it");
+static_assert(sizeof(fitdev::Setup) == 68, "Setup as the shader has it");
+static_assert(sizeof(fitdev::BoxF) == 60, "BoxF as the shader has it");
+static_assert(sizeof(fitdev::FitF) == 24, "FitF as the shader has it");
 
 namespace {
 
