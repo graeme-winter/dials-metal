@@ -27,12 +27,15 @@ std::vector<std::size_t> rows_for_postrefinement(const Table &integrated) {
   return rows;
 }
 
-std::size_t postrefinement_points(const Scan &scan) {
+std::size_t scan_varying_points(const Scan &scan) {
   const double degrees =
       std::abs(scan.osc_width) * static_cast<double>(scan.num_images());
-  const std::size_t by_rotation =
-      static_cast<std::size_t>(std::ceil(degrees / 36.0)) + 2;
-  return std::max<std::size_t>(5, by_rotation);
+  return std::max<std::size_t>(
+      5, static_cast<std::size_t>(std::lround(degrees / 10.0)));
+}
+
+std::size_t postrefinement_points(const Scan &scan) {
+  return scan_varying_points(scan);
 }
 
 PostrefineResult postrefine(ExperimentList &experiments,

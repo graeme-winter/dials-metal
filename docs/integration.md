@@ -81,8 +81,9 @@ Choosing a few of them:
   centre of mass: an undetected one's observed position is its prediction, and
   a residual of exactly zero pulls the refinement back to where it began.
   `--postrefine-points` sets the scan-varying control points; the default is
-  one per 36 degrees and two more, at least five. It removes the z offset
-  described under open questions, at the cost of integrating twice.
+  one per 10 degrees, at least five, as `mxi_refine --scan-varying` with no
+  number (36 degrees and two more before 30 September 2026). It removes the
+  z offset described under open questions, at the cost of integrating twice.
 * **`--save-shoeboxes`** keeps pixels and masks, about 31 kB a reflection. A
   msgpack binary cannot exceed 4 GB and the writer refuses rather than wrap; a
   slice with `--first-image` and `--last-image` keeps it under.

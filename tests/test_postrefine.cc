@@ -76,12 +76,31 @@ TEST(post_refinement_points_follow_the_rotation) {
   scan.last_image = 300; // 30 degrees: the five the effect was measured with
   check::equal(static_cast<long long>(postrefinement_points(scan)), 5,
                "30 degrees");
-  scan.last_image = 1800; // 180: ceil(5) + 2
-  check::equal(static_cast<long long>(postrefinement_points(scan)), 7,
+  // One per 10 degrees since 30 September 2026, as mxi_refine --scan-varying:
+  // it was one per 36 and two more, 7 and 12 below.
+  scan.last_image = 1800; // 180
+  check::equal(static_cast<long long>(postrefinement_points(scan)), 18,
                "180 degrees");
-  scan.last_image = 3600; // 360: 10 + 2
-  check::equal(static_cast<long long>(postrefinement_points(scan)), 12,
+  scan.last_image = 3600; // 360
+  check::equal(static_cast<long long>(postrefinement_points(scan)), 36,
                "360 degrees");
+}
+
+TEST(a_scan_varying_crystal_has_a_control_point_per_ten_degrees) {
+  // The default for mxi_refine --scan-varying and --postrefine alike: one per
+  // 10 degrees, as the reference profiles' scan blocks, and at least five --
+  // by the angle, not the number of images.
+  const auto points = [](int images, double width) {
+    Scan s;
+    s.first_image = 1;
+    s.last_image = images;
+    s.osc_width = width;
+    return static_cast<long long>(scan_varying_points(s));
+  };
+  check::equal(points(3600, 0.1), 36, "a full turn");
+  check::equal(points(1800, 0.1), 18, "half a turn");
+  check::equal(points(300, 0.1), 5, "30 degrees, the least");
+  check::equal(points(7200, 0.05), 36, "a full turn in finer images");
 }
 
 } // namespace mxi

@@ -12,6 +12,7 @@
 #include "../src/refl.hh"
 #include "args.hh"
 #include "log_mirror.hh"
+#include "postrefine.hh"
 #include "refine.hh"
 #include "timing.hh"
 #include <algorithm>
@@ -31,7 +32,9 @@ void usage() {
       "                    with the detector on a single sweep)\n"
       "  --separate        one crystal per experiment instead of one shared\n"
       "  --conditional-depth  mean depth given absorption, not eqn (6)\n"
-      "  --scan-varying N  control points in A across each scan (1 = static)\n"
+      "  --scan-varying [N]  control points in A across each scan: one per 10\n"
+      "                    degrees if no N is given, at least five; 1 = "
+      "static\n"
       "  --unit-weights    ignore the centroid variances\n"
       "  --strong-only     build the model from the stronger half only\n"
       "  --analytic        analytical derivatives, not finite differences\n"
@@ -163,10 +166,11 @@ int run_program(int argc, char **argv) {
                                        "--timing",
                                        "--normal-threads"};
   const std::set<std::string> takes_value = {
-      "--macrocycles", "--outlier-sigma",    "--output-expt",
-      "--output-refl", "--scan-varying",     "--z-weight",
-      "--min-volume",  "--jacobian-threads", "--normal-threads"};
-  const Arguments args = parse_arguments(argc, argv, known, takes_value);
+      "--macrocycles",      "--outlier-sigma", "--output-expt",
+      "--output-refl",      "--z-weight",      "--min-volume",
+      "--jacobian-threads", "--normal-threads"};
+  const Arguments args =
+      parse_arguments(argc, argv, known, takes_value, {"--scan-varying"});
   // 0 means one per core, 1 means none. Exposed because a threading change
   // that cannot be switched off cannot be measured against its absence.
   g_normal_threads =
@@ -202,7 +206,6 @@ int run_program(int argc, char **argv) {
   options.outlier_sigma = args.number("--outlier-sigma", 4.0);
   options.z_weight = args.number("--z-weight", 1.0);
   options.min_volume = args.number("--min-volume", 0.05);
-  const int scan_points = static_cast<int>(args.number("--scan-varying", 1));
   const bool conditional_depth = args.has("--conditional-depth");
   const std::string out_expt = args.value("--output-expt", "refined.expt");
   const std::string out_refl = args.value("--output-refl", "refined.refl");
@@ -212,6 +215,13 @@ int run_program(int argc, char **argv) {
     ExperimentList experiments = read_experiments(args.positional[0]);
     Table reflections = read_reflections(args.positional[1]);
     t_read = now_wall() - t_read_start;
+    // --scan-varying alone: one control point per 10 degrees of the scan.
+    const int scan_points =
+        !args.has("--scan-varying")
+            ? 1
+            : (args.value("--scan-varying", "").empty()
+                   ? static_cast<int>(scan_varying_points(experiments[0].scan))
+                   : static_cast<int>(args.number("--scan-varying", 1)));
     if (conditional_depth) {
       for (Experiment &e : experiments) {
         for (Panel &p : e.detector.panels)

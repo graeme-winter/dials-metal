@@ -30,9 +30,11 @@ namespace mxi {
 //: centre, pulled off by the gap, is left out with it.
 std::vector<std::size_t> rows_for_postrefinement(const Table &integrated);
 
-//: Control points for the scan-varying pass: one per 36 degrees of rotation
-//: and two more, and never fewer than five, which is what the effect was
-//: measured with on a 30 degree sweep. 180 degrees gives 7, 360 gives 12.
+//: Control points for a scan-varying crystal by default: one per 10 degrees of
+//: the scan, as the reference profiles have a scan block per 10 degrees, and at
+//: least five -- 36 on a full turn, five on 30 degrees. mxi_refine's
+//: --scan-varying with no number and --postrefine both use it.
+std::size_t scan_varying_points(const Scan &scan);
 std::size_t postrefinement_points(const Scan &scan);
 
 struct PostrefineResult {

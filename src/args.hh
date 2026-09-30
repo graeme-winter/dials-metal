@@ -45,8 +45,14 @@ struct Arguments {
 // beginning with a dash and not in `known` is an error, which is deliberate:
 // silently ignoring a misspelled option is how a run comes to use settings
 // nobody chose.
+//
+// `optional_value` names flags whose value may be left out: such a flag takes
+// the following argument only if it is a whole number, so that
+// `--scan-varying 36` is 36 and `--scan-varying indexed.expt` is the flag alone
+// and then a file.
 Arguments parse_arguments(int argc, char **argv,
                           const std::set<std::string> &known,
-                          const std::set<std::string> &takes_value);
+                          const std::set<std::string> &takes_value,
+                          const std::set<std::string> &optional_value = {});
 
 } // namespace mxi

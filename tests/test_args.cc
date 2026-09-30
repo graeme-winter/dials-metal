@@ -99,4 +99,38 @@ TEST(defaults_are_returned_for_absent_options) {
                  "string default kept");
 }
 
+TEST(an_optional_value_is_taken_only_when_it_is_a_whole_number) {
+  // --scan-varying 36 is 36; --scan-varying before a file name is the flag
+  // alone, and the file stays a file; at the end, the flag alone.
+  const std::set<std::string> known = {"--scan-varying", "--beam"}, none;
+  const std::set<std::string> optional = {"--scan-varying"};
+  {
+    const char *argv[] = {"prog", "--scan-varying", "36", "a.expt"};
+    const Arguments a =
+        parse_arguments(4, const_cast<char **>(argv), known, none, optional);
+    check::is_true(a.ok && a.value("--scan-varying", "?") == "36",
+                   "a number is taken");
+    check::equal(static_cast<long long>(a.positional.size()), 1,
+                 "and the file is a file");
+  }
+  {
+    const char *argv[] = {"prog", "--scan-varying", "a.expt", "b.refl"};
+    const Arguments a =
+        parse_arguments(4, const_cast<char **>(argv), known, none, optional);
+    check::is_true(a.ok && a.has("--scan-varying") &&
+                       a.value("--scan-varying", "?").empty(),
+                   "before a file, the flag alone");
+    check::equal(static_cast<long long>(a.positional.size()), 2,
+                 "and both files are files");
+  }
+  {
+    const char *argv[] = {"prog", "a.expt", "--scan-varying"};
+    const Arguments a =
+        parse_arguments(3, const_cast<char **>(argv), known, none, optional);
+    check::is_true(a.ok && a.has("--scan-varying") &&
+                       a.value("--scan-varying", "?").empty(),
+                   "at the end, the flag alone");
+  }
+}
+
 } // namespace mxi
