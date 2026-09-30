@@ -25,6 +25,9 @@ namespace fitdev {
 namespace {
 
 constexpr int kThreads = 128;
+// Every slice's blended reference at once, in shared memory, when it fits: 6144
+// floats, 24 KB.
+constexpr int kBlend = 6144;
 
 // The device's own clock around the upload, the kernel and the download,
 // summed across batches.
@@ -60,6 +63,7 @@ __global__ void fit_kernel(Setup setup, const PanelF *panels, const BoxF *boxes,
   __shared__ float ws[kMaxSide];
   __shared__ float slice[kMaxSide * kMaxSide];
   __shared__ float scratch[kThreads];
+  __shared__ float blend[kBlend];
   const BoxF box = boxes[b];
   if (t == 0)
     frame = frame_of(setup, box.s1);
@@ -79,25 +83,48 @@ __global__ void fit_kernel(Setup setup, const PanelF *panels, const BoxF *boxes,
   const int pixels = box.nx * box.ny, slice_size = setup.side * setup.side;
   const float *ref = reference + box.reference_at;
   float *profile = profile_all + box.voxels_at;
-  for (int z = 0; z < box.nz; ++z) {
-    if (t == 0)
-      planes = plane_weights(setup, frame, box, z, js, ws);
-    __syncthreads();
-    if (planes > 0)
-      for (int q = t; q < slice_size; q += kThreads)
-        slice[q] = blended(setup, ref, js, ws, planes, q);
-    __syncthreads();
-    for (int k = t; k < pixels; k += kThreads) {
-      float value = 0.0f;
-      if (planes > 0) {
-        std::uint16_t ids[kMaxSub * kMaxSub], counts[kMaxSub * kMaxSub];
-        const int found = pixel_cells(setup, box, c1, c2, k % box.nx,
-                                      k / box.nx, ids, counts);
-        value = pixel_value(ids, counts, found, slice, share);
-      }
-      profile[z * pixels + k] = value;
+  if (box.nz * slice_size <= kBlend) {
+    // Every slice's blended reference at once, each element with its own
+    // slice's plane weights, and then each pixel's cells found once and walked
+    // down all its slices: the same sums in the same order, the same values.
+    for (int e = t; e < box.nz * slice_size; e += kThreads) {
+      const int z = e / slice_size, q = e % slice_size;
+      int my_js[kMaxSide];
+      float my_ws[kMaxSide];
+      const int np = plane_weights(setup, frame, box, z, my_js, my_ws);
+      blend[e] = np > 0 ? blended(setup, ref, my_js, my_ws, np, q) : 0.0f;
     }
     __syncthreads();
+    for (int k = t; k < pixels; k += kThreads) {
+      std::uint16_t ids[kMaxSub * kMaxSub], counts[kMaxSub * kMaxSub];
+      const int found =
+          pixel_cells(setup, box, c1, c2, k % box.nx, k / box.nx, ids, counts);
+      for (int z = 0; z < box.nz; ++z)
+        profile[z * pixels + k] =
+            pixel_value(ids, counts, found, blend + z * slice_size, share);
+    }
+    __syncthreads();
+  } else {
+    for (int z = 0; z < box.nz; ++z) {
+      if (t == 0)
+        planes = plane_weights(setup, frame, box, z, js, ws);
+      __syncthreads();
+      if (planes > 0)
+        for (int q = t; q < slice_size; q += kThreads)
+          slice[q] = blended(setup, ref, js, ws, planes, q);
+      __syncthreads();
+      for (int k = t; k < pixels; k += kThreads) {
+        float value = 0.0f;
+        if (planes > 0) {
+          std::uint16_t ids[kMaxSub * kMaxSub], counts[kMaxSub * kMaxSub];
+          const int found = pixel_cells(setup, box, c1, c2, k % box.nx,
+                                        k / box.nx, ids, counts);
+          value = pixel_value(ids, counts, found, slice, share);
+        }
+        profile[z * pixels + k] = value;
+      }
+      __syncthreads();
+    }
   }
   const int voxels = pixels * box.nz;
   const float *d = data + box.voxels_at;

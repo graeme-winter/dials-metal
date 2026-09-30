@@ -386,11 +386,12 @@ FIT_HD inline FitF fit_profile(const Setup &setup, const BoxF &box,
 //: One box on the CPU, the steps in the order a kernel runs them: for testing
 //: the arithmetic against the double fit, and for running --gpu's path where
 //: there is no device. `corners` holds (nx + 1)(ny + 1) floats twice, `profile`
-//: the box's voxels.
+//: the box's voxels, `blend_scratch` side^2 floats a slice.
 inline FitF fit_box_emulated(const Setup &setup, const PanelF *panels,
                              const BoxF &box, const float *data,
                              const std::uint8_t *mask, const float *reference,
-                             float *corners, float *profile) {
+                             float *corners, float *profile,
+                             float *blend_scratch) {
   FitF none;
   const FrameF frame = frame_of(setup, box.s1);
   if (!frame.valid)
@@ -401,27 +402,28 @@ inline FitF fit_box_emulated(const Setup &setup, const PanelF *panels,
   for (int cy = 0; cy <= box.ny; ++cy)
     for (int cx = 0; cx <= box.nx; ++cx)
       corner(frame, p, box, cx, cy, c1, c2);
+  // As the kernels do it: every slice's blended reference, each element with
+  // its own slice's plane weights; then each pixel's cells found once and
+  // walked down all its slices. The same sums in the same order as a slice at
+  // a time.
   const float share = 1.0f / static_cast<float>(setup.sub * setup.sub);
   const int slice_size = setup.side * setup.side;
-  float slice[kMaxSide * kMaxSide];
+  std::uint16_t ids[kMaxSub * kMaxSub], counts[kMaxSub * kMaxSub];
   int js[kMaxSide];
   float ws[kMaxSide];
-  std::uint16_t ids[kMaxSub * kMaxSub], counts[kMaxSub * kMaxSub];
-  const int voxels = box.nx * box.ny * box.nz;
-  for (int i = 0; i < voxels; ++i)
-    profile[i] = 0.0f;
-  for (int z = 0; z < box.nz; ++z) {
+  float *blend = blend_scratch;
+  for (int e = 0; e < box.nz * slice_size; ++e) {
+    const int z = e / slice_size, q = e % slice_size;
     const int planes = plane_weights(setup, frame, box, z, js, ws);
-    if (planes <= 0)
-      continue;
-    for (int q = 0; q < slice_size; ++q)
-      slice[q] = blended(setup, reference, js, ws, planes, q);
-    for (int y = 0; y < box.ny; ++y)
-      for (int x = 0; x < box.nx; ++x) {
-        const int found = pixel_cells(setup, box, c1, c2, x, y, ids, counts);
-        profile[(z * box.ny + y) * box.nx + x] =
-            pixel_value(ids, counts, found, slice, share);
-      }
+    blend[e] = planes > 0 ? blended(setup, reference, js, ws, planes, q) : 0.0f;
+  }
+  const int pixels = box.nx * box.ny;
+  for (int k = 0; k < pixels; ++k) {
+    const int found =
+        pixel_cells(setup, box, c1, c2, k % box.nx, k / box.nx, ids, counts);
+    for (int z = 0; z < box.nz; ++z)
+      profile[z * pixels + k] =
+          pixel_value(ids, counts, found, blend + z * slice_size, share);
   }
   return fit_profile(setup, box, data, mask, profile);
 }

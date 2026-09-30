@@ -153,11 +153,14 @@ std::vector<fitdev::FitF> fit_batch_emulated(const FitBatch &batch) {
                                static_cast<std::size_t>(box.ny + 1));
     std::vector<float> profile(static_cast<std::size_t>(box.nx) * box.ny *
                                box.nz);
-    out[k] = fitdev::fit_box_emulated(batch.setup, batch.panels.data(), box,
-                                      batch.data.data() + box.voxels_at,
-                                      batch.mask.data() + box.voxels_at,
-                                      batch.reference.data() + box.reference_at,
-                                      corners.data(), profile.data());
+    std::vector<float> blend(
+        static_cast<std::size_t>(box.nz) *
+        static_cast<std::size_t>(batch.setup.side * batch.setup.side));
+    out[k] = fitdev::fit_box_emulated(
+        batch.setup, batch.panels.data(), box,
+        batch.data.data() + box.voxels_at, batch.mask.data() + box.voxels_at,
+        batch.reference.data() + box.reference_at, corners.data(),
+        profile.data(), blend.data());
   });
   return out;
 }

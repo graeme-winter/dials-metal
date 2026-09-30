@@ -185,6 +185,21 @@ on the 32 thread machine. Built with `-DSPOTFINDER_METAL=ON` as the spot finder
 is; `--timing` gives copying in, the kernel from the command buffer's own clock,
 and reading back.
 
+**On the M4 Max** (16M sweep, 3600 frames, 1082994 boxes): profile fitting 5.82 s
+against the CPU's 7.08, the whole integration 18.9 s against 20.0 -- and CPU
+time 2m41 against 4m19, 98 thread-seconds freed. The kernel was 3.83 s of it,
+some 6 per cent of what the GPU can do, because it worked a pixel's 25
+subdivisions into cells again for every z-slice, and ran each slice's plane
+weights on one thread with the rest waiting. Both kernels now blend every
+slice's reference at once into threadgroup memory -- each element with its own
+slice's weights -- when the box's slices fit in 24 KB, and find a pixel's cells
+once and walk them down its slices; deeper boxes keep a slice at a time. The
+same sums in the same order: the emulation, given the same structure, is
+byte-identical and seven times faster (35.7 s to 5.0 on one core here). And the
+wall hardly moved because the GPU and CPU take turns -- fitting between chunks,
+the threads idle while the device fits and the device idle while they read --
+which overlapping them would remove.
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass

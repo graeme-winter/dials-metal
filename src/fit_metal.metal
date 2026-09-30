@@ -16,6 +16,9 @@ constant float kDegrees = 57.29577951308232f;
 #define K_MAX_SIDE 17
 #define K_MAX_SUB 7
 #define K_THREADS 128
+// Every slice's blended reference at once, in threadgroup memory, when it fits:
+// 6144 floats, 24 KB, of the 32 a threadgroup has.
+#define K_BLEND 6144
 
 struct F3 { float x, y, z; };
 static inline F3 add(F3 a, F3 b) { return F3{a.x + b.x, a.y + b.y, a.z + b.z}; }
@@ -183,6 +186,40 @@ static int plane_weights(constant Setup &setup, FrameF frame, BoxF box, int z,
   return n;
 }
 
+// The same, into a thread's own arrays.
+static int plane_weights_here(constant Setup &setup, FrameF frame, BoxF box, int z,
+                         thread int *js, thread float *ws) {
+  const float image = float(box.z0 + z);
+  const float phi_low = setup.osc_start + (image - setup.z_offset) * setup.osc;
+  const float phi_high = phi_low + setup.osc;
+  float lo = kDegrees * (frame.zeta * (phi_low - box.phi));
+  float hi = kDegrees * (frame.zeta * (phi_high - box.phi));
+  if (lo > hi) {
+    const float t = lo;
+    lo = hi;
+    hi = t;
+  }
+  const float span = hi - lo;
+  if (!(span > 0.0f))
+    return -1;
+  const int j_low = int(floor((lo + setup.span_m) / setup.step_m));
+  const int j_high = int(floor((hi + setup.span_m) / setup.step_m));
+  int n = 0;
+  const int first = j_low < 0 ? 0 : j_low;
+  const int last = j_high < setup.side - 1 ? j_high : setup.side - 1;
+  for (int j = first; j <= last; ++j) {
+    const float plane_low = -setup.span_m + float(j) * setup.step_m;
+    const float plane_high = plane_low + setup.step_m;
+    const float overlap = min(hi, plane_high) - max(lo, plane_low);
+    if (overlap > 0.0f) {
+      js[n] = j;
+      ws[n] = overlap / span;
+      ++n;
+    }
+  }
+  return n;
+}
+
 static float block_sum(float value, threadgroup float *scratch, uint t) {
   scratch[t] = value;
   threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -214,6 +251,7 @@ kernel void fit_kernel(constant Setup &setup [[buffer(0)]],
   threadgroup float ws[K_MAX_SIDE];
   threadgroup float slice[K_MAX_SIDE * K_MAX_SIDE];
   threadgroup float scratch[K_THREADS];
+  threadgroup float blend[K_BLEND];
   if (int(b) >= n_boxes)
     return;
   const BoxF box = boxes[b];
@@ -242,31 +280,61 @@ kernel void fit_kernel(constant Setup &setup [[buffer(0)]],
   const int pixels = box.nx * box.ny, slice_size = setup.side * setup.side;
   device const float *ref = reference + box.reference_at;
   device float *profile = profile_all + box.voxels_at;
-  for (int z = 0; z < box.nz; ++z) {
-    if (t == 0)
-      planes = plane_weights(setup, f, box, z, js, ws);
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    const int np = planes;
-    if (np > 0)
-      for (int q = int(t); q < slice_size; q += K_THREADS) {
-        float value = 0.0f;
-        for (int k = 0; k < np; ++k)
-          value += ws[k] * ref[js[k] * slice_size + q];
-        slice[q] = value;
-      }
+  if (box.nz * slice_size <= K_BLEND) {
+    // Every slice's blended reference at once, each element with its own
+    // slice's plane weights -- no one thread working while the rest wait --
+    // and then each pixel's cells found once and walked down all its slices.
+    // The same sums in the same order as a slice at a time: the same values.
+    for (int e = int(t); e < box.nz * slice_size; e += K_THREADS) {
+      const int z = e / slice_size, q = e % slice_size;
+      int my_js[K_MAX_SIDE];
+      float my_ws[K_MAX_SIDE];
+      const int np = plane_weights_here(setup, f, box, z, my_js, my_ws);
+      float value = 0.0f;
+      for (int k = 0; k < np; ++k)
+        value += my_ws[k] * ref[my_js[k] * slice_size + q];
+      blend[e] = value;
+    }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (int k = int(t); k < pixels; k += K_THREADS) {
-      float value = 0.0f;
-      if (np > 0) {
-        ushort ids[K_MAX_SUB * K_MAX_SUB], counts[K_MAX_SUB * K_MAX_SUB];
-        const int found = pixel_cells(setup, box, c1, c2, k % box.nx, k / box.nx, ids, counts);
+      ushort ids[K_MAX_SUB * K_MAX_SUB], counts[K_MAX_SUB * K_MAX_SUB];
+      const int found = pixel_cells(setup, box, c1, c2, k % box.nx, k / box.nx, ids, counts);
+      for (int z = 0; z < box.nz; ++z) {
+        threadgroup const float *one = blend + z * slice_size;
+        float value = 0.0f;
         for (int q = 0; q < found; ++q)
-          value += float(counts[q]) * slice[ids[q]];
-        value *= share;
+          value += float(counts[q]) * one[ids[q]];
+        profile[z * pixels + k] = value * share;
       }
-      profile[z * pixels + k] = value;
     }
     threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
+  } else {
+    for (int z = 0; z < box.nz; ++z) {
+      if (t == 0)
+        planes = plane_weights(setup, f, box, z, js, ws);
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      const int np = planes;
+      if (np > 0)
+        for (int q = int(t); q < slice_size; q += K_THREADS) {
+          float value = 0.0f;
+          for (int k = 0; k < np; ++k)
+            value += ws[k] * ref[js[k] * slice_size + q];
+          slice[q] = value;
+        }
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      for (int k = int(t); k < pixels; k += K_THREADS) {
+        float value = 0.0f;
+        if (np > 0) {
+          ushort ids[K_MAX_SUB * K_MAX_SUB], counts[K_MAX_SUB * K_MAX_SUB];
+          const int found = pixel_cells(setup, box, c1, c2, k % box.nx, k / box.nx, ids, counts);
+          for (int q = 0; q < found; ++q)
+            value += float(counts[q]) * slice[ids[q]];
+          value *= share;
+        }
+        profile[z * pixels + k] = value;
+      }
+      threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
+    }
   }
 
   const int voxels = pixels * box.nz;
