@@ -138,18 +138,12 @@ where something is missing.
   machine and against the CPU's answer, and recorded if it loses.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
-* **45.** **speed -- Scaling's error model is most of scaling, threads or not.**
-  On the MacBook with 16 threads, each scaling pass (two, with --d-min-auto):
-  the three error-model refinements 1.35 to 1.49 s, gathering the observations
-  0.37 to 0.43, the three fits together 0.19 to 0.22. Part of it was the
-  threads themselves: for_each_block made and joined its threads on every call,
-  and the golden-section search calls it dozens of times a round -- on one core
-  here, sixteen threads took the error models from 0.61 s to 1.46, none of it
-  arithmetic. A persistent pool (`src/parallel.cc`) took that to 0.72, the same
-  bytes. What is left is the search's own arithmetic -- sixty evaluations of the
-  deviations for each b, for up to twenty rounds -- and gathering, which is
-  serial. (Reading was not the cost: 0.19 s on the MacBook; the 0.71 here was
-  this container's.)
+* **45.** **speed -- Gathering the observations is serial**, 0.37 to 0.43 s of
+  each scaling pass on the MacBook with 16 threads. The error model, which was
+  most of scaling, is now a fifth of what it was on one thread: a persistent
+  thread pool, everything but a and b summed once a fit, and Brent's method for
+  b where a golden section took sixty steps; the statistics unchanged.
+  `docs/scaling.md`.
 
 ## Infrastructure
 

@@ -232,6 +232,21 @@ error model's deviations are computed a group at a time, each group's spread in
 its own order, and are bit for bit what one thread gives; the normal quantiles
 of its probability plot are computed once rather than every round.
 
+## The error model's search, made cheaper
+
+The error model was most of scaling even with threads: 1.35 to 1.49 s of each
+pass on the MacBook with 16, against 0.19 to 0.22 for the three fits. Three
+changes, the answer moving only in its last digits. The thread pool keeps its
+workers rather than making them every call (`src/parallel.cc`). A deviation's
+variance is a^2 (P + b^2 Q) with P and Q summed once a fit -- the weights and the
+merged means do not change within it -- so an evaluation is a square root an
+observation, where every group's spread was summed again. And b is found by
+Brent's method to 1e-8, where a golden section of sixty steps went to 1e-13 and
+the rounds stop at a change of 1e-6. On one thread on the 300 image sweep the
+three error models went from 0.61 s to 0.14; the error model (a 1.0092, b
+0.0244), Rmerge, Rmeas, Rpim, CC half, I/sigma, completeness and the anomalous
+correlation are the same to every digit printed.
+
 ## Decisions
 
 * **gemmi** for space groups, pinned at a release as a submodule, behind

@@ -533,6 +533,76 @@ std::size_t reject_outliers(ScaleData &data, const std::vector<double> &g,
   return flagged;
 }
 
+namespace {
+
+//: The minimum of f on [lo, hi] by Brent's method (Brent 1973, "localmin"):
+//: golden-section steps, and parabolic interpolation where it can be trusted,
+//: to within tol.
+template <typename F>
+double brent_minimum(F f, double lo, double hi, double tol) {
+  const double golden = 0.5 * (3.0 - std::sqrt(5.0));
+  double a = lo, b = hi;
+  double x = a + golden * (b - a), w = x, v = x;
+  double fx = f(x), fw = fx, fv = fx;
+  double d = 0.0, e = 0.0;
+  for (int it = 0; it < 100; ++it) {
+    const double m = 0.5 * (a + b);
+    const double t1 = 1e-10 * std::abs(x) + tol / 3.0, t2 = 2.0 * t1;
+    if (std::abs(x - m) <= t2 - 0.5 * (b - a))
+      break;
+    double step;
+    bool parabolic = false;
+    if (std::abs(e) > t1) {
+      double r = (x - w) * (fx - fv), q = (x - v) * (fx - fw),
+             pp = (x - v) * q - (x - w) * r;
+      q = 2.0 * (q - r);
+      if (q > 0.0)
+        pp = -pp;
+      else
+        q = -q;
+      if (std::abs(pp) < std::abs(0.5 * q * e) && pp > q * (a - x) &&
+          pp < q * (b - x)) {
+        e = d;
+        step = pp / q;
+        const double u = x + step;
+        if (u - a < t2 || b - u < t2)
+          step = x < m ? t1 : -t1;
+        parabolic = true;
+      }
+    }
+    if (!parabolic) {
+      e = (x < m ? b : a) - x;
+      step = golden * e;
+    }
+    d = step;
+    const double u = x + (std::abs(d) >= t1 ? d : (d > 0.0 ? t1 : -t1));
+    const double fu = f(u);
+    if (fu <= fx) {
+      (u < x ? b : a) = x;
+      v = w;
+      fv = fw;
+      w = x;
+      fw = fx;
+      x = u;
+      fx = fu;
+    } else {
+      (u < x ? a : b) = u;
+      if (fu <= fw || w == x) {
+        v = w;
+        fv = fw;
+        w = u;
+        fw = fu;
+      } else if (fu <= fv || v == x || v == w) {
+        v = u;
+        fv = fu;
+      }
+    }
+  }
+  return x;
+}
+
+} // namespace
+
 ErrorModel refine_error_model(const ScaleData &data,
                               const std::vector<double> &g) {
   const GroupSums s = group_sums(data, g);
@@ -570,41 +640,39 @@ ErrorModel refine_error_model(const ScaleData &data,
     const std::size_t h = data.group[i];
     c[i] = (g[i] * g[i] / data.variance[i]) / s.den[h];
   }
-  // The used observations of each group, and where each sits in `use`: the
-  // deviations are then computed a group at a time in parallel, each group's
-  // spread summed in its own order -- the order of `use` within it -- so the
-  // answer is the one a single thread gives.
-  std::vector<std::vector<std::size_t>> used_in(data.unique.size());
-  std::vector<std::size_t> position(data.size(), 0);
-  for (std::size_t k = 0; k < use.size(); ++k) {
-    used_in[data.group[use[k]]].push_back(use[k]);
-    position[use[k]] = k;
+  // Everything in a deviation but a and b, once a fit rather than once an
+  // evaluation. With A = (sigma^2 + the scale's term) / g^2 and B = I^2 / g^2,
+  // a variance under the error model is v = a^2 (A + b^2 B), and the variance
+  // of a deviation v (1 - 2c) + sum_h c^2 v = a^2 (P + b^2 Q), P and Q summed a
+  // group at a time here -- so an evaluation is a square root an observation.
+  // It was every group's spread summed again, for each of some sixty values of
+  // b a round.
+  std::vector<double> A_of(data.size(), 0.0), B_of(data.size(), 0.0);
+  std::vector<double> SA(data.unique.size(), 0.0), SB(data.unique.size(), 0.0);
+  for (std::size_t i : use) {
+    const double g2 = g[i] * g[i];
+    A_of[i] = (data.variance_before[i] + data.scale_term_at(i)) / g2;
+    B_of[i] = data.intensity[i] * data.intensity[i] / g2;
+    SA[data.group[i]] += c[i] * c[i] * A_of[i];
+    SB[data.group[i]] += c[i] * c[i] * B_of[i];
   }
-  const std::size_t n_groups = used_in.size();
-  const std::size_t dev_blocks = std::min<std::size_t>(
-      std::max<std::size_t>(n_groups, 1), kParallelBlocks);
-  std::vector<double> v(data.size(), 0.0);
+  std::vector<double> P(use.size()), Q(use.size()), R(use.size()),
+      Aw(use.size()), Bw(use.size());
+  for (std::size_t k = 0; k < use.size(); ++k) {
+    const std::size_t i = use[k], h = data.group[i];
+    P[k] = A_of[i] * (1.0 - 2.0 * c[i]) + SA[h];
+    Q[k] = B_of[i] * (1.0 - 2.0 * c[i]) + SB[h];
+    R[k] = data.intensity[i] / g[i] - s.num[h] / s.den[h];
+    Aw[k] = A_of[i];
+    Bw[k] = B_of[i];
+  }
   const auto deviations = [&](double a, double b, std::vector<double> *out) {
     out->assign(use.size(), 0.0);
-    for_each_block(dev_blocks, [&](std::size_t blk) {
-      for (std::size_t hh = block_begin(n_groups, dev_blocks, blk);
-           hh < block_begin(n_groups, dev_blocks, blk + 1); ++hh) {
-        double spread = 0.0;
-        for (std::size_t i : used_in[hh]) {
-          v[i] = a * a *
-                 (data.variance_before[i] + data.scale_term_at(i) +
-                  b * b * data.intensity[i] * data.intensity[i]) /
-                 (g[i] * g[i]);
-          spread += c[i] * c[i] * v[i];
-        }
-        for (std::size_t i : used_in[hh]) {
-          const double var =
-              std::fmax(v[i] * (1.0 - 2.0 * c[i]) + spread, 1e-12 * v[i]);
-          (*out)[position[i]] =
-              (data.intensity[i] / g[i] - s.num[hh] / s.den[hh]) /
-              std::sqrt(var);
-        }
-      }
+    const double b2 = b * b, a2 = a * a;
+    for_each_index(use.size(), [&](std::size_t k) {
+      const double var =
+          a2 * std::fmax(P[k] + b2 * Q[k], 1e-12 * (Aw[k] + b2 * Bw[k]));
+      (*out)[k] = R[k] / std::sqrt(var);
     });
   }; // Intensity bins for b: logarithmically spaced over the used intensities.
   double lo = HUGE_VAL, hi = 0.0;
@@ -668,26 +736,11 @@ ErrorModel refine_error_model(const ScaleData &data,
       }
       return f;
     };
-    double x0 = 0.0, x1 = 0.5; // golden section over b
-    const double r = 0.5 * (std::sqrt(5.0) - 1.0);
-    double c1 = x1 - r * (x1 - x0), c2 = x0 + r * (x1 - x0);
-    double f1 = phi(c1), f2 = phi(c2);
-    for (int it = 0; it < 60; ++it) {
-      if (f1 < f2) {
-        x1 = c2;
-        c2 = c1;
-        f2 = f1;
-        c1 = x1 - r * (x1 - x0);
-        f1 = phi(c1);
-      } else {
-        x0 = c1;
-        c1 = c2;
-        f1 = f2;
-        c2 = x0 + r * (x1 - x0);
-        f2 = phi(c2);
-      }
-    }
-    em.b = 0.5 * (x0 + x1);
+    // Brent's minimiser over b in [0, 0.5], to 1e-8: parabolic steps where the
+    // function allows, golden-section ones where it does not. It was a golden
+    // section of sixty steps, to 1e-13, where the rounds stop at a change of
+    // 1e-6.
+    em.b = brent_minimum(phi, 0.0, 0.5, 1e-8);
     if (std::abs(em.a - a0) < 1e-5 && std::abs(em.b - b0) < 1e-6)
       break;
   }
