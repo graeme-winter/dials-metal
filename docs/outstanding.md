@@ -135,6 +135,14 @@ where something is missing.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
+* **46.** **speed -- HDF5's lock serialises reading.** On 32 threads,
+  integrating 1800 frames: reading frames 3.27 s of a 7.4 s run, fetching 43.6
+  thread-seconds -- 13 times the wall -- against decompressing's 29; and 39 per
+  cent of the spot finder's threads' time on the MacBook. The way round it is to
+  ask HDF5 once for each chunk's offset and size and read them with pread, which
+  takes no lock; reading would then be bound by decompression, some 0.9 s here.
+  The same bytes, so every output byte-identical. `docs/gpu.md`, item 35.
+
 ## Infrastructure
 
 * **31.** **The C++ suite takes about two minutes**, most of it a handful of older

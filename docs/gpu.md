@@ -162,6 +162,15 @@ win at all: packing straight into pinned memory, the next batch packed while the
 device fits this one; then the kernel -- a pixel's cells kept across slices, the
 plane weights of every slice at once, faster reductions.
 
+**Against the CPU on the same machine and data:** profile fitting 1.46 s on 32
+threads in double (45.4 thread-seconds), against the device's 2.09 before the
+changes above and its kernel's 0.46. So the most the device can take, every
+transfer and all packing hidden behind the kernel, is some 0.9 s of a 7.4 s
+integration -- a factor of two or three on the fit, an eighth of the whole. What
+the same run shows larger: reading frames is 3.27 s of the 7.4, and fetching
+from HDF5 43.6 thread-seconds of it, more than decompressing -- HDF5's one
+lock, every thread's chunk read queued behind every other's (item 46).
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass
