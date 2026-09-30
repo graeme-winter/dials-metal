@@ -1178,6 +1178,8 @@ int run_program(int argc, char **argv) {
                   fit_device_name());
     FitBatch fit_batch = make_fit_batch(e, grid_spec, integrate_options.gain);
     ThreadSeconds t_fit_batched, t_gpu_prepare, t_gpu_pack, t_gpu_device;
+    std::size_t gpu_boxes = 0;
+    double gpu_bytes = 0.0;
     const auto fit_on_gpu = [&](const std::vector<std::size_t> &which) {
       const std::size_t chunk = 4096;
       for (std::size_t from = 0; from < which.size(); from += chunk) {
@@ -1190,9 +1192,12 @@ int run_program(int argc, char **argv) {
             return;
           const std::size_t row = held_rows[which[from + n]];
           const Prediction &q = *planned[row].prediction;
-          // As fit_one does, so that a saved box has its background.
-          box.background.assign(box.size(),
-                                static_cast<float>(bmean.reals[row]));
+          // A saved box has its background, as fit_one gives it; the device
+          // takes the background as one number, so otherwise it is not written
+          // -- four bytes a voxel for nothing.
+          if (save)
+            box.background.assign(box.size(),
+                                  static_cast<float>(bmean.reals[row]));
           locals[n] =
               profile_at(reference, panel, static_cast<std::size_t>(q.panel),
                          q.px_fast, q.px_slow, q.z);
@@ -1212,6 +1217,10 @@ int run_program(int argc, char **argv) {
           in_batch.push_back(row);
         }
         add_to_batch(&fit_batch, entries);
+        gpu_boxes += fit_batch.boxes.size();
+        gpu_bytes +=
+            static_cast<double>(fit_batch.voxels) * (sizeof(float) + 1) +
+            static_cast<double>(fit_batch.reference.size()) * sizeof(float);
         const double t_device = Timing::now();
         t_gpu_pack.add(t_device - t_packing);
         std::vector<fitdev::FitF> fits;
@@ -1835,9 +1844,12 @@ int run_program(int argc, char **argv) {
                     t_fit_batched.seconds(), t_gpu_prepare.seconds(),
                     t_gpu_pack.seconds(), t_gpu_device.seconds());
         if (on_device)
-          std::printf(" (on the device: uploading %.3f s, the kernel %.3f s, "
-                      "downloading %.3f s)",
-                      device[0], device[1], device[2]);
+          std::printf(" (on the device: uploading %.3f s, %.2f GB for %zu "
+                      "boxes, %.1f GB/s; the "
+                      "kernel %.3f s; downloading %.3f s)",
+                      device[0], gpu_bytes / 1e9, gpu_boxes,
+                      device[0] > 0.0 ? gpu_bytes / 1e9 / device[0] : 0.0,
+                      device[1], device[2]);
         std::printf("\n");
       }
       std::printf(

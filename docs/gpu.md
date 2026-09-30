@@ -149,6 +149,19 @@ CPU. `--timing` now splits the single-precision fit into preparing the local
 references, packing the batch (now on every thread), and fitting -- on the device
 its upload, its kernel and its download, from CUDA's own events -- to say which.
 
+**Where the time went, on an RTX 4060** (1800 frames, 32 threads): of the
+single-precision fit's 2.09 s, preparing the local references 0.35, packing
+0.65, uploading 0.54, the kernel 0.46, downloading 0.005 -- three quarters of it
+moving data, and the kernel the least of it. Preparing wrote every box's
+background, four bytes a voxel, which the device takes as one number: now only
+with `--save-shoeboxes`. The upload went from ordinary memory, which the driver
+stages through pinned buffers in pieces: it goes through pinned memory now, and
+`--timing` gives the bytes and the rate, since 0.38 GB was the most held at once
+and not what went. Next, if the CPU's own fit on that machine says the device can
+win at all: packing straight into pinned memory, the next batch packed while the
+device fits this one; then the kernel -- a pixel's cells kept across slices, the
+plane weights of every slice at once, faster reductions.
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass

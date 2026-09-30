@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 #include <cuda_runtime.h>
 
@@ -191,6 +192,26 @@ __global__ void fit_kernel(Setup setup, const PanelF *panels, const BoxF *boxes,
   }
 }
 
+//: Page-locked host memory, which the device reads at the link's full speed,
+//: kept and grown as a Buffer is. A copy from ordinary memory is staged by the
+//: driver through its own pinned buffers, in pieces, well below that.
+struct Pinned {
+  void *p = nullptr;
+  std::size_t size = 0;
+  bool reserve(std::size_t bytes) {
+    if (bytes <= size)
+      return true;
+    if (p)
+      cudaFreeHost(p);
+    p = nullptr;
+    size = 0;
+    if (cudaMallocHost(&p, bytes > 0 ? bytes : 1) != cudaSuccess)
+      return false;
+    size = bytes;
+    return true;
+  }
+};
+
 struct Buffer {
   void *p = nullptr;
   std::size_t size = 0;
@@ -239,19 +260,30 @@ bool fit_cuda_run(const Setup &setup, const PanelF *panels, int n_panels,
     g_marks_made = true;
   }
   cudaEventRecord(g_marks[0]);
+  // The pixels, masks and references -- nearly all of what goes -- through
+  // pinned memory: a host copy into it, then the device reads it at the link's
+  // speed.
+  static Pinned h_data, h_mask, h_reference;
+  if (!h_data.reserve(sizeof(float) * voxels) || !h_mask.reserve(voxels) ||
+      !h_reference.reserve(sizeof(float) * reference_floats))
+    return ok(cudaErrorMemoryAllocation, "allocating pinned memory");
+  std::memcpy(h_data.p, data, sizeof(float) * voxels);
+  std::memcpy(h_mask.p, mask, voxels);
+  std::memcpy(h_reference.p, reference, sizeof(float) * reference_floats);
   if (!ok(cudaMemcpy(d_panels.p, panels, sizeof(PanelF) * n_panels,
                      cudaMemcpyHostToDevice),
           "copying panels") ||
       !ok(cudaMemcpy(d_boxes.p, boxes, sizeof(BoxF) * n_boxes,
                      cudaMemcpyHostToDevice),
           "copying boxes") ||
-      !ok(cudaMemcpy(d_data.p, data, sizeof(float) * voxels,
-                     cudaMemcpyHostToDevice),
+      !ok(cudaMemcpyAsync(d_data.p, h_data.p, sizeof(float) * voxels,
+                          cudaMemcpyHostToDevice),
           "copying pixels") ||
-      !ok(cudaMemcpy(d_mask.p, mask, voxels, cudaMemcpyHostToDevice),
+      !ok(cudaMemcpyAsync(d_mask.p, h_mask.p, voxels, cudaMemcpyHostToDevice),
           "copying masks") ||
-      !ok(cudaMemcpy(d_reference.p, reference, sizeof(float) * reference_floats,
-                     cudaMemcpyHostToDevice),
+      !ok(cudaMemcpyAsync(d_reference.p, h_reference.p,
+                          sizeof(float) * reference_floats,
+                          cudaMemcpyHostToDevice),
           "copying references"))
     return false;
   cudaEventRecord(g_marks[1]);
