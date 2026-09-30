@@ -218,6 +218,17 @@ emulation, so that the integrator's path for a device runs here: it must give
 returned before collecting when it had no boxes of its own, and 6089 fits were
 lost -- and `python/tests/test_gpu_fit.py` now holds it to it.
 
+**Overlapped, on the M4 Max:** the integration 14.6 s against the CPU path's
+20.0, waiting for the device 0.21 s -- the kernel's 2.3 s run under reading
+frames. What fitting still costs the wall is the CPU's side, 1.9 s: preparing
+the local references 0.55, packing 0.52, handing over 0.86, of which 0.64 is one
+thread copying the batch into the buffers the GPU reads. 39 GB pass for 1.08
+million boxes, 36 KB a box, copied twice on the CPU; on Apple silicon the second
+copy is not needed, the packing able to write into the GPU's buffers directly.
+Past fitting, the wall's largest parts are reading frames (4.7 s, decompressing
+40.7 thread-seconds of it), background and summation (3.0), opening shoeboxes
+(1.75) and the profile model (1.2).
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass
