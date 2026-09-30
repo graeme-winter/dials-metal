@@ -1165,19 +1165,24 @@ int run_program(int argc, char **argv) {
     }
     const bool on_device =
         use_gpu && !emulate_gpu && fit_device_name() != nullptr;
-    if (use_gpu && !emulate_gpu && !on_device)
+    if (use_gpu && !emulate_gpu && !on_device) {
+      // The emulation runs the kernel's algorithm, which recomputes each
+      // pixel's cells for every slice -- cheap on a device, several times the
+      // work on a CPU -- so without a device the fit is the CPU's own.
       std::printf("--gpu: no device in this build or on this machine; fitting "
-                  "in single "
-                  "precision on the CPU\n");
-    else if (on_device)
+                  "on the CPU, in "
+                  "double precision\n");
+      use_gpu = false;
+    } else if (on_device)
       std::printf("Profile fitting on %s, in single precision\n",
                   fit_device_name());
     FitBatch fit_batch = make_fit_batch(e, grid_spec, integrate_options.gain);
-    ThreadSeconds t_fit_batched;
+    ThreadSeconds t_fit_batched, t_gpu_prepare, t_gpu_pack, t_gpu_device;
     const auto fit_on_gpu = [&](const std::vector<std::size_t> &which) {
       const std::size_t chunk = 4096;
       for (std::size_t from = 0; from < which.size(); from += chunk) {
         const std::size_t to = std::min(which.size(), from + chunk);
+        const double t_prepare = Timing::now();
         std::vector<std::vector<double>> locals(to - from);
         in_parallel(to - from, [&](std::size_t n) {
           Shoebox &box = held[which[from + n]];
@@ -1192,25 +1197,30 @@ int run_program(int argc, char **argv) {
               profile_at(reference, panel, static_cast<std::size_t>(q.panel),
                          q.px_fast, q.px_slow, q.z);
         });
-        const double t0 = Timing::now();
+        const double t_packing = Timing::now();
+        t_gpu_prepare.add(t_packing - t_prepare);
         clear_batch(&fit_batch);
         std::vector<std::size_t> in_batch;
+        std::vector<BatchEntry> entries;
         for (std::size_t n = 0; n < to - from; ++n) {
           const Shoebox &box = held[which[from + n]];
           if (box.data.empty() || locals[n].size() != grid_spec.size())
             continue;
           const std::size_t row = held_rows[which[from + n]];
           const Prediction &q = *planned[row].prediction;
-          add_to_batch(&fit_batch, box, q.s1, q.phi, bmean.reals[row],
-                       locals[n]);
+          entries.push_back({&box, q.s1, q.phi, bmean.reals[row], &locals[n]});
           in_batch.push_back(row);
         }
+        add_to_batch(&fit_batch, entries);
+        const double t_device = Timing::now();
+        t_gpu_pack.add(t_device - t_packing);
         std::vector<fitdev::FitF> fits;
         if (!(on_device && fit_batch_device(fit_batch, &fits)))
           fits = fit_batch_emulated(fit_batch);
+        t_gpu_device.add(Timing::now() - t_device);
         for (std::size_t n = 0; n < in_batch.size(); ++n)
           record_fit(in_batch[n], to_profile_fit(fits[n]));
-        t_fit_batched.add(Timing::now() - t0);
+        t_fit_batched.add(Timing::now() - t_prepare);
       }
     };
 
@@ -1815,12 +1825,21 @@ int run_program(int argc, char **argv) {
           "decompressing %.3f s (%.2f x), filling shoeboxes %.3f s (%.2f x)\n",
           t_fetch, per(t_fetch), t_decompress, per(t_decompress), t_fill,
           per(t_fill));
-      if (use_gpu)
-        std::printf("  profile fitting in single precision, %s: %.3f s, the "
-                    "local references and "
-                    "packing aside\n",
+      if (use_gpu) {
+        double device[3] = {0.0, 0.0, 0.0};
+        fit_device_times(device);
+        std::printf("  profile fitting in single precision, %s: %.3f s -- "
+                    "preparing %.3f s "
+                    "(the local references), packing %.3f s, fitting %.3f s",
                     on_device ? fit_device_name() : "emulated on the CPU",
-                    t_fit_batched.seconds());
+                    t_fit_batched.seconds(), t_gpu_prepare.seconds(),
+                    t_gpu_pack.seconds(), t_gpu_device.seconds());
+        if (on_device)
+          std::printf(" (on the device: uploading %.3f s, the kernel %.3f s, "
+                      "downloading %.3f s)",
+                      device[0], device[1], device[2]);
+        std::printf("\n");
+      }
       std::printf(
           "  profile fitting, in thread-seconds: interpolating the reference "
           "%.3f s, "

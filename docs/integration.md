@@ -178,9 +178,11 @@ different answer.
 
 `--timing` reports the most shoeboxes held and their memory: 14060 and 0.32 GB on
 the 300 image sweep, most of it, since three 100 image blocks and boxes up to
-148 images deep keep nearly everything waiting. On a 360 degree sweep of 16M
-pixels, with 36 blocks, an estimate from the same crystal is some 49000 boxes
-and 1.1 GB.
+148 images deep keep nearly everything waiting. On the 360 degree 16M sweep, on a
+MacBook with 16 threads: at most 79584 boxes and 2.66 GB, where an estimate from
+the 300 image sweep had said 49000 and 1.1 -- boxes wait longer than the estimate
+allowed. Integration there took 19.4 s against two passes' 28.4, and decompressing
+41 thread-seconds against 80.
 
 ## What it writes
 

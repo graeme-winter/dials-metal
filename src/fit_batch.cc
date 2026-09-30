@@ -85,6 +85,50 @@ void add_to_batch(FitBatch *batch, const Shoebox &box, const Vec3 &s1,
   batch->boxes.push_back(f);
 }
 
+void add_to_batch(FitBatch *batch, const std::vector<BatchEntry> &entries) {
+  const std::size_t first = batch->boxes.size();
+  std::size_t voxels = batch->voxels, corners = batch->corner_floats,
+              reference = batch->reference.size();
+  for (const BatchEntry &x : entries) {
+    const Shoebox &box = *x.box;
+    fitdev::BoxF f;
+    f.x0 = box.bbox[0];
+    f.y0 = box.bbox[2];
+    f.z0 = box.bbox[4];
+    f.nx = box.nx();
+    f.ny = box.ny();
+    f.nz = box.nz();
+    f.panel = box.panel;
+    f.s1 = f3(x.s1);
+    f.phi = static_cast<float>(x.phi);
+    f.background = static_cast<float>(x.background);
+    f.voxels_at = static_cast<std::uint32_t>(voxels);
+    f.reference_at = static_cast<std::uint32_t>(reference);
+    f.corners_at = static_cast<std::uint32_t>(corners);
+    voxels += box.size();
+    reference += x.reference->size();
+    corners += 2 * static_cast<std::size_t>(f.nx + 1) *
+               static_cast<std::size_t>(f.ny + 1);
+    batch->boxes.push_back(f);
+  }
+  batch->data.resize(voxels);
+  batch->mask.resize(voxels);
+  batch->reference.resize(reference);
+  batch->voxels = voxels;
+  batch->corner_floats = corners;
+  for_each_index(entries.size(), [&](std::size_t k) {
+    const BatchEntry &x = entries[k];
+    const fitdev::BoxF &f = batch->boxes[first + k];
+    std::copy(x.box->data.begin(), x.box->data.end(),
+              batch->data.begin() + f.voxels_at);
+    std::copy(x.box->mask.begin(), x.box->mask.end(),
+              batch->mask.begin() + f.voxels_at);
+    for (std::size_t i = 0; i < x.reference->size(); ++i)
+      batch->reference[f.reference_at + i] =
+          static_cast<float>((*x.reference)[i]);
+  });
+}
+
 void clear_batch(FitBatch *batch) {
   batch->boxes.clear();
   batch->data.clear();

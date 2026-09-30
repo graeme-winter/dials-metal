@@ -10,6 +10,7 @@ bool fit_cuda_run(const Setup &setup, const PanelF *panels, int n_panels,
                   const float *reference, std::size_t reference_floats,
                   std::size_t corner_floats, FitF *out);
 const char *fit_cuda_name();
+void fit_cuda_times(double out[3]);
 } // namespace fitdev
 
 namespace mxi {
@@ -27,5 +28,6 @@ bool fit_batch_device(const FitBatch &batch, std::vector<fitdev::FitF> *out) {
 }
 
 const char *fit_device_name() { return fitdev::fit_cuda_name(); }
+void fit_device_times(double out[3]) { fitdev::fit_cuda_times(out); }
 
 } // namespace mxi

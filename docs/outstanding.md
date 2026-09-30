@@ -123,12 +123,6 @@ where something is missing.
 * **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
   run, for the table; the choice needs only the one chosen.
 
-* **42.** **measure -- One pass over the images on the 16M sweep.** On a smaller
-  data set on a MacBook it is byte-identical to two passes (same SHA-1) and 7.0 s
-  against 8.1, the second pass's decompression gone. On the 16M sweep, where two
-  passes decompressed for 80 thread-seconds of a 28.4 s integration, the saving
-  and the most shoeboxes held -- estimated at 49000 and 1.1 GB -- are still to be
-  measured: `mxi_integrate --timing` against `--two-pass`. `docs/integration.md`.
 * **40.** **speed -- `mxi_symmetry` scores its elements by ordered-map lookup**,
   1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
 
@@ -175,6 +169,10 @@ where something is missing.
   symmetry in parallel and its groups by hash. On the MacBook, 16M sweep,
   --d-min-auto: 5.3 s to 2.9 before gathering was changed, and the chain from
   images to scaled data 48 s to 43. `docs/scaling.md`.
+* **42.** One pass over the images, measured on the 16M sweep on a MacBook:
+  integration 19.4 s against two passes' 28.4, decompressing 41 thread-seconds
+  against 80, at most 79584 boxes held and 2.66 GB (estimated at 49000 and 1.1).
+  `docs/integration.md`.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

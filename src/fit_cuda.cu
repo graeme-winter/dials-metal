@@ -25,6 +25,12 @@ namespace {
 
 constexpr int kThreads = 128;
 
+// The device's own clock around the upload, the kernel and the download,
+// summed across batches.
+cudaEvent_t g_marks[4];
+bool g_marks_made = false;
+double g_seconds[3] = {0.0, 0.0, 0.0};
+
 __device__ float block_sum(float value, float *scratch) {
   const int t = static_cast<int>(threadIdx.x);
   scratch[t] = value;
@@ -227,6 +233,12 @@ bool fit_cuda_run(const Setup &setup, const PanelF *panels, int n_panels,
       !d_profile.reserve(sizeof(float) * voxels) ||
       !d_out.reserve(sizeof(FitF) * static_cast<std::size_t>(n_boxes)))
     return ok(cudaErrorMemoryAllocation, "allocating device memory");
+  if (!g_marks_made) {
+    for (cudaEvent_t &e : g_marks)
+      cudaEventCreate(&e);
+    g_marks_made = true;
+  }
+  cudaEventRecord(g_marks[0]);
   if (!ok(cudaMemcpy(d_panels.p, panels, sizeof(PanelF) * n_panels,
                      cudaMemcpyHostToDevice),
           "copying panels") ||
@@ -242,6 +254,7 @@ bool fit_cuda_run(const Setup &setup, const PanelF *panels, int n_panels,
                      cudaMemcpyHostToDevice),
           "copying references"))
     return false;
+  cudaEventRecord(g_marks[1]);
   fit_kernel<<<n_boxes, kThreads>>>(
       setup, static_cast<const PanelF *>(d_panels.p),
       static_cast<const BoxF *>(d_boxes.p), n_boxes,
@@ -250,10 +263,25 @@ bool fit_cuda_run(const Setup &setup, const PanelF *panels, int n_panels,
       static_cast<const float *>(d_reference.p),
       static_cast<float *>(d_corners.p), static_cast<float *>(d_profile.p),
       static_cast<FitF *>(d_out.p));
-  return ok(cudaGetLastError(), "launching the fit") &&
-         ok(cudaMemcpy(out, d_out.p, sizeof(FitF) * n_boxes,
-                       cudaMemcpyDeviceToHost),
-            "copying the fits back");
+  if (!ok(cudaGetLastError(), "launching the fit"))
+    return false;
+  cudaEventRecord(g_marks[2]);
+  const bool copied = ok(
+      cudaMemcpy(out, d_out.p, sizeof(FitF) * n_boxes, cudaMemcpyDeviceToHost),
+      "copying the fits back");
+  cudaEventRecord(g_marks[3]);
+  cudaEventSynchronize(g_marks[3]);
+  for (int s = 0; s < 3; ++s) {
+    float ms = 0.0f;
+    if (cudaEventElapsedTime(&ms, g_marks[s], g_marks[s + 1]) == cudaSuccess)
+      g_seconds[s] += 1e-3 * static_cast<double>(ms);
+  }
+  return copied;
+}
+
+void fit_cuda_times(double out[3]) {
+  for (int s = 0; s < 3; ++s)
+    out[s] = g_seconds[s];
 }
 
 const char *fit_cuda_name() {

@@ -35,6 +35,20 @@ void add_to_batch(FitBatch *batch, const Shoebox &box, const Vec3 &s1,
                   double phi, double background,
                   const std::vector<double> &local_reference);
 
+//: Many boxes at once, packed in parallel: their offsets counted first, then
+//: every box's pixels, mask and reference copied into place on every thread.
+struct BatchEntry {
+  const Shoebox *box;
+  Vec3 s1;
+  double phi, background;
+  const std::vector<double> *reference;
+};
+void add_to_batch(FitBatch *batch, const std::vector<BatchEntry> &entries);
+
+//: Seconds on the device so far -- uploading, the kernel, downloading -- from
+//: its own clock; zeroes without one.
+void fit_device_times(double out[3]);
+
 //: Empties a batch of its boxes, keeping its setup.
 void clear_batch(FitBatch *batch);
 

@@ -139,7 +139,17 @@ subdivision near a cell boundary, which float could not make exact.
 `python/tests/test_gpu_fit.py` holds it to thirty times looser, and fails with the
 parallax correction taken out (a median of 0.35 sigma).
 
-**Not yet known:** whether the kernel compiles and agrees -- it should with the
+**First runs.** On the MacBook's 16M sweep `--gpu-emulate` took profile fitting
+from 6.8 s to 44.5: the emulation runs the kernel's algorithm, which works out a
+pixel's cells again for every z-slice -- cheap on a device, several times the
+work on a CPU -- so it is for testing, and `--gpu` without a device now fits on
+the CPU in double, not in the emulation. On a CUDA machine, a different data set,
+the kernel ran and looked right, and was slightly slower than that machine's
+CPU. `--timing` now splits the single-precision fit into preparing the local
+references, packing the batch (now on every thread), and fitting -- on the device
+its upload, its kernel and its download, from CUDA's own events -- to say which.
+
+**Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass
 (item 43). On a CUDA machine: build with `-DSPOTFINDER_CUDA=ON`, run with and
