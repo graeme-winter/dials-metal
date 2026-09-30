@@ -58,6 +58,12 @@ its boundary. Every program takes `--timing` (`src/timing.hh`).
 
 **In flight, waiting on Graeme's hardware** -- none can run here:
 
+* **Profile fitting on the device** (`mxi_integrate --gpu`, `src/fit_device.hh`,
+  `src/fit_cuda.cu`, `docs/gpu.md`). The single-precision steps verified on the
+  CPU with `--gpu-emulate`; the CUDA kernel never compiled or run. Build with
+  `-DSPOTFINDER_CUDA=ON`, compare `--gpu` with the default, read `--timing`.
+  Metal next.
+
 * **The fused CUDA threshold** (`SPOTFINDER_GPU_FUSED=1`, `src/spots/dext_fused.hh`,
   `docs/spots.md`). Verified tile by tile on the CPU against `dext()` and compiled
   for the RTX 4060 (compute capability 8.9), never run. To settle:

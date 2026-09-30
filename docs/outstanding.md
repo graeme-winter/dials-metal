@@ -132,10 +132,12 @@ where something is missing.
 * **40.** **speed -- `mxi_symmetry` scores its elements by ordered-map lookup**,
   1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
 
-* **43.** **try -- A device for each stage**, `docs/gpu.md`: profile fitting
-  first (CUDA, then Metal), then the refinement target and
-  decompression on the device, each judged against every CPU thread on its
-  machine and against the CPU's answer, and recorded if it loses.
+* **43.** **try -- A device for each stage**, `docs/gpu.md`. Profile fitting is
+  written: `mxi_integrate --gpu`, single precision, a CUDA kernel verified on the
+  CPU through `--gpu-emulate` (a median of 9e-6 sigma from the double fit, at most
+  0.036) and not yet run; Metal not yet written. Then the refinement target and
+  decompression, each judged against every CPU thread on its machine and
+  against the CPU's answer, and recorded if it loses.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 

@@ -33,6 +33,7 @@
 #include "../src/refl.hh"
 #include "args.hh"
 #include "background.hh"
+#include "fit_batch.hh"
 #include "integrate.hh"
 #include "log_mirror.hh"
 #include "mask.hh"
@@ -210,6 +211,11 @@ void usage(const char *program) {
       "  --summation-only  skip profile fitting\n"
       "  --two-pass        read the images twice, to learn and then to fit, "
       "as\n"
+      "  -g, --gpu         profile fitting on the GPU, in single precision; "
+      "the\n"
+      "                    CPU's is in double. One pass only\n"
+      "  --gpu-emulate     the same single-precision fitting on the CPU, for\n"
+      "                    testing without a device\n"
       "                    before one pass; the same answer, byte for byte\n"
       "  --grid-points N   the profile grid is 2N+1 a side (4)\n"
       "  --subdivisions N  pixel subdivisions per axis (5, as Kabsch uses)\n"
@@ -369,6 +375,9 @@ int run_program(int argc, char **argv) {
                                        "--reference-signal",
                                        "--summation-only",
                                        "--two-pass",
+                                       "-g",
+                                       "--gpu",
+                                       "--gpu-emulate",
                                        "--save-profiles",
                                        "--min-zeta",
                                        "--least-measured",
@@ -380,6 +389,9 @@ int run_program(int argc, char **argv) {
   takes_value.erase("--timing");
   takes_value.erase("--summation-only");
   takes_value.erase("--two-pass");
+  takes_value.erase("-g");
+  takes_value.erase("--gpu");
+  takes_value.erase("--gpu-emulate");
   takes_value.erase("--postrefine");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
   if (args.help) {
@@ -1063,6 +1075,24 @@ int run_program(int argc, char **argv) {
     // The fit's time, summed across threads, by stage: interpolating the
     // reference, carrying it onto the pixels, and the least squares.
     ThreadSeconds t_fit_interpolate, t_fit_onto, t_fit_solve;
+    // A fit recorded in the table, the CPU's or the device's alike.
+    const auto record_fit = [&](std::size_t row, const ProfileFit &fit) {
+      if (!fit.valid)
+        return;
+      // A fit is an extrapolation when part of the reflection is missing,
+      // and past some point it is guesswork dressed as a measurement. The
+      // intensity is still written, so it can be looked at; the flag that
+      // says it was profile fitted is not, so nothing downstream merges it
+      // by accident.
+      measured.reals[row] = fit.measured;
+      if (fit.measured < least_measured)
+        return;
+      iprf.reals[row] = fit.intensity;
+      iprf_var.reals[row] = fit.variance;
+      prf_cc.reals[row] = fit.correlation;
+      flags.ints[row] |= flag::kIntegratedPrf;
+    };
+
     const auto fit_one = [&](std::size_t row, Shoebox &box,
                              const PixelCells *cells) {
       if (box.data.empty())
@@ -1103,20 +1133,7 @@ int run_program(int argc, char **argv) {
       const ProfileFit fit =
           fit_on_pixels(box, on_pixels, integrate_options.gain);
       t_fit_solve.add(Timing::now() - f2);
-      if (!fit.valid)
-        return;
-      // A fit is an extrapolation when part of the reflection is missing,
-      // and past some point it is guesswork dressed as a measurement. The
-      // intensity is still written, so it can be looked at; the flag that
-      // says it was profile fitted is not, so nothing downstream merges it
-      // by accident.
-      measured.reals[row] = fit.measured;
-      if (fit.measured < least_measured)
-        return;
-      iprf.reals[row] = fit.intensity;
-      iprf_var.reals[row] = fit.variance;
-      prf_cc.reals[row] = fit.correlation;
-      flags.ints[row] |= flag::kIntegratedPrf;
+      record_fit(row, fit);
     };
 
     std::vector<Shoebox> boxes;
@@ -1137,6 +1154,66 @@ int run_program(int argc, char **argv) {
     // frame over two passes where 2.0 is the floor. Decompression was the
     // same 10 to 12 ms a frame as the spot finder; there were five times as
     // many of them.
+    // --gpu: profile fitting in single precision, on the device, a batch of
+    // boxes at a time; --gpu-emulate the same on the CPU. One pass only.
+    const bool emulate_gpu = args.has("--gpu-emulate");
+    bool use_gpu = emulate_gpu || args.has("-g") || args.has("--gpu");
+    if (use_gpu && !single_pass) {
+      std::printf("--gpu fits in one pass only; with --two-pass the fitting is "
+                  "on the CPU\n");
+      use_gpu = false;
+    }
+    const bool on_device =
+        use_gpu && !emulate_gpu && fit_device_name() != nullptr;
+    if (use_gpu && !emulate_gpu && !on_device)
+      std::printf("--gpu: no device in this build or on this machine; fitting "
+                  "in single "
+                  "precision on the CPU\n");
+    else if (on_device)
+      std::printf("Profile fitting on %s, in single precision\n",
+                  fit_device_name());
+    FitBatch fit_batch = make_fit_batch(e, grid_spec, integrate_options.gain);
+    ThreadSeconds t_fit_batched;
+    const auto fit_on_gpu = [&](const std::vector<std::size_t> &which) {
+      const std::size_t chunk = 4096;
+      for (std::size_t from = 0; from < which.size(); from += chunk) {
+        const std::size_t to = std::min(which.size(), from + chunk);
+        std::vector<std::vector<double>> locals(to - from);
+        in_parallel(to - from, [&](std::size_t n) {
+          Shoebox &box = held[which[from + n]];
+          if (box.data.empty())
+            return;
+          const std::size_t row = held_rows[which[from + n]];
+          const Prediction &q = *planned[row].prediction;
+          // As fit_one does, so that a saved box has its background.
+          box.background.assign(box.size(),
+                                static_cast<float>(bmean.reals[row]));
+          locals[n] =
+              profile_at(reference, panel, static_cast<std::size_t>(q.panel),
+                         q.px_fast, q.px_slow, q.z);
+        });
+        const double t0 = Timing::now();
+        clear_batch(&fit_batch);
+        std::vector<std::size_t> in_batch;
+        for (std::size_t n = 0; n < to - from; ++n) {
+          const Shoebox &box = held[which[from + n]];
+          if (box.data.empty() || locals[n].size() != grid_spec.size())
+            continue;
+          const std::size_t row = held_rows[which[from + n]];
+          const Prediction &q = *planned[row].prediction;
+          add_to_batch(&fit_batch, box, q.s1, q.phi, bmean.reals[row],
+                       locals[n]);
+          in_batch.push_back(row);
+        }
+        std::vector<fitdev::FitF> fits;
+        if (!(on_device && fit_batch_device(fit_batch, &fits)))
+          fits = fit_batch_emulated(fit_batch);
+        for (std::size_t n = 0; n < in_batch.size(); ++n)
+          record_fit(in_batch[n], to_profile_fit(fits[n]));
+        t_fit_batched.add(Timing::now() - t0);
+      }
+    };
+
     // Fit every held box whose scan blocks are all final -- or every one, at
     // the end -- in parallel, and let it go.
     const auto fit_ready = [&](bool everything) {
@@ -1158,9 +1235,12 @@ int run_program(int argc, char **argv) {
       if (now.empty())
         return;
       const double t0 = now_wall();
-      in_parallel(now.size(), [&](std::size_t n) {
-        fit_one(held_rows[now[n]], held[now[n]], &held_cells[now[n]]);
-      });
+      if (use_gpu)
+        fit_on_gpu(now);
+      else
+        in_parallel(now.size(), [&](std::size_t n) {
+          fit_one(held_rows[now[n]], held[now[n]], &held_cells[now[n]]);
+        });
       t_fit += now_wall() - t0;
       std::vector<bool> gone(held.size(), false);
       for (std::size_t k : now) {
@@ -1735,6 +1815,12 @@ int run_program(int argc, char **argv) {
           "decompressing %.3f s (%.2f x), filling shoeboxes %.3f s (%.2f x)\n",
           t_fetch, per(t_fetch), t_decompress, per(t_decompress), t_fill,
           per(t_fill));
+      if (use_gpu)
+        std::printf("  profile fitting in single precision, %s: %.3f s, the "
+                    "local references and "
+                    "packing aside\n",
+                    on_device ? fit_device_name() : "emulated on the CPU",
+                    t_fit_batched.seconds());
       std::printf(
           "  profile fitting, in thread-seconds: interpolating the reference "
           "%.3f s, "

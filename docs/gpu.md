@@ -107,6 +107,45 @@ for the error model's deviations only if those still leave it dominant.
 the RTX 4060; then Metal); the refinement target; decompression on the device; the CPU fixes in indexing,
 symmetry and scaling alongside, as they are cheaper and certain.
 
+## The first experiment: profile fitting on the device
+
+`mxi_integrate -g` (or `--gpu`) fits profiles on the device in single
+precision; the default stays the CPU's double. Written and verified on the CPU;
+the CUDA kernel is not yet run, Metal not yet written.
+
+**What moves.** Carrying the reference onto a box's pixels -- the corners' Kabsch
+coordinates, parallax included; each pixel's 25 subdivisions into the grid's
+cells; each z-slice's plane weights and blended reference -- and the weighted
+least squares. The local reference, interpolated between cells, stays on the
+host: 1 per cent of the fit, and a few thousand floats a box to send. Boxes go
+in batches of up to 4096 as one pass releases them; `--gpu` is for one pass.
+
+**How it is written.** Each step is a function of one item in
+`src/fit_device.hh`, compiled for host and device alike. `src/fit_cuda.cu`
+spreads them over a block of 128 threads a box -- the corners in parallel, a
+z-slice at a time the plane weights, the blended slice in shared memory and the
+pixels, then the least squares as block reductions -- and recomputes a pixel's
+cells each slice rather than keeping them, arithmetic being what a device has.
+nvcc sees only that file and `fit_device.hh`. `--gpu-emulate` runs the same steps
+in order on the CPU, and `--gpu` falls back to that, and says so, where there is
+no device.
+
+**Single precision against double**, on the 300 image sweep through the
+emulation: the same 20020 reflections profile fitted, no flag different; the
+difference a median of 9e-6 sigma, the 99th percentile 0.005, the largest 0.036;
+25 above 0.01 sigma, none above 0.1; variances within 0.5 per cent. That is
+float and the one departure from the CPU together -- no exact recomputation of a
+subdivision near a cell boundary, which float could not make exact.
+`python/tests/test_gpu_fit.py` holds it to thirty times looser, and fails with the
+parallax correction taken out (a median of 0.35 sigma).
+
+**Not yet known:** whether the kernel compiles and agrees -- it should with the
+emulation, up to the order of the block reductions' sums -- and whether it is
+faster than every CPU thread on the machine, which is the test it must pass
+(item 43). On a CUDA machine: build with `-DSPOTFINDER_CUDA=ON`, run with and
+without `--gpu`, compare the tables, and read `--timing`'s "profile fitting in
+single precision" line.
+
 ## Integration
 
 Profile fitting and reading frames, and whether a device is the way to make

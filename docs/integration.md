@@ -58,7 +58,7 @@ first integration byte for byte.
 | what to integrate | `--d-min`, `--first-image`, `--last-image`, `--min-zeta` (0.05) |
 | the profile model | `--sigma-b`, `--sigma-m`, `--n-sigma` (3), `--box-scale` (1.9), `--gain` (1) |
 | reference profiles | `--scan-blocks` (one per 10 degrees), `--regions` (3), `--reference-signal` (10), `--grid-points` (4), `--subdivisions` (5) |
-| profile fitting | `--least-measured` (0.6), `--summation-only`, `--two-pass` |
+| profile fitting | `--least-measured` (0.6), `--summation-only`, `--two-pass`, `-g`/`--gpu` (single precision on the device, `docs/gpu.md`), `--gpu-emulate` |
 | speed and memory | `--threads` (0, one per core), `--window` (64), `--max-boxes` (20000) |
 | output | `-o`, `--save-shoeboxes`, `--save-profiles`, `--timing` |
 

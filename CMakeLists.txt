@@ -127,6 +127,7 @@ add_library(mxi
   src/laue.cc
   src/scale_model.cc
   src/parallel.cc
+  src/fit_batch.cc
   src/scale.cc
   src/resolution.cc
 )
@@ -258,6 +259,15 @@ elseif(NOT HDF5_FOUND)
 else()
     message(STATUS "spotfinder: building")
     include(cmake/spots.cmake)
+endif()
+
+# Profile fitting on a device, for mxi_integrate --gpu: CUDA's kernel where the
+# spot finder's CUDA is on, and otherwise the stubs, which fit in single
+# precision on the CPU instead.
+if(SPOTFINDER_CUDA)
+    target_sources(mxi_integrate PRIVATE src/fit_device_cuda.cc src/fit_cuda.cu)
+else()
+    target_sources(mxi_integrate PRIVATE src/fit_device_none.cc)
 endif()
 
 add_executable(mxi_tests
