@@ -1,11 +1,107 @@
 # Where the time goes, and what a device would take
 
-STATUS: measurements of where integration's, indexing's and refinement's time
-goes, and what moving each to a GPU would and would not buy -- a device port of
-the refinement target is designed here and not written. The spot finder's GPU
-threshold, which is written and runs on Metal and CUDA, is in `docs/spots.md`.
-Within each part the sections are as they were written: a later one can
-overturn an earlier one, and says so.
+STATUS: first, a plan for a device at each stage, with how an experiment is
+judged; then the measurements behind it, in three parts -- where integration's,
+indexing's and refinement's time goes, and what moving each to a GPU would and
+would not buy. A device port of the refinement target is designed here and not
+written. The spot finder's GPU threshold, which is written and runs on Metal and
+CUDA, is in `docs/spots.md`. Within each part the sections are as they were
+written: a later one can overturn an earlier one, and says so.
+
+## A device for each stage: what to try, and how to judge it
+
+Each stage below gets the same question -- what would a device take here? --
+answered by a measurement, including where the answer is no. The costs are the
+MacBook's on the 16M sweep (3600 frames, 16 threads, the whole chain 59 s) and
+one thread here on the 300 image sweep, `--timing` in both.
+
+**How an experiment is judged.** A device path is kept only if, on the machine
+it is for, it beats *every* CPU thread there, transfers included, on a data set
+of production size; and if its answer is the CPU's -- byte for byte where the
+arithmetic can be the same, within a stated tolerance where it cannot. Metal
+has no double precision at all; the RTX 4060 runs double at a sixty-fourth of
+single, which is ample for work that is light on memory and ruinous for work
+that is not. So for each kernel the precision is a choice made per backend and
+written down, and a Metal answer that differs from the CPU's is expected and
+bounded, not a surprise. Every kernel is written as host-and-device functions
+with a CPU emulation that tests it here, as the fused threshold is
+(`docs/spots.md`); only the timing needs the hardware. An experiment that loses
+is recorded as lost, with its numbers, and removed.
+
+**CPU first where the CPU is doing something wrong.** Four of the largest costs
+below are algorithms, not arithmetic, and a device comparison against them
+would flatter the device: prediction's per-reflection cost, indexing's peak
+search, scaling's error model and symmetry's subgroup naming. Those are fixed on
+the CPU before their device experiments are run.
+
+**Spot finding.** 14 s of the 59, on the GPU already. On Metal the threshold is
+not the limit: reading from HDF5 is 39 per cent of the threads' time and
+decompressing 16. On CUDA the kernels are, 8.9 ms a frame; the fused kernel is
+written for that and waits for its first run (item 35). *To try:* decompressing
+on the device -- the upload shrinks thirteen-fold, a 2.8 MB frame for 36, and
+bitshuffle is a transpose a device does well -- which frees the host's threads
+for reading on both backends.
+
+**Indexing.** 1.4 s of the 59. On one thread here: the peak search 1.52 s, the
+transform 0.94, choosing the basis 0.37 -- the peak search walks the whole
+256^3 grid. *CPU first:* the peak search. *Then to try:* the transform and the
+peak search together on the device, the grid never leaving it. A small prize for
+one sweep; it matters where many sweeps are indexed.
+
+**Refinement.** 1.8 s of the 59, 0.34 of it writing. The design below --
+"Refinement" -- is for this: one reflection's residuals and Jacobian row are
+independent of every other's, and `src/target.hh` and `src/derivatives_t.hh`
+are written once and compiled at either precision for exactly this. The float32
+measurements there say what Metal can do. *To try:* the target and its Jacobian
+rows on the device, the normal equations accumulated there in blocks and
+summed on the host in double -- scan-varying first, where the banded
+Jacobian's rows are the work. Small for one sweep on a fast CPU; its case is the
+many-sweep, many-parameter refinement.
+
+**Integration.** 28.4 s of the 59 before one pass, and where a device has most
+to take: per-box work, thousands of boxes a chunk, and on the Mac the frames
+already in memory the GPU shares. On one thread here (21.6 s): prediction 8.2 s,
+profile fitting 3.7, frame reading 3.0 (decompression 1.7 of it), learning
+profiles 1.9, background and summation 1.7, opening shoeboxes 1.4, the profile
+model 1.4. Within fitting: carrying the reference onto the pixels 2.5
+thread-seconds, the least squares 1.0.
+
+* **Prediction** is 95 us a reflection on one thread with a static crystal and
+  four times that with a scan-varying one -- item 36, now explained: 2.0 s
+  against 8.1 on the same 21500 reflections. Threads hid it on the 16M run.
+  *CPU first:* why a reflection costs 95 us. *Then to try:* prediction on the
+  device, every image independent.
+* **Profile fitting** is geometry and small solves: `pixel_cells` for each box
+  (no pixel value enters it), the accumulation over planes, and a least squares
+  a box. *To try first of all the integration experiments*, since it is the
+  largest phase left, self-contained, and its inputs -- a box's extent, s1, phi,
+  its pixels and the local reference -- are compact. On CUDA in double: the
+  geometry is light on memory, so the 1/64 rate costs little and the answer can
+  be the CPU's to within the last digit of a transcendental; on Metal in float,
+  with the boundary test's cases counted against the CPU's.
+* **Learning profiles** is the same geometry the other way; it follows fitting's
+  kernel.
+* **Background and summation, and opening shoeboxes** -- the GLM is an
+  iteration a box, the mask a geometry a voxel -- belong in the same device
+  pipeline if fitting's experiment wins: a box's pixels would then go onto the
+  device once, and everything done to them there.
+
+**Symmetry.** 4.2 s of the 59: naming every subgroup 36 per cent, scoring
+elements by ordered-map lookup 1.3 s (items 37 and 40). *CPU only:* both are
+algorithms. No device experiment: there is not the work.
+
+**Scaling.** 8.8 s of the 59 on one thread; now threaded and unmeasured (item
+41). On one thread here the three error-model refinements are 0.65 of the fit's
+0.87 s -- a golden-section search evaluating the deviations dozens of times a
+round -- and reading a small table 0.71 s, slower than the reader measured on
+its own, unexplained. *CPU first:* both. *Then to try*, if the threads leave
+enough: the normal equations, 70 parameters over a million observations, on
+the device as refinement's are.
+
+**The order.** Profile fitting on the device first (CUDA, compiled here, run on
+the RTX 4060; then Metal); prediction's CPU cost, then its device experiment;
+the refinement target; decompression on the device; the CPU fixes in indexing,
+symmetry and scaling alongside, as they are cheaper and certain.
 
 ## Integration
 

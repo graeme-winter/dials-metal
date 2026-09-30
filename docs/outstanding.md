@@ -120,10 +120,11 @@ where something is missing.
     4060, not yet run: `ctest -R dext_gpu`, then `cmp` and `--timing` against the
     three kernels on real data. HDF5's lock shows too: reading takes 4.6 thread-seconds on 8
     threads and 22.5 on 16, for the same data. `docs/spots.md`.
-* **36.** **speed -- Prediction took 29 per cent of one integration and 1 of
-  another**: 6.3 s of a 300 image integration of a scan-varying model, nearly as
-  long for 60 images, and 0.2 s of a 3600 image one on the 16M sweep. What makes
-  the first slow is not yet known. `mxi_integrate --timing`.
+* **36.** **speed -- Prediction costs 95 us a reflection on one thread**, and a
+  scan-varying crystal four times that: 2.0 s against 8.1 on the same 21500
+  reflections of the 300 image sweep. Threads hid it on the 16M run (0.2 s on
+  16). Why a reflection costs that much is the first question.
+  `docs/gpu.md`, "A device for each stage".
 * **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
   run, for the table; the choice needs only the one chosen.
 
@@ -135,6 +136,16 @@ where something is missing.
   measured: `mxi_integrate --timing` against `--two-pass`. `docs/integration.md`.
 * **40.** **speed -- `mxi_symmetry` scores its elements by ordered-map lookup**,
   1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
+
+* **43.** **try -- A device for each stage**, `docs/gpu.md`: profile fitting
+  first (CUDA, then Metal), then prediction, the refinement target and
+  decompression on the device, each judged against every CPU thread on its
+  machine and against the CPU's answer, and recorded if it loses.
+* **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
+  the transform's 0.94 on one thread.
+* **45.** **speed -- Scaling's error model is three quarters of its fit**, the
+  golden-section search evaluating the deviations dozens of times a round; and
+  reading a small table takes `mxi_scale` 0.71 s, slower than the reader alone.
 
 ## Infrastructure
 
