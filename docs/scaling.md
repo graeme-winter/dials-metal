@@ -247,6 +247,14 @@ three error models went from 0.61 s to 0.14; the error model (a 1.0092, b
 0.0244), Rmerge, Rmeas, Rpim, CC half, I/sigma, completeness and the anomalous
 correlation are the same to every digit printed.
 
+On the MacBook, the 16M sweep with --d-min-auto: 5.3 s to 2.9, and the chain
+from images to scaled data 48 s to 43. Gathering the observations was then the
+largest phase, 0.40 to 0.45 s a pass, serial: eight lookups of a column by name
+a reflection, the group's symmetry operators three times a row, and an ordered
+map. The columns are looked up once, a row's symmetry is worked out in parallel,
+and the groups numbered in row order through a hash -- scaled.refl
+byte-identical, and a third of the time on one thread.
+
 ## Decisions
 
 * **gemmi** for space groups, pinned at a release as a submodule, behind

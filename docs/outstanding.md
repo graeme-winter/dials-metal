@@ -138,12 +138,6 @@ where something is missing.
   machine and against the CPU's answer, and recorded if it loses.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
-* **45.** **speed -- Gathering the observations is serial**, 0.37 to 0.43 s of
-  each scaling pass on the MacBook with 16 threads. The error model, which was
-  most of scaling, is now a fifth of what it was on one thread: a persistent
-  thread pool, everything but a and b summed once a fit, and Brent's method for
-  b where a golden section took sixty steps; the statistics unchanged.
-  `docs/scaling.md`.
 
 ## Infrastructure
 
@@ -173,6 +167,12 @@ where something is missing.
   most. Both are pruned first now, with a margin for the crystal's motion
   bounded from its settings: 8.1 s to 0.09 on the 300 image sweep, the same
   predictions, integrated.refl byte-identical. `src/predict.cc`.
+* **45.** Scaling's error model and gathering most of scaling, threads or not:
+  a persistent thread pool, the error model's deviations summed once a fit and
+  b by Brent's method, and gathering's column lookups out of its loop, its
+  symmetry in parallel and its groups by hash. On the MacBook, 16M sweep,
+  --d-min-auto: 5.3 s to 2.9 before gathering was changed, and the chain from
+  images to scaled data 48 s to 43. `docs/scaling.md`.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

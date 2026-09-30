@@ -1,7 +1,6 @@
 #include "scale.hh"
 
 #include "parallel.hh"
-
 #include "timing.hh"
 
 #include <algorithm>
@@ -10,6 +9,7 @@
 #include <numeric>
 #include <random>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace mxi {
 
@@ -36,37 +36,98 @@ ScaleData build_scale_data(const ExperimentList &experiments,
       profile ? flag::kIntegratedPrf : flag::kIntegratedSum;
   const double images = static_cast<double>(e.scan.num_images());
 
-  ScaleData data;
-  std::map<Miller, std::size_t> groups;
-  for (std::size_t i = 0; i < reflections.nrows; ++i) {
+  // The columns looked up once, not once a row: eight lookups by name a
+  // reflection were most of gathering, which was serial.
+  const Column *id_col = has_id ? &reflections.at("id") : nullptr;
+  const Column *part_col = has_part ? &reflections.at("partiality") : nullptr;
+  const Column *lp_col = has_lp ? &reflections.at("lp") : nullptr;
+  const Column *qe_col = has_qe ? &reflections.at("qe") : nullptr;
+  const Column &pv = reflections.at("intensity.prf.value");
+  const Column &pvar = reflections.at("intensity.prf.variance");
+  const Column &sv = reflections.at("intensity.sum.value");
+  const Column &svar = reflections.at("intensity.sum.variance");
+
+  // First each row on its own, in parallel: whether it is taken, and its
+  // symmetry -- absent, its unique index, which Friedel mate -- which loop over
+  // the group's operators. Then, in row order, the groups numbered as they
+  // first appear and the observations appended, so that everything comes out as
+  // it did in one serial loop.
+  const std::size_t rows = reflections.nrows;
+  std::vector<std::uint8_t> taken(rows, 0), plus_of(rows, 0);
+  std::vector<Miller> unique_of(rows);
+  std::vector<double> factor_of(rows, 0.0);
+  for_each_index(rows, [&](std::size_t i) {
     if ((flags.ints[i] & wanted) == 0)
-      continue;
-    if (has_id && reflections.at("id").ints[i] != 0)
-      continue; // one sweep, for now
+      return;
+    if (id_col && id_col->ints[i] != 0)
+      return; // one sweep, for now
     const double v = var.reals[i];
     const double d = dcol.reals[i];
     if (!(v > 0.0) || !std::isfinite(value.reals[i]) || !(d > 0.0) ||
         !std::isfinite(d) || d < options.d_min)
-      continue;
-    const double part = has_part ? reflections.at("partiality").reals[i] : 1.0;
+      return;
+    const double part = part_col ? part_col->reals[i] : 1.0;
     if (!(part >= options.partiality_cutoff))
-      continue;
+      return;
     const Miller h{static_cast<int>(miller.ints[i * 3]),
                    static_cast<int>(miller.ints[i * 3 + 1]),
                    static_cast<int>(miller.ints[i * 3 + 2])};
     if ((h[0] == 0 && h[1] == 0 && h[2] == 0) || group.absent(h))
-      continue;
+      return;
     double factor = 1.0 / part;
-    if (has_lp)
-      factor *= reflections.at("lp").reals[i];
-    if (has_qe && reflections.at("qe").reals[i] > 0.0)
-      factor /= reflections.at("qe").reals[i];
+    if (lp_col)
+      factor *= lp_col->reals[i];
+    if (qe_col && qe_col->reals[i] > 0.0)
+      factor /= qe_col->reals[i];
+    taken[i] = 1;
+    factor_of[i] = factor;
+    unique_of[i] = group.unique(h);
+    plus_of[i] = group.friedel_plus(h) ? 1 : 0;
+  });
+  std::size_t count = 0;
+  for (std::uint8_t t : taken)
+    count += t;
 
-    const Miller u = group.unique(h);
-    const auto [it, fresh] = groups.emplace(u, data.unique.size());
-    if (fresh)
+  ScaleData data;
+  data.intensity.reserve(count);
+  data.variance.reserve(count);
+  data.variance_before.reserve(count);
+  data.scale_term.reserve(count);
+  data.prf.reserve(count);
+  data.prf_variance.reserve(count);
+  data.sum.reserve(count);
+  data.sum_variance.reserve(count);
+  data.observation.reserve(count);
+  data.group.reserve(count);
+  data.row.reserve(count);
+  data.d.reserve(count);
+  data.outlier.reserve(count);
+  // A group's number is the order it first appears in; a hash from the index
+  // finds it, where an ordered map searched a tree.
+  const auto key = [](const Miller &m) {
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(m[0]) &
+                                       0x1FFFFF)
+            << 42) |
+           (static_cast<std::uint64_t>(static_cast<std::uint32_t>(m[1]) &
+                                       0x1FFFFF)
+            << 21) |
+           (static_cast<std::uint64_t>(static_cast<std::uint32_t>(m[2]) &
+                                       0x1FFFFF));
+  };
+  std::unordered_map<std::uint64_t, std::size_t> groups;
+  groups.reserve(count / 2 + 16);
+  for (std::size_t i = 0; i < rows; ++i) {
+    if (!taken[i])
+      continue;
+    const Miller &u = unique_of[i];
+    const auto [it, fresh] = groups.emplace(key(u), data.unique.size());
+    if (fresh) {
       data.unique.push_back(u);
-
+      data.centric.push_back(group.centric(u));
+    }
+    const double factor = factor_of[i];
+    const double v = var.reals[i];
+    const double d = dcol.reals[i];
     ScaleObservation o;
     const double z = cal.reals[i * 3 + 2];
     o.rotation = images > 0.0 ? z / images : 0.0;
@@ -76,10 +137,6 @@ ScaleData build_scale_data(const ExperimentList &experiments,
     data.variance.push_back(v * factor * factor);
     data.variance_before.push_back(v * factor * factor);
     data.scale_term.push_back(0.0);
-    const Column &pv = reflections.at("intensity.prf.value");
-    const Column &pvar = reflections.at("intensity.prf.variance");
-    const Column &sv = reflections.at("intensity.sum.value");
-    const Column &svar = reflections.at("intensity.sum.variance");
     const bool summed =
         (flags.ints[i] & flag::kIntegratedSum) != 0 && svar.reals[i] > 0.0;
     data.prf.push_back(pv.reals[i] * factor);
@@ -87,18 +144,13 @@ ScaleData build_scale_data(const ExperimentList &experiments,
     data.sum.push_back(sv.reals[i] * factor);
     data.sum_variance.push_back(svar.reals[i] * factor * factor);
     data.has_sum.push_back(summed);
-    data.plus.push_back(group.friedel_plus(h));
-    if (fresh)
-      data.centric.push_back(group.centric(u));
+    data.plus.push_back(plus_of[i] != 0);
     data.observation.push_back(std::move(o));
     data.group.push_back(it->second);
     data.row.push_back(i);
     data.d.push_back(d);
     data.outlier.push_back(false);
   }
-  // The absorption harmonics at s1 and the reverse incident beam in the
-  // crystal frame, for every observation: independent of one another, so in
-  // parallel, after the selection above, which groups and so stays in order.
   if (shape.lmax > 0 && has_s1) {
     const Column &s1 = reflections.at("s1");
     for_each_index(data.size(), [&](std::size_t k) {
