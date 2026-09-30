@@ -3,26 +3,29 @@
 **Reviewing this code?** Start with `docs/review.md`: what this is, how it differs
 from DIALS and why, and where to find things.
 
-An independent implementation of the MX data-reduction chain from the images to
-integrated intensities: spot finding, indexing, refinement and integration, in
-C++, plus `mxeq`, a checker that compares its output against DIALS and explains
-the differences.
+An independent implementation of the MX data-reduction chain for one rotation
+sweep, from the images to scaled intensities: spot finding -- on the CPU, or the
+GPU through Metal or CUDA -- indexing, refinement, integration, symmetry
+determination and scaling, in C++; plus `mxeq`, a checker that compares its
+output against DIALS' and explains the differences. It reads and writes DIALS'
+own files, so any step can be exchanged for DIALS' at its boundary.
 
 The aim is to **stand in for DIALS**, not to improve on it. A pipeline built on
 its own ideas would be fast and would agree with nothing anyone runs. Where it
-departs from DIALS deliberately, the departure is a run-time option that
-defaults off and the reason is written down.
+departs from DIALS the departure is deliberate, measured against DIALS on the
+same data, and written down with the reason -- some behind an option, some,
+where the measurement said so, by default. `docs/review.md` lists them all.
 
 ## Layout
 
 | | |
 | --- | --- |
-| `src/`, `apps/` | indexing, refinement, prediction, the profile model, integration |
-| `src/spots/` | the Metal and CUDA spot finder, and the NXmx image reader |
+| `src/`, `apps/` | indexing, refinement, prediction, the profile model, integration, symmetry, scaling |
+| `src/spots/` | the spot finder, on the CPU or through Metal or CUDA, and the NXmx image reader |
 | `tests/` | the C++ tests, `tests/spots/` for the spot finder's |
 | `tools/` | measurement harnesses kept for rerunning, such as planted spots |
 | `python/` | everything Python: the checker, the comparisons, the plots |
-| `docs/` | the integration reference and its notebook, the spot finder, a device port |
+| `docs/` | the references for integration, symmetry, scaling and the spot finder; the guide for reviewers; what is outstanding; `docs/README.md` maps them |
 | `CLAUDE.md` | working notes: what was got wrong, and how it was found |
 
 `mxeq` is the referee and must stay independent of what it judges. Nothing in

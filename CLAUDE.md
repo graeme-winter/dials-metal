@@ -2,16 +2,18 @@
 
 ## What this is
 
-An MX data-reduction chain from the images to integrated intensities: spot
-finding, indexing, refinement, prediction and integration, reading and writing
-DIALS' formats so that any stage can be swapped for DIALS' own.
+An MX data-reduction chain for one rotation sweep, from the images to scaled
+intensities: spot finding, indexing, refinement, prediction, integration,
+symmetry determination and scaling, reading and writing DIALS' formats so that
+any stage can be swapped for DIALS' own. `docs/review.md` is the guide for
+someone meeting the code for the first time.
 
 Three pieces share this repository and are not one program:
 
 | | where | its notes |
 | --- | --- | --- |
 | the spot finder and image reader | `src/spots/` | `docs/spots.md`, `docs/spots_notes.md`, `docs/spotfinder.md` |
-| the pipeline | `src/`, `apps/` | this file; integration in `docs/integration.md` |
+| the pipeline | `src/`, `apps/` | this file; `docs/integration.md`, `docs/symmetry.md`, `docs/scaling.md` |
 | `mxeq`, the referee | `python/` | `python/CLAUDE.md` |
 
 `mxeq` must stay independent of everything else here. It is the referee, and a
