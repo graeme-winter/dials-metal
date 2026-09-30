@@ -4,7 +4,7 @@ The NXmx reader finds every chunk's place in its file once, and then reads a
 frame with pread rather than H5Dread_chunk, so that threads do not queue for
 HDF5's one lock. The bytes must be the same: here the spot finder runs on the
 planted fixtures -- a virtual dataset across two data files, and one with a
-frame never written -- both ways, MXI_HDF5_DIRECT=0 forcing HDF5's path, and
+frame never written -- both ways -- by offset with MXI_HDF5_DIRECT=1, and through HDF5 by default -- and
 the tables must be identical, the report saying which path the frames took.
 
 Needs MXI_FIND, and h5py, hdf5plugin and numpy for the fixtures.
@@ -32,8 +32,9 @@ def fixture(tmp_path, name, *extra):
 
 def find(tmp_path, master, name, direct):
     env = dict(os.environ)
-    if not direct:
-        env["MXI_HDF5_DIRECT"] = "0"
+    env.pop("MXI_HDF5_DIRECT", None)
+    if direct:
+        env["MXI_HDF5_DIRECT"] = "1"
     run = subprocess.run(
         [
             FIND,

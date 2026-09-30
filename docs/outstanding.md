@@ -135,17 +135,17 @@ where something is missing.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
-* **46.** **measure -- Reading frames outside HDF5's lock.** HDF5 serialised
-  every chunk read through its one lock: on 32 threads, integrating 1800 frames,
-  fetching was 43.6 thread-seconds, 13 times the wall, against decompressing's
-  29. The NXmx reader now finds every chunk's place once when a dataset is
-  opened -- by coordinate, the user block added, in the dataset's own file as
-  HDF5 names it -- and reads a frame with pread, taking the lock only to find its
-  source; HDF5's own path where that cannot be done, and with
-  `MXI_HDF5_DIRECT=0`. Every table byte-identical either way;
-  `python/tests/test_direct_reads.py`. One core here cannot show the gain: to
-  measure on the 32 thread machine, fetching in `--timing`, which also says
-  which path the frames took.
+* **46.** **measure -- Reading frames outside HDF5's lock**, on request with
+  `MXI_HDF5_DIRECT=1`. HDF5 serialised every chunk read: on 32 threads,
+  integrating 1800 frames, fetching was 43.6 thread-seconds, 13 times the wall.
+  Reading each chunk with pread outside the lock gives the same bytes
+  (`python/tests/test_direct_reads.py`) -- but as the default it made a
+  MacBook's integration from an external drive 10 s slower, 19.7 to 30.0 s,
+  its user time barely changed: waiting, not work. So it is opt-in, and each
+  chunk's place is now asked for as it is read rather than all when a file is
+  opened. To measure: `--timing` with and without `MXI_HDF5_DIRECT=1` on the
+  MacBook and on the 32 thread machine -- fetching, reading frames' wall, and
+  the line saying which path the frames took. `docs/spots.md`.
 
 ## Infrastructure
 
