@@ -1,6 +1,18 @@
-# Computing the refinement target on a device
+# Where the time goes, and what a device would take
 
-## Integration: what a device would buy, measured first
+STATUS: measurements of where integration's, indexing's and refinement's time
+goes, and what moving each to a GPU would and would not buy -- a device port of
+the refinement target is designed here and not written. The spot finder's GPU
+threshold, which is written and runs on Metal and CUDA, is in `docs/spots.md`.
+Within each part the sections are as they were written: a later one can
+overturn an earlier one, and says so.
+
+## Integration
+
+Profile fitting and reading frames, and whether a device is the way to make
+them faster: measured each time before anything moved.
+
+### What a device would buy, measured first
 
 Profile fitting was 53 per cent of integrating a 3600 image Eiger 16M sweep --
 the obvious thing to move. It was not the arithmetic that cost: 97 per cent of
@@ -29,7 +41,7 @@ thousands -- but it is now a third of a much shorter run, and the case for
 moving it should be made from a profile of this version, not the old one.
 Reading is decompression on the CPU and would not move with it.
 
-### Measured again, with one pass over the images
+#### Measured again, with one pass over the images
 
 On 1800 frames on a MacBook, 16 threads, one pass: 6.6 s, of which profile
 fitting is 2.4 (36.5 per cent), reading frames 1.1, writing 0.7, the profile
@@ -74,238 +86,12 @@ pixels went to 1.54 s, and the fit to 2.27 thread-seconds, 52 per cent less than
 at the start, for 0.01 GB more held on the 300 image sweep. Byte-identical, in one
 pass and in two, which computes them afresh.
 
-## Scan-varying refinement, where the normal equations were the cost
+## Indexing
 
-The static case below is not the command anyone actually runs. This is:
+The transform, the peak search and the refinement inside the macrocycles,
+measured phase by phase with `mxi_index --timing`.
 
-    mxi_refine indexed.expt indexed.refl --scan-varying 18 --beam --analytic
-
-Eighteen control points takes the parameter count from about ten to about a
-hundred and seventy, and the normal equations are quadratic in it. Measured:
-
-    the jacobian               1.791 s   23.5%
-    the normal equations       4.848 s   63.6%
-    total                      7.629 s
-
-A scan-varying crystal is a cubic B-spline, so a reflection touches four
-control points and no more: about forty of those hundred and seventy
-parameters have a nonzero derivative and the rest are structurally zero. The
-accumulation skipped the zeros in its outer index and not its inner one, so
-each nonzero was multiplied against every parameter below it, and
-`jacobian[b][row]` walked across a hundred and seventy separate heap
-allocations -- one load per parameter, which is the worse half of the cost.
-
-Gathering the nonzero entries of a row once and using them against each other:
-
-    the normal equations       4.848 -> 1.517 s
-    total                      7.629 -> 4.204 s
-
-The order of accumulation is unchanged, ascending in both indices, so every sum
-is formed from the same terms in the same sequence. The refined crystal,
-detector and beam are identical, compared as written files rather than to a
-tolerance.
-
-That the sparsity was there to be used is a property of the model rather than
-of the data, so it holds for any scan-varying refinement and the saving grows
-with the number of control points.
-
-### The search for the nonzeros was itself linear in the parameters
-
-Using the sparsity meant finding it, and the finding was done by reading every
-entry of every column of the Jacobian for each row:
-
-    for (a = 0; a < n; ++a) { ja = jacobian[a][row]; if (ja == 0) continue; ... }
-
-That is O(n) per row however sparse the row is, and each probe lands in a
-different heap allocation. At a hundred and seventy parameters it did not
-matter. On ten full rotations of a crystal, where the scan-varying model runs
-to thousands of parameters, it was 267 of the 291 seconds the refinement took.
-
-The pattern does not need finding. `build_analytic_jacobian` knows which
-parameters it is about to write -- four control points from the spline, six
-detector, two beam -- so it records the span as it goes. The accumulation then
-iterates thirty-six parameters instead of several thousand.
-
-    control points      before      after
-              18       1.748 s     1.134 s
-              60       5.180 s     1.204 s
-             120      10.602 s     1.573 s
-
-Linear in the control points before, nearly flat after. The refined crystal and
-detector are identical.
-
-The finite-difference path records nothing, because it genuinely does not know
-which parameters it touched, and falls back to the search. It is slower than
-the analytical path by a much larger factor anyway.
-
-### The Jacobian threads at 1.29x, and that is an allocation
-
-On sixteen cores, a scan-varying refinement of ten rotations:
-
-    --jacobian-threads 1     the jacobian  17.714 s
-    --jacobian-threads 16    the jacobian  13.722 s
-
-The inner loop is one reflection per thread with nothing shared, so 1.29x is
-not a threading problem. It is what surrounds the loop:
-
-    jacobian->assign(n, std::vector<double>(observations.size() * 3, 0.0));
-
-Parameters by reflections by three doubles, allocated and zeroed every
-iteration. At a million reflections that is gigabytes of serial memory traffic
-wrapped around a parallel inner loop, and no thread count touches it.
-
-The fix is not to allocate it. Every entry is written once and read once, by
-the accumulation that immediately follows, so the two can be fused: compute a
-reflection's derivatives and accumulate them into the normal equations there
-and then, and the array never exists. That removes the allocation, the traffic
-in both directions, and the parameter-major layout already noted as wrong for a
-device. It is what a device port has to do anyway, since gigabytes an iteration
-is not a thing to move across a bus.
-
-### And then they were the only serial phase left
-
-On a sixteen-core machine, with the Jacobian threaded and the sparsity used:
-
-    read                       0.261 s   17.3%
-    the jacobian               0.085 s    5.6%
-    the normal equations       0.884 s   58.4%
-    total                      1.513 s
-
-The Jacobian is five per cent there and forty per cent on a single core, which
-is not a statement about the Jacobian: it is threaded and the normal equations
-were not. `--normal-threads` threads them.
-
-It is a reduction, so this one is not free. Each thread accumulates into its
-own `n` by `n` matrix -- 231 kB apiece at a hundred and seventy parameters,
-which is why the thread count is capped by what the partials cost -- and the
-partials are summed at the end. **A threaded run and a serial one do not agree
-bit for bit**, because floating point addition is not associative and the terms
-are summed in a different order. They agree to about 1.6e-12 relative, seven
-orders below the convergence tolerance, and the test pins 1e-10.
-
-Two threaded runs at the same setting do agree exactly: the chunk boundaries
-come from the thread count, not from how the threads happen to be scheduled. A
-parallel reduction that answered differently run to run would make every
-comparison downstream meaningless, so that is tested as well.
-
-`--normal-threads 1` keeps the serial sum where the last bits matter.
-
-## Refinement on its own is dominated by file I/O
-
-`mxi_refine --timing`, on 78618 reflections whose table carries shoeboxes:
-
-    read                       0.293 s   28.7%
-    build the target rows      0.032 s    3.1%
-    the jacobian               0.251 s   24.5%
-    the normal equations       0.111 s   10.9%
-    the solve                  0.000 s    0.0%
-    the trial residuals        0.110 s   10.7%
-    outlier rejection          0.008 s    0.8%
-    write                      0.130 s   12.7%
-    total                      1.023 s
-
-**Reading and writing are 41 per cent of it**, more than the Jacobian, and
-nine tenths of that is pixel data refinement never looks at. The file is
-100 MB, of which the shoebox column is 79. The same run on a table with the
-shoeboxes stripped:
-
-    read     0.293 -> 0.049 s
-    write    0.130 -> 0.042 s
-    total    1.023 -> 0.615 s
-
-A third of the run was carrying shoeboxes from one file to another, and almost
-none of it was the file. Measured against the floor:
-
-    fread of the same 100 MB       0.055 s   at 1.8 GB/s
-    memcpy of 100 MB               0.012 s
-    read_reflections               0.310 s
-
-The reader had
-
-    std::string raw((std::istreambuf_iterator<char>(in)), {});
-
-which goes through the stream one character at a time, regrowing the string as
-it goes. Sized, resized and read in one go it is 0.148 s. The writer was
-growing its output from empty to a hundred megabytes, doubling and copying
-everything it had each time; reserved, 0.138 s.
-
-    read      0.310 -> 0.148 s
-    write     0.163 -> 0.138 s
-
-A table read and written back is byte for byte what it was, which is the only
-check worth making on a change to framing: values that survive a round trip
-would survive most ways of getting the framing wrong.
-
-Which is worth saying plainly: refinement's arithmetic is now a smaller part of
-`mxi_refine` than its file handling, and no amount of threading or device work
-on the Jacobian will change that. The cheapest remaining second is in the
-reader.
-
-The solve is 0.000 s and that is not a broken timer: it is a Cholesky of a ten
-by ten matrix, done a handful of times.
-
-## The transform, and the half of it that is not needed
-
-With analytical derivatives in use the transform is the largest phase of
-indexing, 42.5 per cent of a 1.069 second run. Two things are left in it.
-
-**FFTW's own threading**, which `--fft-threads` now turns on where FFTW was
-built with it. Debian ships `libfftw3_omp` and Homebrew `libfftw3_threads`;
-either will do and the build reports which it found, or says it found neither
-and runs on one thread.
-
-**A real-to-complex transform.** The grid is filled by adding 1.0 at each
-reciprocal lattice point and nothing else, so its imaginary part is zero
-everywhere. A complex-to-complex transform of real data does twice the
-arithmetic and holds twice the memory for an output that is Hermitian
-symmetric: `F(-k)` is the conjugate of `F(k)`, so half of the 16.7 million
-points computed are a reflection of the other half.
-
-`fftw_plan_dft_r2c_3d` computes the `n * n * (n/2 + 1)` that are independent.
-The obstacle is not the transform, it is the peak search, which walks the full
-cube and compares each point with its twenty-six neighbours. On the half grid
-some of those neighbours are the conjugates of points on the other side, and
-the wrapping that the search already does for periodicity would have to become
-a wrapping that also conjugates. That is a change to the part of this code
-where an error would be least visible -- a peak list that is subtly wrong still
-indexes, as the FFTW sign convention showed -- so it wants the agreement test
-extended to the peak list itself before it is attempted, not afterwards.
-
-## Where refinement's time goes, measured
-
-With the transform handed to FFTW, the rounding instruction enabled and the
-clock out of the peak search, refinement is what is left. On a fast machine it
-is 47.7 per cent of indexing; measured here, split three ways:
-
-    macrocycles                 2.462 s   37.5%
-      copy and select           0.181 s    2.8%
-      refinement                2.239 s   34.1%
-      reassignment              0.035 s    0.5%
-        the jacobian            1.888 s   28.7%
-        the normal equations    0.111 s    1.7%
-
-**The Jacobian is 84 per cent of refinement**, which is what the rest of this
-document assumed and had not shown. The normal equations are five per cent, and
-the remaining eleven is residuals, outlier rejection and the solve.
-
-So the thing to move is the Jacobian, and it has the right shape: one thread
-per reflection and parameter, no communication, the analytical derivatives
-already written and already validated against finite differences.
-
-Two things about its current form that a port should not inherit:
-
-* it is allocated fresh every iteration -- ten vectors of 118797 doubles on
-  this data, 9.5 MB freed and reallocated per iteration -- where one buffer
-  reused across iterations would do, and on a device must;
-* it is parameter-major, a vector per parameter over all reflections. That is
-  the wrong way round for a device, where the reflection is the thread and the
-  parameters of one reflection want to be adjacent.
-
-Neither is worth changing on the host for its own sake without measuring what
-the allocation costs. Both are worth knowing before writing the device version,
-because the layout is the part that is expensive to change afterwards.
-
-## Where indexing's time actually goes
+### Where indexing's time actually goes
 
 Measured with `mxi_index --timing` on 78618 reflections of insulin, a 256^3
 grid, one core:
@@ -361,7 +147,7 @@ What each is worth on the faster machine if it cost nothing:
     without choose basis      1.04x
     without macrocycles       1.19x
 
-### What each phase is, as work
+#### What each phase is, as work
 
 * **The transform**, a 256^3 complex FFT: 16.7 million points. A device library
   call -- cuFFT, or vDSP and MPS on Apple -- and milliseconds there. The one
@@ -376,7 +162,7 @@ What each is worth on the faster machine if it cost nothing:
 * **The macrocycles**: assignment, which is a pass over the reflections, and
   refinement, whose device port is designed in the rest of this document.
 
-### Threads before devices, and the transform is the one that matters
+#### Threads before devices, and the transform is the one that matters
 
 All of this is one core. From 4.875 s, with the peak search, the basis search
 and the macrocycles threaded -- all three are embarrassingly parallel -- and
@@ -403,7 +189,76 @@ the threaded host version and not against this one.
 An exploration, with the measurements that motivate it. Nothing here is
 implemented yet.
 
-## It is the only thing worth moving
+### The transform, and the half of it that is not needed
+
+With analytical derivatives in use the transform is the largest phase of
+indexing, 42.5 per cent of a 1.069 second run. Two things are left in it.
+
+**FFTW's own threading**, which `--fft-threads` now turns on where FFTW was
+built with it. Debian ships `libfftw3_omp` and Homebrew `libfftw3_threads`;
+either will do and the build reports which it found, or says it found neither
+and runs on one thread.
+
+**A real-to-complex transform.** The grid is filled by adding 1.0 at each
+reciprocal lattice point and nothing else, so its imaginary part is zero
+everywhere. A complex-to-complex transform of real data does twice the
+arithmetic and holds twice the memory for an output that is Hermitian
+symmetric: `F(-k)` is the conjugate of `F(k)`, so half of the 16.7 million
+points computed are a reflection of the other half.
+
+`fftw_plan_dft_r2c_3d` computes the `n * n * (n/2 + 1)` that are independent.
+The obstacle is not the transform, it is the peak search, which walks the full
+cube and compares each point with its twenty-six neighbours. On the half grid
+some of those neighbours are the conjugates of points on the other side, and
+the wrapping that the search already does for periodicity would have to become
+a wrapping that also conjugates. That is a change to the part of this code
+where an error would be least visible -- a peak list that is subtly wrong still
+indexes, as the FFTW sign convention showed -- so it wants the agreement test
+extended to the peak list itself before it is attempted, not afterwards.
+
+### Where the refinement inside indexing spends its time
+
+With the transform handed to FFTW, the rounding instruction enabled and the
+clock out of the peak search, refinement is what is left. On a fast machine it
+is 47.7 per cent of indexing; measured here, split three ways:
+
+    macrocycles                 2.462 s   37.5%
+      copy and select           0.181 s    2.8%
+      refinement                2.239 s   34.1%
+      reassignment              0.035 s    0.5%
+        the jacobian            1.888 s   28.7%
+        the normal equations    0.111 s    1.7%
+
+**The Jacobian is 84 per cent of refinement**, which is what the rest of this
+document assumed and had not shown. The normal equations are five per cent, and
+the remaining eleven is residuals, outlier rejection and the solve.
+
+So the thing to move is the Jacobian, and it has the right shape: one thread
+per reflection and parameter, no communication, the analytical derivatives
+already written and already validated against finite differences.
+
+Two things about its current form that a port should not inherit:
+
+* it is allocated fresh every iteration -- ten vectors of 118797 doubles on
+  this data, 9.5 MB freed and reallocated per iteration -- where one buffer
+  reused across iterations would do, and on a device must;
+* it is parameter-major, a vector per parameter over all reflections. That is
+  the wrong way round for a device, where the reflection is the thread and the
+  parameters of one reflection want to be adjacent.
+
+Neither is worth changing on the host for its own sake without measuring what
+the allocation costs. Both are worth knowing before writing the device version,
+because the layout is the part that is expensive to change afterwards.
+
+## Refinement
+
+The refinement target is where a device port was first designed, and the
+design is here -- why the target is the thing to move, the shape of its work,
+its precision in float32, the analytical derivatives it needs -- followed by
+what scan-varying refinement and file input then turned out to cost on the
+CPU. The port is designed and not written.
+
+### It is the only thing worth moving
 
 Measured on insulin, 13072 indexed reflections, single-threaded:
 
@@ -420,7 +275,7 @@ per cent, which is to say everything and a little measurement noise.
 There is no point accelerating anything else. The normal equations are 87 x 87,
 the outlier rejection is a median, and the I/O happens once.
 
-## The shape of the work
+### The shape of the work
 
 One reflection-evaluation is: build the reciprocal lattice point from the
 setting matrix, solve the Ewald condition for the rotation angle, rotate,
@@ -440,7 +295,7 @@ directly, leaving a reduction over reflections of an 87 x 87 symmetric matrix --
 3828 upper-triangle entries, small enough to hold in shared memory per
 threadgroup and combine at the end.
 
-## The B-spline makes the Jacobian banded
+### The B-spline makes the Jacobian banded
 
 This is the part that connects to the choice of interpolation. A cubic
 B-spline has local support: the setting matrix at scan position t depends on
@@ -457,7 +312,7 @@ The banding is by scan position, so reflections sort naturally into bands by
 image number, and a threadgroup covering one band touches a contiguous slice of
 the parameter vector.
 
-## Precision: measured, and the earlier estimate was wrong
+### Precision: measured, and the earlier estimate was wrong
 
 Apple GPUs have no double precision at all. `src/target.hh` is the whole target
 written once and templated on the scalar type, so the same code compiles at
@@ -483,7 +338,7 @@ At the best step available to float it does not reach two digits, and its
 ninety-ninth percentile is above five, meaning some entries have the wrong
 sign.
 
-### The estimate that was wrong, and why
+#### The estimate that was wrong, and why
 
 An earlier entry in this file claimed float32 would leave 4.1 digits in a
 numerical derivative. The reasoning was: a 1e-6 relative parameter step changes
@@ -500,7 +355,7 @@ error measured.
 The general form of the mistake: **relative precision belongs to the quantity
 the arithmetic is carried in, not to the quantity you are interested in.**
 
-### What follows
+#### What follows
 
 Analytical derivatives are not a nicety for a device port, they are a
 precondition. That reverses the earlier plan, which had them fourth on the list
@@ -509,7 +364,7 @@ as an optimisation.
 `tests/test_precision.cc` asserts the failure as well as the success, so that
 nobody later assumes numerical differentiation would port as it stands.
 
-### The analytical derivative in float32: measured
+#### The analytical derivative in float32: measured
 
 `src/derivatives_t.hh` is the same treatment applied to the derivatives.
 Compiled with `double` it reproduces `crystal_derivatives`,
@@ -532,7 +387,7 @@ device port is not blocked on precision, provided the derivatives are
 analytical -- which is the conclusion the earlier estimate had exactly
 backwards.
 
-## Analytical derivatives: written, and validated
+### Analytical derivatives: written, and validated
 
 `src/derivatives.hh` implements Appendix A of Waterman et al. (2016) for the
 crystal parameters. They matter more for a device than for a CPU, and for a
@@ -583,7 +438,7 @@ to five decimal places in detector distance and four in cell, six times faster;
 on four sweeps of l-cysteine with about two hundred parameters, 12 s against
 33 s.
 
-### Where the two Jacobians disagree, and why it is not the analytical one
+#### Where the two Jacobians disagree, and why it is not the analytical one
 
 Compared entry by entry over the whole Jacobian -- crystal, detector and beam,
 static and scan-varying:
@@ -610,7 +465,7 @@ Still to do:
    a sum of positive quantities of widely differing size, which is a different
    question and deserves its own measurement rather than an assumption.
 
-## The volume cutoff, and a guess it did not support
+### The volume cutoff, and a guess it did not support
 
 Eqn (40) divides by the volume of the parallelepiped formed by the rotation
 axis, the reciprocal lattice vector and the beam, which vanishes for
@@ -630,3 +485,174 @@ reflections whose two Ewald roots are close, which show the same 4.2 per cent as
 those whose roots are ninety degrees apart. **That population is unexplained.**
 Outlier rejection removes it and refinement then works, which is a workaround
 rather than an answer.
+
+### Scan-varying refinement, where the normal equations were the cost
+
+The static case measured above, under "It is the only thing worth moving", is
+not the command anyone actually runs. This is:
+
+    mxi_refine indexed.expt indexed.refl --scan-varying 18 --beam --analytic
+
+Eighteen control points takes the parameter count from about ten to about a
+hundred and seventy, and the normal equations are quadratic in it. Measured:
+
+    the jacobian               1.791 s   23.5%
+    the normal equations       4.848 s   63.6%
+    total                      7.629 s
+
+A scan-varying crystal is a cubic B-spline, so a reflection touches four
+control points and no more: about forty of those hundred and seventy
+parameters have a nonzero derivative and the rest are structurally zero. The
+accumulation skipped the zeros in its outer index and not its inner one, so
+each nonzero was multiplied against every parameter below it, and
+`jacobian[b][row]` walked across a hundred and seventy separate heap
+allocations -- one load per parameter, which is the worse half of the cost.
+
+Gathering the nonzero entries of a row once and using them against each other:
+
+    the normal equations       4.848 -> 1.517 s
+    total                      7.629 -> 4.204 s
+
+The order of accumulation is unchanged, ascending in both indices, so every sum
+is formed from the same terms in the same sequence. The refined crystal,
+detector and beam are identical, compared as written files rather than to a
+tolerance.
+
+That the sparsity was there to be used is a property of the model rather than
+of the data, so it holds for any scan-varying refinement and the saving grows
+with the number of control points.
+
+#### The search for the nonzeros was itself linear in the parameters
+
+Using the sparsity meant finding it, and the finding was done by reading every
+entry of every column of the Jacobian for each row:
+
+    for (a = 0; a < n; ++a) { ja = jacobian[a][row]; if (ja == 0) continue; ... }
+
+That is O(n) per row however sparse the row is, and each probe lands in a
+different heap allocation. At a hundred and seventy parameters it did not
+matter. On ten full rotations of a crystal, where the scan-varying model runs
+to thousands of parameters, it was 267 of the 291 seconds the refinement took.
+
+The pattern does not need finding. `build_analytic_jacobian` knows which
+parameters it is about to write -- four control points from the spline, six
+detector, two beam -- so it records the span as it goes. The accumulation then
+iterates thirty-six parameters instead of several thousand.
+
+    control points      before      after
+              18       1.748 s     1.134 s
+              60       5.180 s     1.204 s
+             120      10.602 s     1.573 s
+
+Linear in the control points before, nearly flat after. The refined crystal and
+detector are identical.
+
+The finite-difference path records nothing, because it genuinely does not know
+which parameters it touched, and falls back to the search. It is slower than
+the analytical path by a much larger factor anyway.
+
+#### The Jacobian threads at 1.29x, and that is an allocation
+
+On sixteen cores, a scan-varying refinement of ten rotations:
+
+    --jacobian-threads 1     the jacobian  17.714 s
+    --jacobian-threads 16    the jacobian  13.722 s
+
+The inner loop is one reflection per thread with nothing shared, so 1.29x is
+not a threading problem. It is what surrounds the loop:
+
+    jacobian->assign(n, std::vector<double>(observations.size() * 3, 0.0));
+
+Parameters by reflections by three doubles, allocated and zeroed every
+iteration. At a million reflections that is gigabytes of serial memory traffic
+wrapped around a parallel inner loop, and no thread count touches it.
+
+The fix is not to allocate it. Every entry is written once and read once, by
+the accumulation that immediately follows, so the two can be fused: compute a
+reflection's derivatives and accumulate them into the normal equations there
+and then, and the array never exists. That removes the allocation, the traffic
+in both directions, and the parameter-major layout already noted as wrong for a
+device. It is what a device port has to do anyway, since gigabytes an iteration
+is not a thing to move across a bus.
+
+#### And then they were the only serial phase left
+
+On a sixteen-core machine, with the Jacobian threaded and the sparsity used:
+
+    read                       0.261 s   17.3%
+    the jacobian               0.085 s    5.6%
+    the normal equations       0.884 s   58.4%
+    total                      1.513 s
+
+The Jacobian is five per cent there and forty per cent on a single core, which
+is not a statement about the Jacobian: it is threaded and the normal equations
+were not. `--normal-threads` threads them.
+
+It is a reduction, so this one is not free. Each thread accumulates into its
+own `n` by `n` matrix -- 231 kB apiece at a hundred and seventy parameters,
+which is why the thread count is capped by what the partials cost -- and the
+partials are summed at the end. **A threaded run and a serial one do not agree
+bit for bit**, because floating point addition is not associative and the terms
+are summed in a different order. They agree to about 1.6e-12 relative, seven
+orders below the convergence tolerance, and the test pins 1e-10.
+
+Two threaded runs at the same setting do agree exactly: the chunk boundaries
+come from the thread count, not from how the threads happen to be scheduled. A
+parallel reduction that answered differently run to run would make every
+comparison downstream meaningless, so that is tested as well.
+
+`--normal-threads 1` keeps the serial sum where the last bits matter.
+
+### Refinement on its own is dominated by file I/O
+
+`mxi_refine --timing`, on 78618 reflections whose table carries shoeboxes:
+
+    read                       0.293 s   28.7%
+    build the target rows      0.032 s    3.1%
+    the jacobian               0.251 s   24.5%
+    the normal equations       0.111 s   10.9%
+    the solve                  0.000 s    0.0%
+    the trial residuals        0.110 s   10.7%
+    outlier rejection          0.008 s    0.8%
+    write                      0.130 s   12.7%
+    total                      1.023 s
+
+**Reading and writing are 41 per cent of it**, more than the Jacobian, and
+nine tenths of that is pixel data refinement never looks at. The file is
+100 MB, of which the shoebox column is 79. The same run on a table with the
+shoeboxes stripped:
+
+    read     0.293 -> 0.049 s
+    write    0.130 -> 0.042 s
+    total    1.023 -> 0.615 s
+
+A third of the run was carrying shoeboxes from one file to another, and almost
+none of it was the file. Measured against the floor:
+
+    fread of the same 100 MB       0.055 s   at 1.8 GB/s
+    memcpy of 100 MB               0.012 s
+    read_reflections               0.310 s
+
+The reader had
+
+    std::string raw((std::istreambuf_iterator<char>(in)), {});
+
+which goes through the stream one character at a time, regrowing the string as
+it goes. Sized, resized and read in one go it is 0.148 s. The writer was
+growing its output from empty to a hundred megabytes, doubling and copying
+everything it had each time; reserved, 0.138 s.
+
+    read      0.310 -> 0.148 s
+    write     0.163 -> 0.138 s
+
+A table read and written back is byte for byte what it was, which is the only
+check worth making on a change to framing: values that survive a round trip
+would survive most ways of getting the framing wrong.
+
+Which is worth saying plainly: refinement's arithmetic is now a smaller part of
+`mxi_refine` than its file handling, and no amount of threading or device work
+on the Jacobian will change that. The cheapest remaining second is in the
+reader.
+
+The solve is 0.000 s and that is not a broken timer: it is a Cholesky of a ten
+by ten matrix, done a handful of times.

@@ -14,7 +14,7 @@ its conclusions sometimes overturned later, with an index of those.
 | `docs/symmetry.md` | reference | `mxi_symmetry` |
 | `docs/scaling.md` | reference | `mxi_scale` |
 | `docs/spots.md` | reference | the spot finder, `mxi_find` |
-| `docs/gpu.md` | reference | the device port, designed and not written |
+| `docs/gpu.md` | reference | where integration's, indexing's and refinement's time goes, and what a device would take; the refinement target's port, designed and not written |
 | `docs/conventions.md` | reference | conventions checked against DIALS' files, and what is not |
 | `CLAUDE.md` | notes | invariants and lessons across the pipeline |
 | `docs/spots_notes.md` | notes | the spot finder's, from when it was a repository of its own |

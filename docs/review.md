@@ -77,9 +77,9 @@ each boundary -- `mxeq check strong|indexed|refined|integrated|scaled <dials>
 |---|---|---|---|
 | spot finding | `src/spots/` -- `dext.cc` the threshold on the CPU, `dext_metal.cc` and `dext_cuda.cu` on the GPU, `dext_fused.hh` a fused CUDA kernel, `decompress.cc`, `nxmx.cc`, `find_spots.cc` the program | `mxi_find` | `docs/spots.md` |
 | geometry | `geometry` (models, conventions), `predict`, `derivatives`, `derivatives_t` | | `docs/conventions.md` |
-| indexing | `index` (3D FFT), `fft`, `fft_fftw` | `mxi_index` | `CLAUDE.md`, indexing sections |
-| refinement | `refine`, `target`, `linalg` | `mxi_refine` | `CLAUDE.md`, refinement sections; `docs/gpu.md` |
-| integration | `integrate` (summation), `background` (GLM), `shoebox`, `mask`, `profile_model`, `profile_grid`, `reference` (profiles and fitting), `postrefine` | `mxi_integrate` | `docs/integration.md` |
+| indexing | `index` (3D FFT), `fft`, `fft_fftw` | `mxi_index` | `CLAUDE.md`, indexing sections; `docs/gpu.md`, Indexing |
+| refinement | `refine`, `target`, `linalg` | `mxi_refine` | `CLAUDE.md`, refinement sections; `docs/gpu.md`, Refinement |
+| integration | `integrate` (summation), `background` (GLM), `shoebox`, `mask`, `profile_model`, `profile_grid`, `reference` (profiles and fitting), `postrefine` | `mxi_integrate` | `docs/integration.md`; `docs/gpu.md`, Integration |
 | symmetry | `symmetry` (space groups, via gemmi), `laue` | `mxi_symmetry` | `docs/symmetry.md` |
 | scaling | `scale`, `scale_model`, `resolution` | `mxi_scale` | `docs/scaling.md` |
 | formats and plumbing | `expt`, `refl` (msgpack by hand), `json`, `args`, `log_mirror`, `timing`, `parallel`, `summary` | | |
