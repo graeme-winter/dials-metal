@@ -284,6 +284,7 @@ add_executable(mxi_tests
   tests/test_space_group.cc
   tests/test_resolution.cc
   tests/test_timing.cc
+  tests/test_parallel.cc
   tests/test_scale_model.cc
   tests/test_scale.cc
   tests/test_mask.cc

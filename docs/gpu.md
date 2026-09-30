@@ -90,13 +90,17 @@ thread-seconds, the least squares 1.0.
 elements by ordered-map lookup 1.3 s (items 37 and 40). *CPU only:* both are
 algorithms. No device experiment: there is not the work.
 
-**Scaling.** 8.8 s of the 59 on one thread; now threaded and unmeasured (item
-41). On one thread here the three error-model refinements are 0.65 of the fit's
-0.87 s -- a golden-section search evaluating the deviations dozens of times a
-round -- and reading a small table 0.71 s, slower than the reader measured on
-its own, unexplained. *CPU first:* both. *Then to try*, if the threads leave
-enough: the normal equations, 70 parameters over a million observations, on
-the device as refinement's are.
+**Scaling.** 8.8 s of the 59 on one thread, and threaded it is still most of
+the tail of the chain: on the MacBook with 16 threads each scaling pass spends
+1.35 to 1.49 s in the three error-model refinements, 0.37 to 0.43 gathering the
+observations, and only 0.19 to 0.22 in the three fits. So the normal equations
+are not where a device would help, and none is proposed for them. Part of the
+error model's cost was the threads: `for_each_block` made and joined them on
+every call, dozens of calls a round; a persistent pool took sixteen threads on
+one core from 1.46 s to 0.72 against one thread's 0.61, the same bytes (item
+45). *CPU first:* what is left -- the golden-section search's sixty evaluations of
+the deviations for each b, and gathering, which is serial. A device experiment
+for the error model's deviations only if those still leave it dominant.
 
 **The order.** Profile fitting on the device first (CUDA, compiled here, run on
 the RTX 4060; then Metal); prediction's CPU cost, then its device experiment;
