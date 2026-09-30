@@ -135,17 +135,6 @@ where something is missing.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
-* **46.** **measure -- Reading frames outside HDF5's lock**, on request with
-  `MXI_HDF5_DIRECT=1`. HDF5 serialised every chunk read: on 32 threads,
-  integrating 1800 frames, fetching was 43.6 thread-seconds, 13 times the wall.
-  Reading each chunk with pread outside the lock gives the same bytes
-  (`python/tests/test_direct_reads.py`) -- but as the default it made a
-  MacBook's integration from an external drive 10 s slower, 19.7 to 30.0 s,
-  its user time barely changed: waiting, not work. So it is opt-in, and each
-  chunk's place is now asked for as it is read rather than all when a file is
-  opened. To measure: `--timing` with and without `MXI_HDF5_DIRECT=1` on the
-  MacBook and on the 32 thread machine -- fetching, reading frames' wall, and
-  the line saying which path the frames took. `docs/spots.md`.
 
 ## Infrastructure
 
@@ -185,6 +174,15 @@ where something is missing.
   integration 19.4 s against two passes' 28.4, decompressing 41 thread-seconds
   against 80, at most 79584 boxes held and 2.66 GB (estimated at 49000 and 1.1).
   `docs/integration.md`.
+* **46.** Reading frames outside HDF5's lock: **tried and removed.** On 32
+  threads, integrating 1800 frames, fetching through HDF5 was 43.6
+  thread-seconds, 13 times the wall. Reading each chunk with pread, its place
+  from H5Dget_chunk_info_by_coord, gave the same bytes and every table
+  byte-identical -- and made a MacBook's integration from an external drive 10 s
+  slower, 19.7 to 30.0 s, its user time barely changed: waiting, perhaps sixteen
+  threads defeating the drive's read-ahead. Reading through HDF5 was fast enough
+  there, and a second path to keep was not worth it; removed (commits 59e4764
+  and 5ef916f, reverted).
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

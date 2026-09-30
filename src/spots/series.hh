@@ -96,11 +96,6 @@ public:
 
 std::unique_ptr<Series> nxmx(std::string master);
 
-//: How many frames NXmx series have read by chunk offset with pread, outside
-//: HDF5's lock, and how many through HDF5, since the program started: for
-//: --timing, to say which path the frames took.
-void nxmx_read_counts(std::uint64_t *direct, std::uint64_t *through_hdf5);
-
 } // namespace series
 
 #endif // SPOTFINDER_SERIES_HH

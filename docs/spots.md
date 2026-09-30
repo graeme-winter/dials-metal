@@ -496,26 +496,6 @@ order by construction and each holds about four pixels. O(n) rather than
 O(n log n), and it uses nothing about the emit order, which is a property of the
 threadgroup shape and the scheduler and would break quietly if relied on.
 
-## Reading frames without HDF5's lock, on request
-
-A frame is one compressed chunk of an HDF5 dataset, and HDF5 serialises every
-call through one lock: on 32 threads, fetching took 13 times the wall in an
-integration. With `MXI_HDF5_DIRECT=1` the reader opens a dataset's own file --
-the external file when the master links to its data -- and reads each frame's
-chunk with `pread` outside the lock, asking HDF5 under it only where the chunk
-is (`H5Dget_chunk_info_by_coord`, the user block added). The bytes are the ones
-`H5Dread_chunk` returns, and every table is the same either way;
-`python/tests/test_direct_reads.py` holds them to it.
-
-It is not the default, because it made a MacBook's integration from an
-external drive 10 s slower (19.7 to 30.0 s, user time 4m17 to 4m24) -- first
-with every chunk's place looked up when a file was opened, which made every
-thread wait; now a chunk at a time, as HDF5's own path does. The other
-suspect is sixteen threads reading one file at scattered offsets at once,
-which can defeat a drive's read-ahead where HDF5's one-at-a-time reads did
-not. `--timing` in `mxi_find` and `mxi_integrate` says which path the frames
-took; item 46 is to measure both ways on both machines.
-
 ## The fused kernel
 
 `SPOTFINDER_GPU_FUSED=1` runs the three stages as one CUDA kernel
