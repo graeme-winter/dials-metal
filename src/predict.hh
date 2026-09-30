@@ -54,6 +54,16 @@ struct PredictOptions {
   //: output is identical whatever the thread count -- which matters because
   //: everything downstream is indexed by position in this vector.
   std::size_t threads = 0;
+  //: Skip what cannot be predicted before the work of predicting it: lattice
+  //: points beyond the finest resolution the detector reaches, and crossings of
+  //: the Ewald sphere too far outside the scan for the crystal's motion to
+  //: bring them into it. The search enumerated the whole sphere to the Ewald
+  //: limit and converged every crossing over a full turn, whatever the scan --
+  //: on a 30 degree sweep with a scan-varying crystal, 8.1 s for 21500
+  //: predictions, most of it for reflections the detector could not see or the
+  //: scan never reached. The same predictions either way; false searches
+  //: everything, for the tests that hold the two to it.
+  bool prune = true;
 };
 
 // The two rotation angles at which a reciprocal lattice point meets the Ewald

@@ -66,11 +66,12 @@ profiles 1.9, background and summation 1.7, opening shoeboxes 1.4, the profile
 model 1.4. Within fitting: carrying the reference onto the pixels 2.5
 thread-seconds, the least squares 1.0.
 
-* **Prediction** is 95 us a reflection on one thread with a static crystal and
-  four times that with a scan-varying one -- item 36, now explained: 2.0 s
-  against 8.1 on the same 21500 reflections. Threads hid it on the 16M run.
-  *CPU first:* why a reflection costs 95 us. *Then to try:* prediction on the
-  device, every image independent.
+* **Prediction** was 95 us a reflection on one thread, and four times that with
+  a scan-varying crystal -- item 36. It was the search, not the arithmetic: the
+  resolution sphere enumerated to the Ewald limit and every crossing converged
+  over a full turn, whatever the detector reached or the scan covered. Pruned
+  on the CPU first, it went from 8.1 s to 0.09 with the same predictions, and
+  there is nothing left in it for a device to take: no experiment.
 * **Profile fitting** is geometry and small solves: `pixel_cells` for each box
   (no pixel value enters it), the accumulation over planes, and a least squares
   a box. *To try first of all the integration experiments*, since it is the
@@ -103,8 +104,7 @@ the deviations for each b, and gathering, which is serial. A device experiment
 for the error model's deviations only if those still leave it dominant.
 
 **The order.** Profile fitting on the device first (CUDA, compiled here, run on
-the RTX 4060; then Metal); prediction's CPU cost, then its device experiment;
-the refinement target; decompression on the device; the CPU fixes in indexing,
+the RTX 4060; then Metal); the refinement target; decompression on the device; the CPU fixes in indexing,
 symmetry and scaling alongside, as they are cheaper and certain.
 
 ## Integration

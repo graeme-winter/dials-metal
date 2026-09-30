@@ -529,4 +529,86 @@ TEST(the_spline_stays_within_the_range_of_its_control_points) {
   check::is_true(high <= 1.0 + 1e-12, "no overshoot above them");
 }
 
+namespace {
+
+//: Whether two prediction lists are the same, every field of every prediction.
+std::string first_difference(const std::vector<Prediction> &a,
+                             const std::vector<Prediction> &b) {
+  if (a.size() != b.size())
+    return std::to_string(a.size()) + " predictions against " +
+           std::to_string(b.size());
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    const Prediction &p = a[i], &q = b[i];
+    if (p.h != q.h || p.k != q.k || p.l != q.l || p.entering != q.entering ||
+        p.panel != q.panel || p.phi != q.phi || p.px_fast != q.px_fast ||
+        p.px_slow != q.px_slow || p.z != q.z || p.s1.x != q.s1.x ||
+        p.s1.y != q.s1.y || p.s1.z != q.s1.z)
+      return "prediction " + std::to_string(i) + " differs";
+  }
+  return "";
+}
+
+std::string pruned_against_full(const Experiment &e) {
+  PredictOptions full, pruned;
+  full.prune = false;
+  full.threads = pruned.threads = 1;
+  const std::vector<Prediction> a = predict(e, full), b = predict(e, pruned);
+  if (a.empty())
+    return "nothing predicted: a silent test";
+  return first_difference(a, b);
+}
+
+} // namespace
+
+TEST(pruning_predicts_exactly_what_the_full_search_does) {
+  // The prunes skip lattice points the detector cannot reach and crossings the
+  // scan cannot, before the work of predicting them. They must change nothing,
+  // so each geometry that could catch them out is predicted both ways and the
+  // lists compared field by field.
+  {
+    Experiment e = insulin();
+    const std::string d = pruned_against_full(e);
+    check::is_true(d.empty(), "a static crystal, 60 degrees: " + d);
+  }
+  {
+    Experiment e = insulin();
+    e.scan.osc_start = -30.0; // through zero
+    const std::string d = pruned_against_full(e);
+    check::is_true(d.empty(), "a scan through zero: " + d);
+  }
+  {
+    Experiment e = insulin(120.0);
+    e.scan.last_image =
+        4000; // 400 degrees: more than a turn, nothing outside it
+    const std::string d = pruned_against_full(e);
+    check::is_true(d.empty(), "a scan of more than a turn: " + d);
+  }
+  {
+    Experiment e = insulin();
+    e.scan.osc_start = 90.0;
+    e.scan.osc_width = -0.1; // backwards
+    const std::string d = pruned_against_full(e);
+    check::is_true(d.empty(), "a scan run backwards: " + d);
+  }
+  {
+    Experiment e = insulin();
+    e.detector.panels[0].origin.x -=
+        120.0; // the beam near one edge: higher resolution there
+    const std::string d = pruned_against_full(e);
+    check::is_true(d.empty(), "an offset detector: " + d);
+  }
+  {
+    // A crystal that turns three degrees over the scan, six times the real
+    // sweep's drift: the scan-varying setting through five control points.
+    Experiment e = insulin();
+    const Mat3 A = e.crystal->A;
+    const Vec3 tilt = Vec3{0.3, 1.0, 0.2}.normalized();
+    for (int i = 0; i < 5; ++i)
+      e.crystal->A_points.push_back(
+          rotation(tilt, (3.0 * i / 4.0) * 3.14159265358979 / 180.0) * A);
+    const std::string d = pruned_against_full(e);
+    check::is_true(d.empty(), "a crystal turning three degrees: " + d);
+  }
+}
+
 } // namespace mxi

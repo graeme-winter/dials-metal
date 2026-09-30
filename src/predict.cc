@@ -353,6 +353,114 @@ predict_indices(const Experiment &e,
   return out;
 }
 
+namespace {
+
+//: The largest |s1 - s0| any pixel of the detector can record, or 0 when that
+//: cannot be bounded this way. On a flat panel the pixels within a scattering
+//: angle 2theta of the beam are the plane's cut through a cone, which is convex
+//: while 2theta is under 90 degrees, so the angle's largest value on a
+//: rectangle is at a corner. Refused -- no bound -- if any corner is at 80
+//: degrees or more, where that argument is nearer its edge than is worth it.
+double detector_q_max(const Experiment &e) {
+  const Vec3 s0 = e.beam.s0();
+  const double k = s0.norm();
+  if (!(k > 0.0))
+    return 0.0;
+  double q_max = 0.0;
+  for (const Panel &p : e.detector.panels) {
+    const double w = p.pixel_size[0] * static_cast<double>(p.image_size[0]);
+    const double v = p.pixel_size[1] * static_cast<double>(p.image_size[1]);
+    for (int i = 0; i < 2; ++i)
+      for (int j = 0; j < 2; ++j) {
+        const Vec3 corner = p.origin + p.fast * (w * i) + p.slow * (v * j);
+        const double length = corner.norm();
+        if (!(length > 0.0))
+          return 0.0;
+        const Vec3 s1 = corner / length * k;
+        const double cos_two_theta = s1.dot(s0) / (k * k);
+        if (cos_two_theta <= std::cos(80.0 * kPi / 180.0))
+          return 0.0;
+        q_max = std::max(q_max, (s1 - s0).norm());
+      }
+  }
+  return q_max;
+}
+
+//: How far the scan-varying setting strays from the static A the crossings are
+//: first found with: the largest ||setting(z) A^-1 - I||, Frobenius, over the
+//: scan, sampled at every quarter image, by which any lattice vector A h can
+//: move, relative to its length. Zero for a static crystal.
+double setting_spread(const Experiment &e) {
+  if (!e.crystal || !e.crystal->scan_varying())
+    return 0.0;
+  bool ok = true;
+  const Mat3 inverse = e.crystal->A.inverse(&ok);
+  if (!ok)
+    return HUGE_VAL;
+  const double images = static_cast<double>(e.scan.num_images());
+  double worst = 0.0;
+  for (double z = 0.0; z <= images; z += 0.25) {
+    const Mat3 m = e.setting_at(z) * inverse;
+    double f = 0.0;
+    for (int r = 0; r < 3; ++r)
+      for (int col = 0; col < 3; ++col) {
+        const double d = m.m[r * 3 + col] - (r == col ? 1.0 : 0.0);
+        f += d * d;
+      }
+    worst = std::max(worst, std::sqrt(f));
+  }
+  return worst;
+}
+
+//: How far, in radians, converging a crossing against the scan-varying setting
+//: can move it from where the static A puts it, for a lattice vector r0 that
+//: may move by up to eta |r0|: the centre of the two crossings by up to
+//: eta |u| / |u_perp|, and the offset by the cosine's change over
+//: sqrt(1 - cos^2) -- both unbounded near the axis or where the two crossings
+//: meet, and there HUGE_VAL, never pruned. The same quantities
+//: ewald_intersections uses.
+double crossing_margin(const Experiment &e, const Vec3 &r0, double eta) {
+  if (eta == 0.0)
+    return 1e-9; // a static crystal: the crossing is the static one exactly
+  const Vec3 m2 = e.goniometer.axis.normalized();
+  const Vec3 s0p = e.goniometer.setting.transpose() * e.beam.s0();
+  const Vec3 u = e.goniometer.fixed * r0;
+  const double u_len = u.norm();
+  const Vec3 u_perp = u - m2 * u.dot(m2);
+  const double u_perp_len = u_perp.norm();
+  const Vec3 s_perp = s0p - m2 * s0p.dot(m2);
+  const double amplitude = s_perp.norm() * u_perp_len;
+  const double du = eta * u_len;
+  if (!(u_perp_len > 4.0 * du) || !(amplitude > 0.0))
+    return HUGE_VAL;
+  const double centre = std::asin(std::min(1.0, 2.0 * du / u_perp_len));
+  const double a0 = u.dot(m2) * s0p.dot(m2);
+  const double d = -0.5 * u.norm_squared() - a0;
+  const double cosine = d / amplitude;
+  const double dcos =
+      (du * (u_len + s0p.norm()) + std::abs(cosine) * s_perp.norm() * du) /
+      amplitude;
+  const double room = 1.0 - std::abs(cosine);
+  if (!(room > 4.0 * dcos))
+    return HUGE_VAL;
+  const double offset = 2.0 * dcos / std::sqrt(room * (1.0 + std::abs(cosine)));
+  return 2.0 * (centre + offset) + kPi / 180.0;
+}
+
+//: Whether a crossing at phi is more than `margin` outside the scan, turns
+//: taken into account; a scan of a turn or more has no outside.
+bool outside_scan(const Experiment &e, double phi, double margin) {
+  const double lo = std::min(e.scan.phi_start(), e.scan.phi_end());
+  const double span = std::abs(e.scan.phi_end() - e.scan.phi_start());
+  const double two_pi = 2.0 * kPi;
+  if (!(margin < kPi) || span + 2.0 * margin >= two_pi)
+    return false;
+  const double d = wrap_from(phi, lo) - lo; // in [0, 2 pi)
+  return d > span + margin && d < two_pi - margin;
+}
+
+} // namespace
+
 std::vector<Prediction> predict(const Experiment &e,
                                 const PredictOptions &options) {
   std::vector<Prediction> out;
@@ -365,9 +473,19 @@ std::vector<Prediction> predict(const Experiment &e,
     // diameter of the Ewald sphere can never diffract.
     d_min = 0.5 * e.beam.wavelength;
   }
-  const double q_max = 1.0 / d_min;
+  double q_max = 1.0 / d_min;
+  // How far the scan-varying setting strays from A, and so how far a lattice
+  // vector and its crossings can move; then the finest resolution the detector
+  // reaches, widened by that and by a per cent, if it is finer than asked for.
+  const double eta = options.prune ? setting_spread(e) : 0.0;
+  const bool prune = options.prune && std::isfinite(eta) && eta < 0.2;
+  if (prune) {
+    const double reach = detector_q_max(e);
+    if (reach > 0.0)
+      q_max = std::min(q_max, reach * (1.0 + 2.0 * eta) * 1.01);
+  }
   const std::array<int, 3> bounds =
-      index_bounds(*e.crystal, d_min, options.max_index);
+      index_bounds(*e.crystal, 1.0 / q_max, options.max_index);
   const Mat3 &A = e.crystal->A;
 
   // One independent unit of work per h, which on a large sweep is 39 per cent
@@ -402,7 +520,14 @@ std::vector<Prediction> predict(const Experiment &e,
         const Intersections cross = ewald_intersections(e, r0);
         if (!cross.any)
           continue;
+        // A crossing the scan cannot reach, even with the crystal's motion,
+        // is not converged at all.
+        const double margin = prune && !options.allow_outside_scan
+                                  ? crossing_margin(e, r0, eta)
+                                  : HUGE_VAL;
         for (int i = 0; i < 2; ++i) {
+          if (outside_scan(e, cross.phi[i], margin))
+            continue;
           const Converged c = converge_root(e, hkl, into_scan(e, cross.phi[i]),
                                             cross.entering[i]);
           if (!c.any)

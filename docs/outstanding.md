@@ -120,11 +120,6 @@ where something is missing.
     4060, not yet run: `ctest -R dext_gpu`, then `cmp` and `--timing` against the
     three kernels on real data. HDF5's lock shows too: reading takes 4.6 thread-seconds on 8
     threads and 22.5 on 16, for the same data. `docs/spots.md`.
-* **36.** **speed -- Prediction costs 95 us a reflection on one thread**, and a
-  scan-varying crystal four times that: 2.0 s against 8.1 on the same 21500
-  reflections of the 300 image sweep. Threads hid it on the 16M run (0.2 s on
-  16). Why a reflection costs that much is the first question.
-  `docs/gpu.md`, "A device for each stage".
 * **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
   run, for the table; the choice needs only the one chosen.
 
@@ -138,7 +133,7 @@ where something is missing.
   1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
 
 * **43.** **try -- A device for each stage**, `docs/gpu.md`: profile fitting
-  first (CUDA, then Metal), then prediction, the refinement target and
+  first (CUDA, then Metal), then the refinement target and
   decompression on the device, each judged against every CPU thread on its
   machine and against the CPU's answer, and recorded if it loses.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
@@ -177,6 +172,13 @@ where something is missing.
   file rather than built into one string first. 630930 rows, 261 MB: 0.875 s to
   0.14-0.19, of which the disk is 0.06; reading 0.29 to 0.24. Every table
   byte-identical. `src/refl.cc`.
+* **36.** Prediction slow on some sweeps and not others: it enumerated the
+  resolution sphere to the Ewald limit, 0.48 A, where the detector reached 1.58,
+  and converged every crossing over a full turn before asking whether the scan
+  reached it -- a 30 degree sweep paid for 360, and a scan-varying crystal paid
+  most. Both are pruned first now, with a margin for the crystal's motion
+  bounded from its settings: 8.1 s to 0.09 on the 300 image sweep, the same
+  predictions, integrated.refl byte-identical. `src/predict.cc`.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.
