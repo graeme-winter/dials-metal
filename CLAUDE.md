@@ -111,7 +111,9 @@ was 6.3 s on the 300 image sweep and 0.2 s elsewhere, unexplained (item 36).
 * **The reference chain**, 300 images of insulin, from the uploads:
   `mxi_find -e /mnt/user-data/uploads/imported.expt -j 4 -o strong.refl`;
   `mxi_index /mnt/user-data/uploads/imported.expt strong.refl`;
-  `mxi_refine indexed.expt indexed.refl --analytic --scan-varying 5`;
+  `mxi_refine indexed.expt indexed.refl --analytic --scan-varying 5` (on 30
+  degrees the default, scan-varying at one point per 10 degrees and at least
+  five, gives the same bytes);
   `mxi_integrate refined.expt refined.refl --threads 4`;
   `mxi_symmetry integrated.expt integrated.refl`;
   `mxi_scale symmetrized.expt symmetrized.refl`. It gives I 2 3 by

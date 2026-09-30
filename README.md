@@ -172,9 +172,9 @@ dials.import  master.nxs                                        # -> imported.ex
 mxi_find      -e imported.expt -j 16 --gpu -o strong.refl
 mxi_index     imported.expt strong.refl                         # -> indexed.*
 mxi_refine    indexed.expt indexed.refl --analytic              # -> refined.*
-              # static by default; --scan-varying for a crystal that moves --
-              # nearly every real crystal -- one control point per 10 degrees,
-              # or --scan-varying N for N
+              # scan-varying by default, one control point per 10 degrees --
+              # nearly every real crystal moves; --scan-varying N for N,
+              # --static for a crystal that does not; static under 10 degrees
 mxi_integrate refined.expt refined.refl                         # -> integrated.*
 # or, refining against the centres integration measures and integrating again:
 mxi_integrate refined.expt refined.refl --postrefine

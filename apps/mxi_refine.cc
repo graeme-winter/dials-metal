@@ -3,6 +3,7 @@
 //   mxi_refine indexed.expt indexed.refl
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <set>
@@ -32,9 +33,12 @@ void usage() {
       "                    with the detector on a single sweep)\n"
       "  --separate        one crystal per experiment instead of one shared\n"
       "  --conditional-depth  mean depth given absorption, not eqn (6)\n"
-      "  --scan-varying [N]  control points in A across each scan: one per 10\n"
-      "                    degrees if no N is given, at least five; 1 = "
-      "static\n"
+      "  --scan-varying [N]  control points in A across the scan. "
+      "Scan-varying\n"
+      "                    is the default, one per 10 degrees and at least "
+      "five,\n"
+      "                    on a scan of 10 degrees or more; N sets the number\n"
+      "  --static          a crystal that does not move: one A for the scan\n"
       "  --unit-weights    ignore the centroid variances\n"
       "  --strong-only     build the model from the stronger half only\n"
       "  --analytic        analytical derivatives, not finite differences\n"
@@ -146,7 +150,8 @@ int run_program(int argc, char **argv) {
   const double t_start = now_wall();
   double t_read = 0.0;
   double t_write = 0.0;
-  const std::set<std::string> known = {"--no-crystal",
+  const std::set<std::string> known = {"--static",
+                                       "--no-crystal",
                                        "--no-detector",
                                        "--beam",
                                        "--separate",
@@ -185,6 +190,12 @@ int run_program(int argc, char **argv) {
     std::fprintf(stderr, "mxi_refine: %s\n", args.error.c_str());
     return 2;
   }
+  if (args.has("--static") && args.has("--scan-varying")) {
+    std::fprintf(
+        stderr,
+        "mxi_refine: --static and --scan-varying contradict each other\n");
+    return 2;
+  }
   if (args.positional.size() != 2) {
     std::fprintf(stderr,
                  "mxi_refine: expected an .expt and a .refl, got %zu file "
@@ -215,13 +226,26 @@ int run_program(int argc, char **argv) {
     ExperimentList experiments = read_experiments(args.positional[0]);
     Table reflections = read_reflections(args.positional[1]);
     t_read = now_wall() - t_read_start;
-    // --scan-varying alone: one control point per 10 degrees of the scan.
-    const int scan_points =
-        !args.has("--scan-varying")
-            ? 1
-            : (args.value("--scan-varying", "").empty()
-                   ? static_cast<int>(scan_varying_points(experiments[0].scan))
-                   : static_cast<int>(args.number("--scan-varying", 1)));
+    // Scan-varying by default -- nearly every real crystal moves -- one control
+    // point per 10 degrees; static if asked, or on a scan under 10 degrees,
+    // too little rotation to tell a moving crystal from noise.
+    const Scan &scan = experiments[0].scan;
+    const double degrees =
+        std::abs(scan.osc_width) * static_cast<double>(scan.num_images());
+    int scan_points = 1;
+    if (args.has("--static")) {
+      scan_points = 1;
+    } else if (args.has("--scan-varying") &&
+               !args.value("--scan-varying", "").empty()) {
+      scan_points = static_cast<int>(args.number("--scan-varying", 1));
+    } else if (degrees >= 10.0) {
+      scan_points = static_cast<int>(scan_varying_points(scan));
+    } else {
+      std::printf("Static: the scan is %.1f degrees, under the 10 a "
+                  "scan-varying crystal "
+                  "needs\n",
+                  degrees);
+    }
     if (conditional_depth) {
       for (Experiment &e : experiments) {
         for (Panel &p : e.detector.panels)
