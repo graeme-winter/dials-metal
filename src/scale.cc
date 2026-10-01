@@ -114,16 +114,36 @@ ScaleData build_scale_data(const ExperimentList &experiments,
            (static_cast<std::uint64_t>(static_cast<std::uint32_t>(m[2]) &
                                        0x1FFFFF));
   };
-  std::unordered_map<std::uint64_t, std::size_t> groups;
+  std::unordered_map<std::uint64_t, std::size_t> groups, pairs;
   groups.reserve(count / 2 + 16);
+  if (options.anomalous) {
+    pairs.reserve(count / 2 + 16);
+    data.pair.reserve(count);
+  }
   for (std::size_t i = 0; i < rows; ++i) {
     if (!taken[i])
       continue;
     const Miller &u = unique_of[i];
-    const auto [it, fresh] = groups.emplace(key(u), data.unique.size());
+    // With anomalous an acentric reflection's I(-) is a group of its own: the
+    // top bit, which the index's 63 do not use, says which mate. A centric
+    // reflection's mates are never apart, since friedel_plus calls every
+    // centric reflection I(+): they are equal by symmetry.
+    std::uint64_t group_key = key(u);
+    if (options.anomalous && !plus_of[i])
+      group_key |= std::uint64_t{1} << 63;
+    const auto [it, fresh] = groups.emplace(group_key, data.unique.size());
     if (fresh) {
       data.unique.push_back(u);
       data.centric.push_back(group.centric(u));
+    }
+    if (options.anomalous) {
+      const auto [pt, pair_fresh] =
+          pairs.emplace(key(u), data.pair_unique.size());
+      if (pair_fresh) {
+        data.pair_unique.push_back(u);
+        data.pair_centric.push_back(group.centric(u));
+      }
+      data.pair.push_back(pt->second);
     }
     const double factor = factor_of[i];
     const double v = var.reals[i];
@@ -932,17 +952,18 @@ std::pair<double, double> halves(const ScaleData &data,
 MergingShell merge_groups(const ScaleData &data, const std::vector<double> &g,
                           const std::vector<std::size_t> &groups) {
   MergingShell m;
-  std::vector<std::vector<std::size_t>> all(data.unique.size()),
-      plus(data.unique.size()), minus(data.unique.size());
-  std::vector<bool> wanted(data.unique.size(), false);
+  std::vector<std::vector<std::size_t>> all(data.stats_unique().size()),
+      plus(data.stats_unique().size()), minus(data.stats_unique().size());
+  std::vector<bool> wanted(data.stats_unique().size(), false);
   for (std::size_t h : groups)
     wanted[h] = true;
   for (std::size_t i = 0; i < data.size(); ++i) {
-    const std::size_t h = data.group[i];
+    const std::size_t h = data.stats_group()[i];
     if (data.outlier[i] || !wanted[h])
       continue;
     all[h].push_back(i);
-    const bool centric = h < data.centric.size() && data.centric[h];
+    const bool centric =
+        h < data.stats_centric().size() && data.stats_centric()[h];
     const bool p = i < data.plus.size() ? data.plus[i] : true;
     (centric || p ? plus : minus)[h].push_back(i);
   }
@@ -985,7 +1006,8 @@ MergingShell merge_groups(const ScaleData &data, const std::vector<double> &g,
       r_sums(data, g, *side, &m.rmerge_anom, &m.rmeas_anom, &m.rpim_anom,
              &denominator_anom);
     }
-    const bool centric = h < data.centric.size() && data.centric[h];
+    const bool centric =
+        h < data.stats_centric().size() && data.stats_centric()[h];
     if (centric || plus[h].empty() || minus[h].empty())
       continue;
     ++m.anomalous_pairs;
@@ -1060,14 +1082,14 @@ std::vector<MergingShell> merging_statistics(const ScaleData &data,
   // One d for everything: the crystal's, at each group's unique index. The d
   // column is the scan-varying crystal's at each observation, and mixing the
   // two put a shell at 100.2 per cent.
-  std::vector<bool> seen(data.unique.size(), false);
+  std::vector<bool> seen(data.stats_unique().size(), false);
   for (std::size_t i = 0; i < data.size(); ++i)
     if (!data.outlier[i])
-      seen[data.group[i]] = true;
-  std::vector<double> d_of(data.unique.size(), 0.0);
+      seen[data.stats_group()[i]] = true;
+  std::vector<double> d_of(data.stats_unique().size(), 0.0);
   double lo = HUGE_VAL, hi = 0.0; // 1/d^3
-  for (std::size_t h = 0; h < data.unique.size(); ++h) {
-    const Miller &u = data.unique[h];
+  for (std::size_t h = 0; h < data.stats_unique().size(); ++h) {
+    const Miller &u = data.stats_unique()[h];
     d_of[h] = crystal.d_spacing(u[0], u[1], u[2]);
     if (!seen[h])
       continue;
@@ -1086,7 +1108,7 @@ std::vector<MergingShell> merging_statistics(const ScaleData &data,
   };
   std::vector<std::vector<std::size_t>> in_shell(out.size());
   std::vector<std::size_t> everything;
-  for (std::size_t h = 0; h < data.unique.size(); ++h) {
+  for (std::size_t h = 0; h < data.stats_unique().size(); ++h) {
     if (!seen[h])
       continue;
     in_shell[shell_of(d_of[h])].push_back(h);
@@ -1166,6 +1188,7 @@ ScaleRun scale_sweep(const ExperimentList &experiments,
     shape.lmax = 0;
   ScaleDataOptions data_options;
   data_options.d_min = options.d_min;
+  data_options.anomalous = options.anomalous;
   run.data =
       build_scale_data(experiments, reflections, group, shape, data_options);
   step("gathering the observations");

@@ -115,16 +115,17 @@ std::vector<ResolutionBin>
 cc_half_bins(const ScaleData &data, const std::vector<double> &g,
              const Crystal &crystal, int nbins, std::size_t min_per_bin,
              double significance_level, std::size_t *wilson_outliers) {
-  std::vector<std::vector<std::size_t>> members(data.unique.size());
+  std::vector<std::vector<std::size_t>> members(data.stats_unique().size());
   for (std::size_t i = 0; i < data.size(); ++i)
     if (!data.outlier[i])
-      members[data.group[i]].push_back(i);
-  std::vector<double> d(data.unique.size(), 0.0), mean(data.unique.size(), 0.0);
+      members[data.stats_group()[i]].push_back(i);
+  std::vector<double> d(data.stats_unique().size(), 0.0),
+      mean(data.stats_unique().size(), 0.0);
   std::vector<std::size_t> present;
   for (std::size_t h = 0; h < members.size(); ++h) {
     if (members[h].empty())
       continue;
-    const Miller &u = data.unique[h];
+    const Miller &u = data.stats_unique()[h];
     d[h] = crystal.d_spacing(u[0], u[1], u[2]);
     double s = 0.0;
     for (std::size_t i : members[h])

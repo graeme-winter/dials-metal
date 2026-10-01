@@ -40,6 +40,12 @@ void usage() {
       "                    scale again to it, if CC half falls to the limit\n"
       "                    within the data at all\n"
       "  --cc-half-limit C   the CC half the limit is set at (0.3)\n"
+      "  --anomalous       Friedel mates apart: I(+) and I(-) of an acentric\n"
+      "                    reflection scaled, given their error model and\n"
+      "                    rejected as outliers as separate groups, for data\n"
+      "                    with a strong anomalous signal. The merging table "
+      "is\n"
+      "                    the same groups either way\n"
       "  --no-absorption   no absorption surface, whatever the sweep\n"
       "  --l-max L         the absorption surface to degree L, lmax (lmax + "
       "2)\n"
@@ -59,10 +65,10 @@ void usage() {
 
 int run_program(int argc, char **argv) {
   const std::set<std::string> known = {
-      "--l-max",         "--d-min-auto",   "--cc-half-limit",   "--threads",
-      "--timing",        "--space-group",  "--change-of-basis", "--d-min",
-      "--no-absorption", "--profile-only", "--shells",          "-o",
-      "--output-expt"};
+      "--anomalous", "--l-max",         "--d-min-auto",   "--cc-half-limit",
+      "--threads",   "--timing",        "--space-group",  "--change-of-basis",
+      "--d-min",     "--no-absorption", "--profile-only", "--shells",
+      "-o",          "--output-expt"};
   const std::set<std::string> takes_value = {
       "--l-max",           "--cc-half-limit", "--threads", "--space-group",
       "--change-of-basis", "--d-min",         "--shells",  "-o",
@@ -141,6 +147,7 @@ int run_program(int argc, char **argv) {
     options.combine = !args.has("--profile-only");
     options.absorption = !args.has("--no-absorption");
     options.lmax = static_cast<int>(args.number("--l-max", -1.0));
+    options.anomalous = args.has("--anomalous");
     options.d_min = args.number("--d-min", 0.0);
     const double cc_half_limit = args.number("--cc-half-limit", 0.3);
     phase("reindexing");
@@ -193,6 +200,11 @@ int run_program(int argc, char **argv) {
                 "all; fitted on %zu observations\n",
                 shape.scale_points, shape.decay_points,
                 harmonic_count(shape.lmax), run.model.size(), run.fitted_on);
+    if (!data.pair.empty())
+      std::printf(
+          "Friedel mates kept apart (--anomalous): %zu groups scaled, from %zu "
+          "symmetry-unique reflections\n",
+          data.unique.size(), data.pair_unique.size());
     for (std::size_t k = 0; k < run.fits.size(); ++k)
       std::printf("  fit %zu: %d steps, target %.6g to %.6g%s\n", k + 1,
                   run.fits[k].iterations, run.fits[k].target_start,

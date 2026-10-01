@@ -255,6 +255,37 @@ map. The columns are looked up once, a row's symmetry is worked out in parallel,
 and the groups numbered in row order through a hash -- scaled.refl
 byte-identical, and a third of the time on one thread.
 
+## Friedel mates apart, --anomalous
+
+By default an acentric reflection's I(+) and I(-) are one group, as they are
+in dials.scale. With a strong anomalous signal they genuinely differ, and the
+difference is then scaling's to explain -- which it does in the worst way.
+Planted, with noise at a = 1.3, b = 0.03, four observations of each mate and
+3000 reflections:
+
+| Friedel difference | merged: a | merged: outliers | apart: a | apart: outliers |
+| --- | --- | --- | --- | --- |
+| none | 1.35 | 397 | 1.36 | 338 |
+| +-5 % | 1.63 | 1688 | 1.37 | 334 |
+| +-10 % | 3.24 | 4509 | 1.36 | 323 |
+| +-20 % | 9.80 | 8102 | 1.36 | 330 |
+
+of 24000 observations. Merged, the error model takes the difference as noise --
+through a, not b, every sigma inflated -- and outlier rejection throws away the
+observations with the largest anomalous differences: a fifth of them at +-10 per
+cent. Kept apart, the planted model comes back whatever the signal.
+
+`--anomalous` makes an acentric reflection's I(-) a group of its own, so
+scaling, the error model and outlier rejection all see the mates separately,
+as dials.scale's `anomalous=True`. Centric reflections stay one group:
+`friedel_plus` calls every centric reflection I(+), their mates equal by
+symmetry. The merging statistics and the resolution estimate keep the Friedel
+pairs -- `ScaleData::pair`, numbered as the groups are without the flag -- since
+they split each pair into I(+) and I(-) themselves: the merging table reports the
+same reflections either way, its anomalous columns what such data wants read.
+The report says how many groups were scaled from how many reflections. Without
+the flag, every table is byte-identical to before it.
+
 ## Decisions
 
 * **gemmi** for space groups, pinned at a release as a submodule, behind

@@ -1,5 +1,7 @@
 #include <cmath>
+#include <map>
 #include <random>
+#include <set>
 #include <tuple>
 
 #include "../src/parallel.hh"
@@ -438,6 +440,140 @@ TEST(scaling_gives_the_same_answer_on_any_number_of_threads) {
                  "the error model");
   check::is_true(std::get<4>(one) == std::get<4>(four), "the covariance");
   check::is_true(std::get<5>(one) == std::get<5>(four), "every inverse scale");
+}
+
+TEST(with_anomalous_a_real_friedel_difference_is_neither_noise_nor_outliers) {
+  // Each reflection's I(+) and I(-) differ by +-10 per cent -- a strong
+  // anomalous signal -- with noise planted at a = 1.3, b = 0.03, four of each
+  // mate. Merged, the difference is the error model's and outlier rejection's
+  // to explain, and they do it in the worst way: a comes out near 3.2, every
+  // sigma inflated, and outlier rejection throws away a fifth of the
+  // observations -- those with the largest anomalous differences. Measured with
+  // no difference, +-5, 10 and 20 per cent: merged, a 1.35, 1.63, 3.24 and 9.80
+  // and outliers 397, 1688, 4509 and 8102 of 24000; apart, a 1.36 and some 330
+  // outliers throughout. Kept apart, the planted model comes back.
+  std::mt19937 rng(31);
+  std::uniform_real_distribution<double> uni(0.0, 1.0);
+  std::normal_distribution<double> noise(0.0, 1.0);
+  const double a = 1.3, b = 0.03, delta = 0.10;
+  ScaleData merged, apart;
+  for (std::size_t h = 0; h < 3000; ++h) {
+    merged.unique.push_back(Miller{static_cast<int>(h), 1, 0});
+    apart.unique.push_back(Miller{static_cast<int>(h), 1, 0});
+    apart.unique.push_back(Miller{static_cast<int>(h), 1, 0});
+    merged.centric.push_back(false);
+    apart.centric.push_back(false);
+    apart.centric.push_back(false);
+    const double truth = 100.0 * std::pow(100.0, uni(rng));
+    for (int k = 0; k < 8; ++k) {
+      const bool plus = k < 4;
+      const double mean = truth * (plus ? 1.0 + delta : 1.0 - delta);
+      const double sigma = a * std::sqrt(mean + b * b * mean * mean);
+      const double i = mean + sigma * noise(rng);
+      for (ScaleData *d : {&merged, &apart}) {
+        d->intensity.push_back(i);
+        d->variance.push_back(std::fmax(mean, 1.0));
+        d->variance_before.push_back(std::fmax(mean, 1.0));
+        d->observation.emplace_back();
+        d->outlier.push_back(false);
+        d->plus.push_back(plus);
+      }
+      merged.group.push_back(h);
+      apart.group.push_back(2 * h + (plus ? 0 : 1));
+    }
+  }
+  const std::vector<double> g(merged.size(), 1.0);
+  const ErrorModel em_merged = refine_error_model(merged, g);
+  const ErrorModel em_apart = refine_error_model(apart, g);
+  ScaleData merged_rejected = merged, apart_rejected = apart;
+  const std::size_t out_merged = reject_outliers(merged_rejected, g);
+  const std::size_t out_apart = reject_outliers(apart_rejected, g);
+  check::is_true(em_merged.a > 2.5,
+                 "merged, the difference inflates every sigma: a = " +
+                     std::to_string(em_merged.a));
+  check::is_true(
+      out_merged > 10 * out_apart,
+      "and is thrown away as outliers: " + std::to_string(out_merged) +
+          " against " + std::to_string(out_apart));
+  check::is_true(std::abs(em_apart.a - a) < 0.1,
+                 "kept apart, a = " + std::to_string(em_apart.a));
+  check::is_true(std::abs(em_apart.b - b) < 0.006,
+                 "and b = " + std::to_string(em_apart.b));
+  check::is_true(out_apart < 500, "and the outliers are the noise's: " +
+                                      std::to_string(out_apart));
+}
+
+TEST(with_anomalous_acentric_mates_are_apart_and_centric_ones_together) {
+  // In P 2 the reflections with k = 0 are centric. Both mates of three of each
+  // kind, each seen twice: with anomalous, an acentric reflection's mates are
+  // separate groups, a centric one's are not, and the Friedel pairs the
+  // statistics use are exactly the groups without anomalous.
+  const SpaceGroup group = SpaceGroup::from_name("P 1 2 1");
+  const std::vector<Miller> wanted = {
+      {1, 2, 3}, {2, 1, 1},  {3, 4, -2}, // acentric
+      {1, 0, 2}, {2, 0, -3}, {4, 0, 1}}; // centric
+  std::vector<Miller> rows;
+  for (const Miller &m : wanted)
+    for (int repeat = 0; repeat < 2; ++repeat) {
+      rows.push_back(m);
+      rows.push_back(Miller{-m[0], -m[1], -m[2]});
+    }
+  Table t;
+  t.nrows = rows.size();
+  Column &hkl = t.int_column("miller_index", "cctbx::miller::index<>", 3);
+  Column &flags = t.int_column("flags", "std::size_t", 1);
+  Column &d = t.real_column("d", "double", 1);
+  Column &cal = t.real_column("xyzcal.px", "vec3<double>", 3);
+  Column &pv = t.real_column("intensity.prf.value", "double", 1);
+  Column &pvar = t.real_column("intensity.prf.variance", "double", 1);
+  Column &sv = t.real_column("intensity.sum.value", "double", 1);
+  Column &svar = t.real_column("intensity.sum.variance", "double", 1);
+  for (std::size_t r = 0; r < rows.size(); ++r) {
+    for (int c = 0; c < 3; ++c)
+      hkl.ints[r * 3 + c] = rows[r][static_cast<std::size_t>(c)];
+    flags.ints[r] = flag::kIntegratedPrf | flag::kIntegratedSum;
+    d.reals[r] = 2.0;
+    cal.reals[r * 3 + 2] = 5.0 + static_cast<double>(r);
+    pv.reals[r] = sv.reals[r] = 100.0 + static_cast<double>(r);
+    pvar.reals[r] = svar.reals[r] = 100.0;
+  }
+  ExperimentList experiments;
+  experiments.experiments.emplace_back();
+  experiments.experiments[0].scan.first_image = 1;
+  experiments.experiments[0].scan.last_image = 100;
+  experiments.experiments[0].scan.osc_width = 0.1;
+  const ScaleModelShape shape{3, 0, 0};
+  ScaleDataOptions plain_options, anomalous_options;
+  anomalous_options.anomalous = true;
+  const ScaleData together =
+      build_scale_data(experiments, t, group, shape, plain_options);
+  const ScaleData apart =
+      build_scale_data(experiments, t, group, shape, anomalous_options);
+  check::equal(static_cast<long long>(together.unique.size()), 6,
+               "six groups without");
+  check::equal(static_cast<long long>(apart.unique.size()), 9,
+               "nine with: each acentric reflection's mates apart, the centric "
+               "ones not");
+  check::is_true(apart.pair == together.group,
+                 "the Friedel pairs are the groups without anomalous, "
+                 "observation by observation");
+  check::is_true(apart.stats_unique() == together.unique,
+                 "and the statistics see the same symmetry-unique reflections");
+  std::map<std::size_t, std::set<bool>> mates;
+  for (std::size_t i = 0; i < apart.size(); ++i)
+    mates[apart.group[i]].insert(apart.plus[i]);
+  int split = 0, whole = 0;
+  for (const auto &[g, sides] : mates) {
+    if (apart.centric[g]) {
+      ++whole;
+    } else {
+      ++split;
+      check::is_true(sides.size() == 1, "an acentric group holds one mate");
+    }
+  }
+  check::equal(static_cast<long long>(split), 6,
+               "three acentric reflections, two mates each");
+  check::equal(static_cast<long long>(whole), 3, "three centric ones whole");
 }
 
 } // namespace mxi

@@ -88,8 +88,6 @@ where something is missing.
 
 * **21.** **capability -- One sweep only.**
 * **22.** **capability -- No free-set validation**, the check for overfitting.
-* **24.** **capability -- Friedel mates are always merged in scaling**; there is no
-    anomalous option.
 * **26.** **capability -- The scaling model is not written** to `scaled.expt`, as
     dials.scale writes its `scaling_model`.
 
@@ -199,6 +197,10 @@ where something is missing.
 * **41.** `mxi_scale --threads`, measured: on the MacBook's 16M sweep with
   `--d-min-auto`, 5.3 s, then 2.9 once the thread pool, the error model's search
   and gathering were fixed (item 45). Byte-identical on any count.
+* **24.** An anomalous option in scaling: `mxi_scale --anomalous` scales an
+  acentric reflection's Friedel mates as separate groups. Merged, a +-10 per
+  cent anomalous difference inflated the error model's a from 1.36 to 3.24 and
+  had a fifth of the observations rejected as outliers. `docs/scaling.md`.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

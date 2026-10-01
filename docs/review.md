@@ -197,7 +197,7 @@ numbered list):
 
 * **More than one sweep**, in symmetry and scaling, and so the indexing
   ambiguity between sweeps.
-* Free-set validation of scaling; an anomalous option in scaling; overlapping
+* Free-set validation of scaling; overlapping
   reflections and overloads in integration; e.s.d.s for the cell, and the cell
   constrained to the lattice's symmetry, in refinement.
 * Reports and export: an HTML report and MTZ / mmCIF output are not written;

@@ -23,6 +23,12 @@ struct ScaleDataOptions {
   //: dials.scale's default: a partial below 0.4 is too uncertain to scale up.
   double partiality_cutoff = 0.4;
   double d_min = 0.0;
+  //: Friedel mates kept apart: for an acentric reflection I(+) and I(-) are
+  //: separate groups, so scaling, the error model and outlier rejection do not
+  //: take a real anomalous difference for error, as dials.scale's
+  //: anomalous=True. Centric reflections stay one group, their mates equal by
+  //: symmetry.
+  bool anomalous = false;
 };
 
 //: The observations scaling uses, as parallel arrays.
@@ -58,6 +64,24 @@ struct ScaleData {
   //: unguarded, the error model's tests ran off the end of an empty one.
   double scale_term_at(std::size_t i) const {
     return i < scale_term.size() ? scale_term[i] : 0.0;
+  }
+  // With anomalous, the Friedel pairs as well: each observation's pair,
+  // numbered as the groups are without anomalous, so that the merging
+  // statistics and the resolution estimate -- which split a pair into I(+) and
+  // I(-) themselves -- report the same groups either way. Empty otherwise.
+  std::vector<std::size_t> pair;
+  std::vector<Miller> pair_unique;
+  std::vector<bool> pair_centric;
+  //: The grouping statistics are reported by: Friedel pairs together, whether
+  //: or not scaling keeps them apart.
+  const std::vector<std::size_t> &stats_group() const {
+    return pair.empty() ? group : pair;
+  }
+  const std::vector<Miller> &stats_unique() const {
+    return pair.empty() ? unique : pair_unique;
+  }
+  const std::vector<bool> &stats_centric() const {
+    return pair.empty() ? centric : pair_centric;
   }
   std::size_t size() const { return intensity.size(); }
 };
@@ -212,6 +236,7 @@ std::vector<MergingShell> merging_statistics(const ScaleData &data,
                                              MergingShell *overall);
 
 struct ScaleRunOptions {
+  bool anomalous = false; //: Friedel mates apart, as ScaleDataOptions
   bool combine = true;    //: choose profile, summation or a mix by Rmeas
   bool absorption = true; //: when the sweep is wide enough for it
   //: The absorption surface's degree: -1 for the sweep's default -- 4 from 60
