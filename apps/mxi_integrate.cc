@@ -1375,7 +1375,9 @@ int run_program(int argc, char **argv) {
         Shoebox &box = active[first_new + i];
         if (build_shoebox(e, *planned[at + i].prediction, mask_options, &box,
                           &ignored)) {
-          box.data.assign(box.size(), 0.0f);
+          // Not zeroed: every slice is filled when its frame is read, or
+          // zeroed then if it cannot be -- written once either way.
+          box.data.resize(box.size());
         }
       });
       at = stop;
@@ -1418,8 +1420,24 @@ int run_program(int argc, char **argv) {
           mine = images->reader();
         const std::size_t slot = worker % fetch_by_thread.size();
         const std::int32_t z = frame_numbers[which];
-        if (z < 0 || static_cast<std::size_t>(z) >= keys.size())
+        // A slice no frame fills -- outside the scan, or a frame that will not
+        // read -- is zeroed here, as opening the box zeroed every voxel before.
+        // Each slice is this frame's alone, as filling is.
+        const auto zero_slices = [&]() {
+          for (std::size_t i : touching[z]) {
+            Shoebox &box = active[i];
+            if (box.data.empty())
+              continue;
+            const std::size_t slice = static_cast<std::size_t>(box.nx()) *
+                                      static_cast<std::size_t>(box.ny());
+            std::fill_n(box.data.data() + box.at(0, 0, z - box.bbox[4]), slice,
+                        0.0f);
+          }
+        };
+        if (z < 0 || static_cast<std::size_t>(z) >= keys.size()) {
+          zero_slices();
           return;
+        }
         series::Frame raw;
         const double t0 = now_wall();
         if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) {
@@ -1428,6 +1446,7 @@ int run_program(int argc, char **argv) {
           // will integrate low, and silently dropping it leaves "frames
           // read" less than the number of images with no explanation.
           unread.fetch_add(1);
+          zero_slices();
           return;
         }
         const double t1 = now_wall();

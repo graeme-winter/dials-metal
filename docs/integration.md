@@ -165,6 +165,17 @@ with no branch, which the compiler makes SIMD, checked for the bad-pixel marker
 by an OR across it, and gone over again only where it has one: on one thread
 here 1.41 s to 0.355, the same bytes.
 
+**Boxes are not zeroed when they open.** Every voxel was set to 0 at opening
+and then overwritten by the fill: on dense data some 140 GB of zeros a run, on
+a machine whose reading is bound by memory. `Shoebox::data` now has an
+allocator that leaves what resize() makes unset, and a slice no frame fills --
+outside the scan, or a frame that will not read -- is zeroed when its frame comes
+up, by the thread that would have filled it. Checked three ways: the table
+byte-identical on one thread and four; byte-identical with every new box
+poisoned with NaN, so every voxel is written before it is read; and with frame
+150 forced unreadable, the new way poisoned against the old way zeroed,
+byte-identical, the zeroing of a missing frame's slices exercised.
+
 **Chunking moves the last bits of the profile fit.** The reference profiles are
 sums over boxes in the order they close, which follows where chunks end: with
 `--max-boxes 1000` against the default on the 300 image sweep, `intensity.prf`

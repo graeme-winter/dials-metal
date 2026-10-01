@@ -178,6 +178,11 @@ where something is missing.
   What would lessen it: a box's data not zeroed when it opens -- 140 GB of zeros
   the fill overwrites, needed only where a frame is missing -- and counts kept
   as 16 bits, half of the rest.
+  Done: boxes not zeroed on opening, each unfilled slice zeroed when its frame
+  comes up; byte-identical, poisoned with NaN, and with a frame forced missing.
+  On one thread here opening went from some 1.4 s to 1.05. To measure on the 32
+  thread machine, where it is memory the threads share.
+
 
 
 
