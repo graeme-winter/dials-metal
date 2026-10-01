@@ -164,6 +164,12 @@ where something is missing.
   writes 35 billion scattered voxels. What would make reading faster now is less
   per voxel: counts filled as 16 bits, not floats, and a fill loop the compiler
   can vectorise. A larger default cap still pays, 10 s for 2.2 GB more held.
+  Done: the default cap is 6000 a thread (192000 on 32), and the fill converts a
+  row at a time with no branch, 1.41 s to 0.355 on one thread here,
+  byte-identical. Chunking moves the profile fit's last bits (2.5e-13 relative),
+  so on dense data, where the cap binds, the default's profile-fitted intensities
+  change at that level. To measure on the 32 thread machine.
+
 
 
 

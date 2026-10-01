@@ -59,7 +59,7 @@ first integration byte for byte.
 | the profile model | `--sigma-b`, `--sigma-m`, `--n-sigma` (3), `--box-scale` (1.9), `--gain` (1) |
 | reference profiles | `--scan-blocks` (one per 10 degrees), `--regions` (3), `--reference-signal` (10), `--grid-points` (4), `--subdivisions` (5) |
 | profile fitting | `--least-measured` (0.6), `--summation-only`, `--two-pass`, `-g`/`--gpu` (single precision on the device, `docs/gpu.md`), `--gpu-emulate` |
-| speed and memory | `--threads` (0, one per core), `--window` (64), `--max-boxes` (20000) |
+| speed and memory | `--threads` (0, one per core), `--window` (64), `--max-boxes` (6000 a thread, at least 20000) |
 | output | `-o`, `--save-shoeboxes`, `--save-profiles`, `--timing` |
 
 Choosing a few of them:
@@ -147,6 +147,30 @@ high resolution, and scaling saw it before any comparison did.
 A reflection crossing a module gap is fitted to the pixels it has, and its
 intensity is the fitted scale times the WHOLE profile, not the visible part --
 which is what lets a fitted intensity recover what the gap took.
+
+## Chunks on dense data, and filling shoeboxes
+
+A chunk's frames are read in parallel, a frame a thread, and a chunk ends where
+opening its boxes stops: so `--max-boxes` sets how many threads have a frame to
+read. A fixed 20000 cut ferritin's 64 frame chunks to some 11 frames -- 6.2
+million reflections over 3600 frames, 1725 opening a frame -- and on 32 threads
+reading was a third busy. The default is now 6000 a thread, at least 20000:
+192000 on 32 threads, measured there at 200000 to take the integration from
+112.0 s to 102.2, threads 90 per cent busy, 2.2 GB more held.
+
+With every thread busy each did its work at half the speed -- 16 cores of two
+threads each -- and filling the shoeboxes, two thirds of reading's work, was a
+pixel at a time with a branch each. A row of a box is now converted in one loop
+with no branch, which the compiler makes SIMD, checked for the bad-pixel marker
+by an OR across it, and gone over again only where it has one: on one thread
+here 1.41 s to 0.355, the same bytes.
+
+**Chunking moves the last bits of the profile fit.** The reference profiles are
+sums over boxes in the order they close, which follows where chunks end: with
+`--max-boxes 1000` against the default on the 300 image sweep, `intensity.prf`
+differs by at most 2.5e-13 relative, the summation not at all. So the new
+default changes dense data's profile-fitted intensities at that level, where
+the cap binds; on the 300 image sweep it does not bind, and nothing changes.
 
 ## One pass over the images
 
