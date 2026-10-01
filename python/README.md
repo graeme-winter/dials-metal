@@ -67,32 +67,41 @@ See `docs/integration.md` for what it cannot tell you in z.
 
 `mxeq equivalents scaled.expt scaled.refl` compares every observation with the
 symmetry equivalents of its reflection, so that a bias in one kind of
-observation shows without a second program or a reference data set. The
-intensities are corrected as scaling corrects them -- times `lp`, over `qe` and
-the partiality, over `inverse_scale_factor` -- and each is set against the
-weighted mean of its reflection's CLEAN equivalents, itself left out: fully
-recorded, nothing of the profile on masked pixels, away from the scan's ends.
-Against every equivalent the bias would leak into the reference: with a fifth of
-the observations partials 10 per cent high, partials read low and the clean ones
-high. Against clean equivalents a planted bias reads as itself
-(`tests/test_equivalents.py`).
+observation shows without a second program or a reference data set.
 
-It bins the relative difference by partiality, by `profile.measured` -- the
-fraction of the profile on valid pixels, below 1 where a box crosses a module
-gap -- by whether the foreground reached a masked pixel, by the images from each
-end of the scan, and by resolution and I/sigma as controls. By default each
-table counts only the observations clean in every other respect, so that it
-measures its own cause; `--all` counts them all. Read the median and the ratio
-of the sums: the mean of a ratio is pulled up by noise. Profile fitted and
-summed intensities are reported apart (`--intensity`), and `--anomalous` keeps
-Friedel mates apart.
+* **The intensities** are corrected as scaling corrects them -- times `lp`, over
+  `qe` and the partiality, over `inverse_scale_factor` -- since the integrated
+  columns are raw.
+* **The reference** is the unweighted mean of the reflection's CLEAN equivalents,
+  itself left out: fully recorded, nothing of the profile masked, away from the
+  scan's ends. Clean, or a bias leaks into the reference (planted partials 10
+  per cent high read low against every equivalent); unweighted, because weights
+  from each observation's own variance favour those that came out low, and read
+  unbiased data +0.7 per cent high at I/sigma 10 to 20. `--reference weighted`
+  compares.
+* **The tables** bin the relative difference by partiality, by
+  `profile.measured` -- the profile's fraction on valid pixels, which a module
+  gap lowers -- by the masked-foreground flag, by images from each end of the
+  scan, and by resolution (quantiles of what is counted) and I/sigma as
+  controls; each counts, by default, only the observations clean in every other
+  respect (`--all` for every one). Read the median and the ratio of the sums.
+* **sigma_m from the partials.** A partial's intensity before the division by
+  its partiality, against its clean reference, is its observed partiality.
+  Partiality is recomputed as the integrator computes it, for a trial sigma_m,
+  and the report gives the sigma_m at which the partials' median bias is zero --
+  with the sigma_m the integration used, recovered from each partial's own
+  partiality.
+* **`--worst N`** writes the N observations furthest from their equivalents to
+  `equivalents_prf.refl` and `equivalents_sum.refl`, with
+  `equivalents.reference` and `equivalents.difference` beside our columns, for
+  `dials.image_viewer`.
 
-On the 300 image insulin sweep, profile fitted: partials of partiality 0.8 to
-0.9 +9.5 per cent, 0.9 to 0.99 +2.4, fully recorded +0.2; 80 to 95 per cent of the
-profile on valid pixels -3 to -4; and no fully recorded, unmasked observation in
-the first or last two images at all -- the excess at the scan's ends is the
-partials'. `mxeq trend`, comparing two integrations, now bins by
-`profile.measured` too.
+On the 300 image insulin sweep: partials of partiality 0.8 to 0.9 +9.5 per cent
+and 0.9 to 0.99 +2.4, fully recorded +0.2; 80 to 95 per cent of the profile on
+valid pixels -3 to -4; the excess at the scan's ends the partials'. The partials
+recover the 0.1286 degrees integrated with, and suggest 0.086 (profile fitted)
+and 0.082 (summed) -- where DIALS's profile model has 0.089. `mxeq trend`,
+comparing two integrations, bins by `profile.measured` too.
 
 ## No thresholds
 

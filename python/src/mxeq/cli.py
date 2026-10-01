@@ -281,6 +281,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="the I/sigma an observation and its reference both need to be counted (5)",
     )
     eq.add_argument(
+        "--reference",
+        choices=["mean", "weighted"],
+        default="mean",
+        help="the clean equivalents' unweighted mean (mean), or weighted by "
+        "1/variance, which reads unbiased data high where it is weak",
+    )
+    eq.add_argument(
+        "--worst",
+        type=int,
+        default=0,
+        help="also write the N observations furthest from their equivalents to "
+        "equivalents_<kind>.refl, for dials.image_viewer",
+    )
+    eq.add_argument(
         "--all",
         action="store_true",
         help="count every observation in every table, not only those clean in "
@@ -317,10 +331,25 @@ def main(argv: list[str] | None = None) -> int:
         from . import equivalents
 
         kinds = ("prf", "sum") if args.intensity == "both" else (args.intensity,)
-        results = equivalents.from_files(
-            args.expt, args.refl, kinds, args.min_i_sigma, args.anomalous, not args.all
+        results, prepared = equivalents.from_files(
+            args.expt,
+            args.refl,
+            kinds,
+            args.min_i_sigma,
+            args.anomalous,
+            not args.all,
+            args.reference,
         )
-        print(equivalents.report(results, args.min_i_sigma, not args.all))
+        print(equivalents.report(results, args.min_i_sigma, not args.all, prepared))
+        if args.worst > 0:
+            for r in results:
+                path = f"equivalents_{r.intensity}.refl"
+                table = equivalents.worst(prepared, r, r.intensity, args.worst)
+                refl.write(path, table)
+                print(
+                    f"Wrote the {table.nrows} {r.intensity} observations furthest from "
+                    f"their equivalents to {path}, for dials.image_viewer"
+                )
         return 0
 
     if args.command == "residuals":

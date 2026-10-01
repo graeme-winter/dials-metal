@@ -19,6 +19,13 @@ where something is missing.
   On the 300 image sweep, partiality 0.8 to 0.9 +9.5 per cent, 0.9 to 0.99 +2.4;
   and no fully recorded, unmasked observation lies in the first or last two
   images, so the excess at the scan's ends is the partials', not its own cause.
+  The partials suggest sigma_m itself: recomputing their partiality for a trial
+  sigma_m, `mxeq equivalents` finds their median bias zero at 0.086 degrees
+  (profile fitted) and 0.082 (summed), against the 0.1286 integrated with --
+  recovered exactly from their own partialities -- and DIALS's 0.089 (item 3). A
+  sigma_m half again too wide makes a cut box's rocking curve look more partial
+  than it is, and dividing by that overshoots: items 1 and 3 are likely one. To
+  test, `mxi_integrate --sigma-m 0.086` and the tool again.
 * **2.** **correctness -- Gap-crossing reflections are about 3 per cent low**, 3.4 by
    symmetry equivalents in scaling; the suspect is profile learning from
    reflections that are themselves cut. `docs/integration.md`, open questions.
@@ -26,6 +33,7 @@ where something is missing.
   valid pixels, fully recorded, -3.1 to -3.7 per cent.
 * **3.** **correctness -- sigma_m is 0.129 degrees here against DIALS' 0.089** on the
    same 300 image sweep; it sets how large the boxes are. Not yet investigated.
+  The partials put it at 0.082 to 0.086 degrees (`mxeq equivalents`, item 1).
 * **4.** **correctness -- The background is about one per cent high at low
    resolution.** A guard ring around the foreground would likely fix it.
    `docs/integration.md`.
