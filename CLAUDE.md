@@ -48,51 +48,40 @@ was found.
 
 ## Handover: where the work stands
 
-STATUS: written 29 September 2026 at 01b0295, 251 commits, for a new session to
-pick up from. `docs/outstanding.md` is the list of open work; this section is
-what is in flight and how the work is done here.
+STATUS: written 30 September 2026, 288 commits, for a new session to pick up
+from -- paused here at Graeme's word. `docs/outstanding.md` is the list of open
+work; this section is what is in flight and how the work is done here.
 
 **The chain is complete for one sweep**: `mxi_find`, `mxi_index`, `mxi_refine`,
 `mxi_integrate`, `mxi_symmetry`, `mxi_scale`, each interchangeable with DIALS at
-its boundary. Every program takes `--timing` (`src/timing.hh`).
+its boundary, each with `--timing` (`src/timing.hh`). `mxi_refine` is
+scan-varying by default, one control point per 10 degrees. On the 3600 images of an EIGER2 XE 16M sweep -- `ins10_1.nxs` of https://zenodo.org/records/8376818 -- on an M4 Max MacBook, the chain from the images to scaled data, `mxi_find -j 16 --gpu`, `mxi_index`, `mxi_refine --beam --analytic`, `mxi_integrate --gpu`, `mxi_symmetry` and `mxi_scale --d-min-auto`, takes 36.6 s of wall time and 3m42 of CPU (30 September 2026).
+
+**Recent, measured on Graeme's MacBook:** one pass over the images (integration
+19.4 s against two passes' 28.4, 2.66 GB held); `mxi_scale` 5.3 s to 2.9 (the
+thread pool, the error model's search, gathering); prediction 8.1 s to 0.09 on
+a partial sweep (pruned, byte-identical); `mxi_integrate --gpu` on Metal, 14.6 s
+against the CPU's 20.0 (`docs/gpu.md`).
 
 **In flight, waiting on Graeme's hardware** -- none can run here:
 
-* **Profile fitting on the device** (`mxi_integrate --gpu`, `src/fit_device.hh`,
-  `src/fit_cuda.cu`, `src/fit_metal.metal`, `docs/gpu.md`). Verified on the CPU
-  with `--gpu-emulate`; Metal 16.6 s against the CPU's 20.0 on the 16M sweep;
-  CUDA slower than 32 threads before the pinned upload. The batches now overlap
-  reading frames, two in flight: tested here with `MXI_FIT_FAKE_DEVICE=1`, not
-  yet on a real device -- the next Metal and CUDA runs are its test.
-
+* **CUDA profile fitting** (`src/fit_cuda.cu`): ran on the RTX 4060 before the
+  pinned upload, the new kernel, the overlap and the packing in place, and was
+  slower than 32 CPU threads then. Rerun `--gpu --timing` against the default.
 * **The fused CUDA threshold** (`SPOTFINDER_GPU_FUSED=1`, `src/spots/dext_fused.hh`,
-  `docs/spots.md`). Verified tile by tile on the CPU against `dext()` and compiled
-  for the RTX 4060 (compute capability 8.9), never run. To settle:
-  `SPOTFINDER_GPU_FUSED=1 ctest -R dext_gpu`, then `cmp` its `mxi_find` output
-  against the three kernels' and compare `--timing`. The three kernels take about
-  98 thread-seconds of device work on 3600 frames of 16M pixels at 8 threads, 8.9
-  ms a frame. If it is identical and faster, making it CUDA's default is the next
-  step; if it is not identical, `test_dext_gpu` says which frame.
-* **One pass over the images in `mxi_integrate`** (`docs/integration.md`, item
-  42). Byte-identical to `--two-pass` on the 300 image sweep in every
-  configuration tried; its speed and memory on the 16M sweep are unmeasured.
-  Run both with `--timing` and `cmp` the tables; `--timing` reports the most
-  shoeboxes held, estimated at 49000 and 1.1 GB.
-* **`mxi_scale --threads`** (`src/parallel.hh`, `docs/scaling.md`). Byte-identical
-  on any thread count; its speed is unmeasured, this container having one core.
-  Serial baseline on the 16M sweep: 8.0 s wall, 7.4 s user.
+  `docs/spots.md`): verified tile by tile on the CPU, compiled for compute
+  capability 8.9, never run. `SPOTFINDER_GPU_FUSED=1 ctest -R dext_gpu`, then
+  `cmp` its `mxi_find` output against the three kernels' and compare `--timing`.
 
-**Next in `mxi_integrate`, the most expensive step.** Graeme's one-pass run on
-1800 frames of a MacBook took 6.6 s: profile fitting 2.4, reading frames 1.1,
-writing 0.7, the profile model, background and summation, and opening shoeboxes
-about 0.45 each. Since then profile fitting is some 52 per cent less on one
-thread (`pixel_cells`, and a learned box's cells kept for its fit;
-`docs/gpu.md`) and writing about a fifth of what it was (item 39) -- both to be
-measured on the MacBook, with a `shasum` against the last `integrated.refl`,
-since Apple silicon's fused multiply-adds are the one way the answer could
-move. What is left of fitting: the least squares, and the exact geometry at
-pixel corners. Then the profile model step and opening shoeboxes. Prediction
-was 6.3 s on the 300 image sweep and 0.2 s elsewhere, unexplained (item 36).
+**Paused, and the decision it waits on:** background and summation on a device
+(item 47) -- a CPU pass over `integrate_shoebox` first, or the device with the
+one-pass loop pipelined and summation in single precision.
+
+**Removed, and why:** reading frames with pread around HDF5's lock made the
+MacBook's integration 10 s slower (item 46). The GPU path's emulation,
+`--gpu-emulate`, is for testing, not speed -- it runs the kernels' algorithm on
+the CPU -- and `MXI_FIT_FAKE_DEVICE=1` makes the integrator's path for a device
+run where there is none, byte-identical to the emulation.
 
 ### How work is done here
 

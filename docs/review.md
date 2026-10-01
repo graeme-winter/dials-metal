@@ -39,7 +39,7 @@ Its size, excluding third-party code: the library 15350 lines in `src/` and the
 spot finder 6339 in `src/spots/`; eleven programs in 4273 lines in `apps/`, and
 `mxi_find` in `src/spots/find_spots.cc`; C++ tests 14465 lines; a Python package
 of comparison tools, `mxeq`, 5950 lines, with 2852 of tests; 5400 lines of
-documents. Some 265 commits over three weeks.
+documents. Some 288 commits over three weeks.
 
 ## Building it and running it on your data
 
@@ -47,10 +47,10 @@ documents. Some 265 commits over three weeks.
 git clone --recursive <this repository> && cd dials-metal
 cmake -S . -B build && cmake --build build -j
 (cd build && ctest)              # the ctest suites, the spot finder's among them
-build/mxi_tests                  # 272 unit tests
+build/mxi_tests                  # 279 unit tests
 ```
 
-Add `-DSPOTFINDER_METAL=ON` or `-DSPOTFINDER_CUDA=ON` for the GPU threshold,
+Add `-DSPOTFINDER_METAL=ON` or `-DSPOTFINDER_CUDA=ON` for the GPU threshold and profile fitting,
 `-DMXI_FFTW=ON` for FFTW. The `README.md` has the details and the dependencies
 by platform.
 
@@ -62,7 +62,7 @@ program answers `--help`, takes `--timing`, and mirrors its output to
 mxi_find      -e imported.expt -j 16 -o strong.refl      # --gpu for the GPU
 mxi_index     imported.expt strong.refl                  # indexed.expt, .refl
 mxi_refine    indexed.expt indexed.refl --analytic   # scan-varying, one point per 10 degrees
-mxi_integrate refined.expt refined.refl                  # integrated.expt, .refl
+mxi_integrate refined.expt refined.refl                  # --gpu: fitting on the GPU, in float
 mxi_symmetry  integrated.expt integrated.refl            # symmetrized.expt, .refl
 mxi_scale     symmetrized.expt symmetrized.refl          # scaled.expt, .refl
 ```
@@ -70,6 +70,12 @@ mxi_scale     symmetrized.expt symmetrized.refl          # scaled.expt, .refl
 Beside a DIALS run of the same data, `mxeq` (in `python/`) compares the two at
 each boundary -- `mxeq check strong|indexed|refined|integrated|scaled <dials>
 <this>` -- and explains where integrations differ. It needs no cctbx.
+
+On the 3600 images of an EIGER2 XE 16M sweep -- `ins10_1.nxs` of
+https://zenodo.org/records/8376818 -- on an M4 Max MacBook, the chain from the
+images to scaled data, `mxi_find -j 16 --gpu`, `mxi_index`, `mxi_refine --beam
+--analytic`, `mxi_integrate --gpu`, `mxi_symmetry` and `mxi_scale --d-min-auto`,
+takes 36.6 s of wall time and 3m42 of CPU (30 September 2026).
 
 ## Where to find things
 
@@ -79,7 +85,7 @@ each boundary -- `mxeq check strong|indexed|refined|integrated|scaled <dials>
 | geometry | `geometry` (models, conventions), `predict`, `derivatives`, `derivatives_t` | | `docs/conventions.md` |
 | indexing | `index` (3D FFT), `fft`, `fft_fftw` | `mxi_index` | `CLAUDE.md`, indexing sections; `docs/gpu.md`, Indexing |
 | refinement | `refine`, `target`, `linalg` | `mxi_refine` | `CLAUDE.md`, refinement sections; `docs/gpu.md`, Refinement |
-| integration | `integrate` (summation), `background` (GLM), `shoebox`, `mask`, `profile_model`, `profile_grid`, `reference` (profiles and fitting), `postrefine` | `mxi_integrate` | `docs/integration.md`; `docs/gpu.md`, Integration |
+| integration | `integrate` (summation), `background` (GLM), `shoebox`, `mask`, `profile_model`, `profile_grid`, `reference` (profiles and fitting), `postrefine`; `fit_device.hh`, `fit_batch`, `fit_cuda.cu`, `fit_metal.metal` and `fit_device_*.cc` (fitting on a GPU, `--gpu`) | `mxi_integrate` | `docs/integration.md`; `docs/gpu.md`, Integration |
 | symmetry | `symmetry` (space groups, via gemmi), `laue` | `mxi_symmetry` | `docs/symmetry.md` |
 | scaling | `scale`, `scale_model`, `resolution` | `mxi_scale` | `docs/scaling.md` |
 | formats and plumbing | `expt`, `refl` (msgpack by hand), `json`, `args`, `log_mirror`, `timing`, `parallel`, `summary` | | |

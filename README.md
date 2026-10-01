@@ -176,6 +176,7 @@ mxi_refine    indexed.expt indexed.refl --analytic              # -> refined.*
               # nearly every real crystal moves; --scan-varying N for N,
               # --static for a crystal that does not; static under 10 degrees
 mxi_integrate refined.expt refined.refl                         # -> integrated.*
+              # --gpu: profile fitting on the GPU, in single precision
 # or, refining against the centres integration measures and integrating again:
 mxi_integrate refined.expt refined.refl --postrefine
 mxi_symmetry  integrated.expt integrated.refl                   # -> symmetrized.*
@@ -184,6 +185,12 @@ mxi_scale     symmetrized.expt symmetrized.refl                 # -> scaled.*
 
 `dials.symmetry` and `dials.scale` take `integrated.*` as readily, at either of the
 last two steps.
+
+On the 3600 images of an EIGER2 XE 16M sweep -- `ins10_1.nxs` of
+https://zenodo.org/records/8376818 -- on an M4 Max MacBook, the chain from the
+images to scaled data, `mxi_find -j 16 --gpu`, `mxi_index`, `mxi_refine --beam
+--analytic`, `mxi_integrate --gpu`, `mxi_symmetry` and `mxi_scale --d-min-auto`,
+takes 36.6 s of wall time and 3m42 of CPU (30 September 2026).
 
 Each program prints its report to standard output and writes the same report
 to `mxi_<program>.log` where it runs -- `mxi_find.log`, `mxi_integrate.log` --

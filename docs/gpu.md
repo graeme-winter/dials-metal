@@ -1,12 +1,14 @@
 # Where the time goes, and what a device would take
 
-STATUS: first, a plan for a device at each stage, with how an experiment is
-judged; then the measurements behind it, in three parts -- where integration's,
-indexing's and refinement's time goes, and what moving each to a GPU would and
-would not buy. A device port of the refinement target is designed here and not
-written. The spot finder's GPU threshold, which is written and runs on Metal and
-CUDA, is in `docs/spots.md`. Within each part the sections are as they were
-written: a later one can overturn an earlier one, and says so.
+STATUS: a plan for a device at each stage, with how an experiment is judged;
+then the measurements, in three parts -- integration, indexing and refinement.
+Done: profile fitting on Metal, `mxi_integrate --gpu`, the M4 Max's 16M
+integration 14.6 s against the CPU's 20.0. Tried and removed: reading frames
+around HDF5's lock. Paused: background and summation (item 47). The refinement
+target's port is designed here and not written; the spot finder's GPU threshold,
+written and running on Metal and CUDA, is in `docs/spots.md`. Within each part the
+sections are as they were written: a later one can overturn an earlier one, and
+says so.
 
 ## A device for each stage: what to try, and how to judge it
 

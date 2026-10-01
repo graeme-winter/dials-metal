@@ -42,6 +42,19 @@ where something is missing.
 * **11.** **speed -- Reading frames and profile fitting are a third of the time
     each** on a 16M sweep. `docs/gpu.md`.
 
+* **47.** **paused -- Background and summation on a device.** 3.0 s of the
+  M4 Max's 14.6 s integration, the largest CPU phase after reading. On one
+  thread here, 40 per cent of it is the GLM's iterations and 60 the passes over
+  a box's voxels -- gathering the background pixels into a list, summing the
+  foreground, two centroid passes -- memory more than arithmetic. Two things
+  stand in the way: a box's summation is used at once, by learning the
+  reference profiles, so a device's would need the one-pass loop pipelined by a
+  chunk to overlap reading; and it would put `intensity.sum`, the background and
+  the centroids into single precision, the GLM's 1e-10 becoming 1e-6. The first
+  step proposed: `integrate_shoebox` cheaper on the CPU, byte-identical -- the
+  GLM over the box's own pixels, fewer passes -- which helps every path and says
+  what is left for a device.
+
 ## Refinement
 
 * **12.** **correctness -- Outlier rejection is milder than DIALS'**: 11714
@@ -80,9 +93,6 @@ where something is missing.
 * **26.** **capability -- The scaling model is not written** to `scaled.expt`, as
     dials.scale writes its `scaling_model`.
 
-* **41.** **measure -- `mxi_scale --threads`**: byte-identical on any count,
-  speed unmeasured -- one core here. Serial on the 16M sweep: 8.0 s.
-  `docs/scaling.md`.
 
 ## New programs
 
@@ -127,15 +137,14 @@ where something is missing.
   1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
 
 * **43.** **try -- A device for each stage**, `docs/gpu.md`. Profile fitting,
-  `mxi_integrate --gpu`, single precision: verified on the CPU through
-  `--gpu-emulate` (a median of 9e-6 sigma from the double fit, at most 0.036).
-  Metal on an M4 Max, the 16M sweep: the integration 16.6 s against the CPU's
-  20.0, the kernel 1.75 s. CUDA on an RTX 4060: slower than 32 CPU threads,
-  mostly moving data, before the pinned upload. Now overlapped with reading
-  frames -- two batches in flight -- verified here with a pretended device and
-  not yet run on either real one. Then the refinement target and
-  decompression, each judged against every CPU thread on its machine and
-  against the CPU's answer, and recorded if it loses.
+  `mxi_integrate --gpu`, single precision, is done for Metal: on an M4 Max, the
+  16M sweep's integration 14.6 s against the CPU's 20.0, overlapped with reading
+  frames and packed straight into the GPU's memory; verified on the CPU through
+  `--gpu-emulate` (a median of 9e-6 sigma from the double fit) and a pretended
+  device. CUDA is to rerun -- slower than 32 CPU threads before the pinned
+  upload, the new kernel and the overlap. Background and summation are item 47;
+  then the refinement target and decompression, each judged against every CPU
+  thread on its machine, and recorded if it loses.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
@@ -187,6 +196,9 @@ where something is missing.
   threads defeating the drive's read-ahead. Reading through HDF5 was fast enough
   there, and a second path to keep was not worth it; removed (commits 59e4764
   and 5ef916f, reverted).
+* **41.** `mxi_scale --threads`, measured: on the MacBook's 16M sweep with
+  `--d-min-auto`, 5.3 s, then 2.9 once the thread pool, the error model's search
+  and gathering were fixed (item 45). Byte-identical on any count.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.
