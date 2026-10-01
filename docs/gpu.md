@@ -260,6 +260,21 @@ thread-seconds are integration's other phases, still the CPU's. Which of them,
 `--timing` on this data will say. And three steps use little of 32 threads:
 symmetry 17 s on one core (items 37, 40), indexing on 1.4, refinement on 2.8.
 
+**Integration on that machine, `--timing`** (6.2 million reflections, 3600
+frames, 32 threads): 102.6 s with `--gpu`, 112.0 without. Profile fitting 21.8 s
+against 29.5 -- the device's kernel 7.0 s, waited for 0.03, nearly idle. The
+CPU's side of it is the cost, 21.2 s, packing 16.5 of that: 177 GB, 28.5 KB a
+box, copied into pinned memory, then uploaded at 13.4 GB/s, about the 4060's
+link. That is the volume of the data, five bytes a voxel; counts as 16 bits
+and the mask -- geometry -- made on the device would send about two. Reading
+frames is 35.6 s of the run, and fetching 35.7 thread-seconds of it, 1.00 times
+the wall: one frame off the file at a time, some 10 ms each, the spot finder's
+37 s on the same data the same. Whether that is HDF5's lock or the disk -- some
+500 MB/s of compressed frames -- `cat` of the data files to /dev/null would
+say. Opening shoeboxes (15.1 s) and background and summation (12.3 s) are the
+CPU's, in parallel. The two runs fit 5776808 and 5776809 reflections: one of 6.2
+million on the edge in single precision.
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass
