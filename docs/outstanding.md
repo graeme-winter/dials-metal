@@ -130,6 +130,8 @@ where something is missing.
     threads and 22.5 on 16, for the same data. `docs/spots.md`.
 * **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
   run, for the table; the choice needs only the one chosen.
+  On a dense ferritin data set, 32 threads: 17 s, all on one core -- 9 per cent
+  of a 183 s chain.
 
 * **40.** **speed -- `mxi_symmetry` scores its elements by ordered-map lookup**,
   1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.

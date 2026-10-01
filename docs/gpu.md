@@ -240,6 +240,26 @@ take is packed into its own arrays as before. The pretended device offers memory
 of its own per slot, so this path runs here too, byte-identical to the
 emulation.
 
+**On Linux with CUDA, a dense data set** (ferritin from i04, a 32 thread machine
+and its RTX 4060, the whole chain timed step by step, wall and CPU):
+
+| step | --gpu: wall | cpu | CPU only: wall | cpu |
+| --- | --- | --- | --- | --- |
+| find | 37.2 s | 350 s | 135.7 s | 1964 s |
+| index | 10.1 | 14 | 10.2 | 14 |
+| refine | 9.9 | 28 | 10.2 | 29 |
+| integrate | 96.5 | 1609 | 106.0 | 2050 |
+| symmetry | 17.0 | 17 | 17.3 | 17 |
+| scale | 11.9 | 78 | 12.5 | 75 |
+| the chain | 182.6 | | 291.9 | |
+
+The spot finder's threshold on the GPU is the win: 3.7 times on the wall, the
+CPU's work a sixth. Profile fitting on the GPU took 440 thread-seconds off
+integration -- about what fitting costs -- and 10 s off its wall: the other 1600
+thread-seconds are integration's other phases, still the CPU's. Which of them,
+`--timing` on this data will say. And three steps use little of 32 threads:
+symmetry 17 s on one core (items 37, 40), indexing on 1.4, refinement on 2.8.
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass
