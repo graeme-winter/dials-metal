@@ -91,6 +91,90 @@ CUDA needs nothing pointed at, but it does guess what to build for:
 the binary will actually run on -- `-DCMAKE_CUDA_ARCHITECTURES="80;90"` -- if
 that is not this machine.
 
+## Usage
+
+**What you need:** the images as an NXmx HDF5 master file and its data files,
+as an EIGER writes them, and DIALS' `dials.import` to describe them. Its
+`imported.expt` is the one thing taken from DIALS; every step after it is a
+program here.
+
+### From images to scaled data
+
+```sh
+dials.import  master.nxs                                    # -> imported.expt
+mxi_find      -e imported.expt -j 16 -o strong.refl         # spots
+mxi_index     imported.expt strong.refl                     # -> indexed.expt, .refl
+mxi_refine    indexed.expt indexed.refl --analytic          # -> refined.expt, .refl
+mxi_integrate refined.expt refined.refl                     # -> integrated.expt, .refl
+mxi_symmetry  integrated.expt integrated.refl               # -> symmetrized.expt, .refl
+mxi_scale     symmetrized.expt symmetrized.refl --d-min-auto  # -> scaled.expt, .refl
+```
+
+Each step reads the previous one's pair of files and writes its own, under the
+names shown unless `--output-expt` and `--output-refl` (or `-o`) say otherwise.
+`dials.merge` takes `scaled.refl` to make a merged MTZ file.
+
+On the 3600 images of an EIGER2 XE 16M sweep -- `ins10_1.nxs` of
+https://zenodo.org/records/8376818 -- on an M4 Max MacBook, that chain with
+`--gpu` for finding and integrating and `--beam` in refinement takes 36.6 s of
+wall time and 3m42 of CPU (30 September 2026).
+
+### What each step does, and the options most often wanted
+
+| program | does | options worth knowing |
+| --- | --- | --- |
+| `mxi_find` | finds spots on every frame | `-j N` threads (default 4: set it to the cores), `-g`/`--gpu` the threshold on the GPU, `--no-shoeboxes` a much smaller table, `--min-spot-size N` |
+| `mxi_index` | indexes by 3D FFT, reduces the cell, refines | `--d-min D`, `--max-cell A`, `--verbose` the search |
+| `mxi_refine` | refines beam, detector and crystal; scan-varying by default, one control point per 10 degrees | `--analytic` analytical derivatives (recommended), `--beam` the beam direction too, `--static` one crystal setting for the scan, `--scan-varying N` N control points |
+| `mxi_integrate` | predicts, integrates by summation and profile fitting, in one pass over the images | `-g`/`--gpu` profile fitting on the GPU, `--threads N` (default every core), `--d-min D`, `--postrefine` refine against integration's own centres and integrate again, `--summation-only`, `--save-shoeboxes` |
+| `mxi_symmetry` | determines the Laue group and reindexes | `--max-delta D` the lattice's obliquity tolerance |
+| `mxi_scale` | scales, with an error model, and reports merging statistics | `--d-min-auto` cut where CC half falls to 0.3, `--d-min D`, `--space-group NAME`, `--l-max L` absorption surface degree, `--threads N` |
+
+Every program takes `--help` for the rest, and `--version`.
+
+### Threads and the GPU
+
+Where a program works in parallel it uses every core by default -- except
+`mxi_find`, whose `-j` defaults to 4 and should be set to the machine's cores. Built with
+`-DSPOTFINDER_METAL=ON` (Apple silicon) or `-DSPOTFINDER_CUDA=ON` (NVIDIA), two
+steps can use the GPU. `mxi_find --gpu` runs the threshold there, with the same
+spots as the CPU (16-bit images only under Metal, which has no double
+precision). `mxi_integrate --gpu` fits profiles there, in single precision
+where the CPU's fit is double -- the same arithmetic run on the CPU puts its
+intensities a median of 9e-6 sigma from the double fit's, none above 0.1 sigma,
+on a 300 image sweep -- and on the 16M sweep above took integration from 20.0 s
+to 14.6 on an M4 Max. A
+build or machine without a GPU says so and runs on the CPU. `docs/gpu.md` has the
+measurements.
+
+### Logs and timing
+
+Each program prints its report to standard output and writes the same report
+to `mxi_<program>.log` where it runs -- `mxi_find.log`, `mxi_integrate.log` --
+as DIALS writes `dials.find_spots.log`. Warnings and errors go to standard error
+and into the log too, in order, so the log of a run that failed says why. A run
+that only asks for `--help` or `--version` writes no log, rather than overwrite
+the last real run's.
+
+Every program takes `--timing`, and ends with one table of where its time went:
+phases in seconds and per cent of the run, and where work runs in parallel --
+the spot finder's reading, decompressing and thresholding, the integrator's
+frame reading -- time summed across the threads against the time they had. To
+time a whole chain step by step, wall clock and CPU, bash's own `time` will do:
+
+```sh
+TIMEFORMAT='%R s wall, %U s user, %S s system'
+time mxi_find -e imported.expt -j 16 -o strong.refl > find.out
+```
+
+### Mixing with DIALS
+
+Output is interchangeable with DIALS at every boundary: any step can be swapped
+for DIALS' own -- `dials.symmetry` and `dials.scale` take `integrated.*` as
+readily as `mxi_symmetry` and `mxi_scale` do -- `dials.export` reads the
+integrated table, and `dials.image_viewer` draws every step's output.
+To compare a step against DIALS, see `mxeq` below and `python/README.md`.
+
 ## Making indexing faster
 
 The transform is the largest phase of indexing on a fast machine. FFTW is about
@@ -164,50 +248,6 @@ pytest python/tests
 
 The checker deliberately needs neither matplotlib nor h5py, so it runs where
 those are not installed.
-
-## The chain
-
-```sh
-dials.import  master.nxs                                        # -> imported.expt
-mxi_find      -e imported.expt -j 16 --gpu -o strong.refl
-mxi_index     imported.expt strong.refl                         # -> indexed.*
-mxi_refine    indexed.expt indexed.refl --analytic              # -> refined.*
-              # scan-varying by default, one control point per 10 degrees --
-              # nearly every real crystal moves; --scan-varying N for N,
-              # --static for a crystal that does not; static under 10 degrees
-mxi_integrate refined.expt refined.refl                         # -> integrated.*
-              # --gpu: profile fitting on the GPU, in single precision
-# or, refining against the centres integration measures and integrating again:
-mxi_integrate refined.expt refined.refl --postrefine
-mxi_symmetry  integrated.expt integrated.refl                   # -> symmetrized.*
-mxi_scale     symmetrized.expt symmetrized.refl                 # -> scaled.*
-```
-
-`dials.symmetry` and `dials.scale` take `integrated.*` as readily, at either of the
-last two steps.
-
-On the 3600 images of an EIGER2 XE 16M sweep -- `ins10_1.nxs` of
-https://zenodo.org/records/8376818 -- on an M4 Max MacBook, the chain from the
-images to scaled data, `mxi_find -j 16 --gpu`, `mxi_index`, `mxi_refine --beam
---analytic`, `mxi_integrate --gpu`, `mxi_symmetry` and `mxi_scale --d-min-auto`,
-takes 36.6 s of wall time and 3m42 of CPU (30 September 2026).
-
-Each program prints its report to standard output and writes the same report
-to `mxi_<program>.log` where it runs -- `mxi_find.log`, `mxi_integrate.log` --
-as DIALS writes `dials.find_spots.log`. Warnings and errors go to standard error
-and into the log too, in order, so the log of a run that failed says why. A run
-that only asks for `--help` or `--version` writes no log, rather than overwrite
-the last real run's.
-
-Every program takes `--timing`, and ends with one table of where its time went:
-phases in seconds and per cent of the run, and where work runs in parallel --
-the spot finder's reading, decompressing and thresholding, the integrator's
-frame reading -- time summed across the threads against the time they had.
-
-Output is interchangeable with DIALS at every boundary: any stage can be
-swapped for DIALS' own, `dials.scale` and `dials.export` read the integrated
-table, and `dials.image_viewer` draws every stage's output. To compare a stage
-against DIALS, see `mxeq` below and `python/README.md`.
 
 ## The tools
 
