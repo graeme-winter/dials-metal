@@ -258,6 +258,40 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=0, help="keep only the N worst; 0 for all"
     )
 
+    eq = sub.add_parser(
+        "equivalents",
+        help="where integration is biased: each observation against its clean "
+        "symmetry equivalents, binned by partiality, masked pixels and scan edges",
+    )
+    eq.add_argument(
+        "expt",
+        help="the scaled (or integrated) experiments, for the space group and scan",
+    )
+    eq.add_argument("refl", help="the scaled (or integrated) reflections")
+    eq.add_argument(
+        "--intensity",
+        choices=["prf", "sum", "both"],
+        default="both",
+        help="profile fitted, summed, or both (both)",
+    )
+    eq.add_argument(
+        "--min-i-sigma",
+        type=float,
+        default=5.0,
+        help="the I/sigma an observation and its reference both need to be counted (5)",
+    )
+    eq.add_argument(
+        "--all",
+        action="store_true",
+        help="count every observation in every table, not only those clean in "
+        "every other respect",
+    )
+    eq.add_argument(
+        "--anomalous",
+        action="store_true",
+        help="Friedel mates as different reflections, for data with a strong anomalous signal",
+    )
+
     i = sub.add_parser("inspect", help="describe a file without assuming its layout")
     i.add_argument("path")
 
@@ -278,6 +312,16 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "equivalents":
+        from . import equivalents
+
+        kinds = ("prf", "sum") if args.intensity == "both" else (args.intensity,)
+        results = equivalents.from_files(
+            args.expt, args.refl, kinds, args.min_i_sigma, args.anomalous, not args.all
+        )
+        print(equivalents.report(results, args.min_i_sigma, not args.all))
+        return 0
 
     if args.command == "residuals":
         from . import residuals

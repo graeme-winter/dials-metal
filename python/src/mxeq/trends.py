@@ -98,6 +98,13 @@ def explanatory_variables(
     if cc is not None:
         out.append(Explanatory("profile.correlation (ours)", cc.ravel()))
 
+    # How much of the profile fell on valid pixels: below 1 where the box
+    # crosses a module gap or a masked pixel, the direct measure of what makes
+    # gap-crossing reflections integrate low.
+    measured = column(a, index, "profile.measured")
+    if measured is not None:
+        out.append(Explanatory("profile.measured (ours)", measured.ravel()))
+
     fg = column(a, index, "num_pixels.foreground")
     if fg is not None:
         out.append(

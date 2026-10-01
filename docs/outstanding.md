@@ -14,9 +14,16 @@ where something is missing.
    the first two and last five images 4 to 5 per cent: partiality looks
    underestimated at the ends of the scan, so dividing by it overshoots.
    `docs/scaling.md`, the CC half of the lowest shell.
+  `mxeq equivalents` measures it from the data: each observation against its
+  reflection's clean equivalents, each cause among observations otherwise clean.
+  On the 300 image sweep, partiality 0.8 to 0.9 +9.5 per cent, 0.9 to 0.99 +2.4;
+  and no fully recorded, unmasked observation lies in the first or last two
+  images, so the excess at the scan's ends is the partials', not its own cause.
 * **2.** **correctness -- Gap-crossing reflections are about 3 per cent low**, 3.4 by
    symmetry equivalents in scaling; the suspect is profile learning from
    reflections that are themselves cut. `docs/integration.md`, open questions.
+  `mxeq equivalents` on the 300 image sweep: 80 to 95 per cent of the profile on
+  valid pixels, fully recorded, -3.1 to -3.7 per cent.
 * **3.** **correctness -- sigma_m is 0.129 degrees here against DIALS' 0.089** on the
    same 300 image sweep; it sets how large the boxes are. Not yet investigated.
 * **4.** **correctness -- The background is about one per cent high at low

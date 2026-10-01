@@ -63,6 +63,37 @@ shows it against image, resolution and detector position, with a summary that
 separates the systematic offset, the counting noise and the prediction error.
 See `docs/integration.md` for what it cannot tell you in z.
 
+## Bias against the data itself
+
+`mxeq equivalents scaled.expt scaled.refl` compares every observation with the
+symmetry equivalents of its reflection, so that a bias in one kind of
+observation shows without a second program or a reference data set. The
+intensities are corrected as scaling corrects them -- times `lp`, over `qe` and
+the partiality, over `inverse_scale_factor` -- and each is set against the
+weighted mean of its reflection's CLEAN equivalents, itself left out: fully
+recorded, nothing of the profile on masked pixels, away from the scan's ends.
+Against every equivalent the bias would leak into the reference: with a fifth of
+the observations partials 10 per cent high, partials read low and the clean ones
+high. Against clean equivalents a planted bias reads as itself
+(`tests/test_equivalents.py`).
+
+It bins the relative difference by partiality, by `profile.measured` -- the
+fraction of the profile on valid pixels, below 1 where a box crosses a module
+gap -- by whether the foreground reached a masked pixel, by the images from each
+end of the scan, and by resolution and I/sigma as controls. By default each
+table counts only the observations clean in every other respect, so that it
+measures its own cause; `--all` counts them all. Read the median and the ratio
+of the sums: the mean of a ratio is pulled up by noise. Profile fitted and
+summed intensities are reported apart (`--intensity`), and `--anomalous` keeps
+Friedel mates apart.
+
+On the 300 image insulin sweep, profile fitted: partials of partiality 0.8 to
+0.9 +9.5 per cent, 0.9 to 0.99 +2.4, fully recorded +0.2; 80 to 95 per cent of the
+profile on valid pixels -3 to -4; and no fully recorded, unmasked observation in
+the first or last two images at all -- the excess at the scan's ends is the
+partials'. `mxeq trend`, comparing two integrations, now bins by
+`profile.measured` too.
+
 ## No thresholds
 
 Version one applies no pass/fail criteria at all. Every check prints
