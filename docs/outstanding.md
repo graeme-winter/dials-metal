@@ -141,16 +141,20 @@ where something is missing.
   the transform's 0.94 on one thread.
 
 * **48.** **measure -- Reading frames on Linux.** Integrating ferritin on 32
-  threads, fetching was 35.7 thread-seconds, 1.00 times the wall -- one frame off
-  the file at a time, 10 ms each -- while `cat` read the same files from the page
-  cache in 0.68 s: not the disk. The spot finder's 37 s on the same data is the
-  same limit. Reading around HDF5's lock was tried in the programs and removed
-  (item 46), slower on a MacBook reading from an external drive. Before the
-  programs change again, `mxi_readtest` measures reading alone: every frame,
-  N threads, `--direct-chunk` as the programs read or `--pread` outside the
-  lock, decompressed as they would, with a checksum both ways must give -- the
-  same on the 300 image sweep here, by H5Dread_chunk and by pread. To run on
-  both machines, warm and cold.
+  threads, fetching was 35.7 thread-seconds, 1.00 times the wall, some 10 ms a
+  frame. `mxi_readtest` on the same machine, the files in the page cache, reads
+  and decompresses all 3600 frames (17.9 GB) in 11 s either way: by H5Dread_chunk
+  10.96 s (fetching 194 thread-seconds, mostly waiting on the lock, decompressing
+  153), by pread 11.21 s (fetching 34, decompressing 321 -- half the speed a
+  thread, 32 threads on what look like 16 cores), the same checksum. So HDF5's
+  lock is not the limit, and reading around it buys nothing even on Linux:
+  item 46's removal stands. What is left is why integration reads at 10 ms a
+  frame when 11 s is possible. Suspected: the page cache, warm for `cat` and
+  `mxi_readtest`, evicted while integration holds 9.3 GB of shoeboxes and a
+  6.2 million row table, so that its frames come from the disk at some 500 MB/s
+  -- which the spot finder's 37 s, first in the chain and so cold, also fits.
+  To tell: `free -g`, and `mxi_readtest` straight after an integration.
+
 
 ## Infrastructure
 
