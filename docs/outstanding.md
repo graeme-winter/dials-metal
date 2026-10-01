@@ -169,6 +169,16 @@ where something is missing.
   byte-identical. Chunking moves the profile fit's last bits (2.5e-13 relative),
   so on dense data, where the cap binds, the default's profile-fitted intensities
   change at that level. To measure on the 32 thread machine.
+  Measured with both: the integration 94.7 s with `--gpu` (102.6 before) and
+  103.8 without (112.0), the cap's 8 s. The SIMD fill, four times faster on one
+  thread here, saved 8 per cent of filling's thread-seconds there (504 to 464)
+  and nothing of reading's wall (30.8 s): on 32 threads filling is bound by
+  memory, not instructions. Reading as a whole is bound by memory traffic --
+  some 130 GB of decompressed pixels and 140 GB of scattered box voxels a run.
+  What would lessen it: a box's data not zeroed when it opens -- 140 GB of zeros
+  the fill overwrites, needed only where a frame is missing -- and counts kept
+  as 16 bits, half of the rest.
+
 
 
 
