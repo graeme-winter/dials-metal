@@ -140,20 +140,21 @@ where something is missing.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
-* **48.** **measure -- Reading frames on Linux.** Integrating ferritin on 32
-  threads, fetching was 35.7 thread-seconds, 1.00 times the wall, some 10 ms a
-  frame. `mxi_readtest` on the same machine, the files in the page cache, reads
-  and decompresses all 3600 frames (17.9 GB) in 11 s either way: by H5Dread_chunk
-  10.96 s (fetching 194 thread-seconds, mostly waiting on the lock, decompressing
-  153), by pread 11.21 s (fetching 34, decompressing 321 -- half the speed a
-  thread, 32 threads on what look like 16 cores), the same checksum. So HDF5's
-  lock is not the limit, and reading around it buys nothing even on Linux:
-  item 46's removal stands. What is left is why integration reads at 10 ms a
-  frame when 11 s is possible. Suspected: the page cache, warm for `cat` and
-  `mxi_readtest`, evicted while integration holds 9.3 GB of shoeboxes and a
-  6.2 million row table, so that its frames come from the disk at some 500 MB/s
-  -- which the spot finder's 37 s, first in the chain and so cold, also fits.
-  To tell: `free -g`, and `mxi_readtest` straight after an integration.
+* **48.** **measure -- Integration's threads idle while reading, on dense
+  data.** Ferritin, 32 threads: reading frames 35.6 s of wall, but its work --
+  fetching 35.7, decompressing 113.6, filling shoeboxes 232.4 thread-seconds --
+  is 382 of the 1139 thread-seconds the wall allowed: a third. (The fetching's
+  1.00 times the wall is a sum over threads, not one thread fetching; HDF5's
+  lock and the page cache were both ruled out -- `mxi_readtest` reads and
+  decompresses the whole sweep in 11 s either way, warm, with 123 GB and 79 of
+  it cache.) Suspected: `--max-boxes`, 20000 a chunk, which ends the chunk where
+  opening stops -- 6.2 million reflections over 3600 frames open some 1725 a
+  frame, so a chunk is some 11 frames, not 64, and 11 of 32 threads have a frame:
+  0.34, against the 0.34 measured. To test: `--max-boxes 200000`. If so, the
+  default cap should follow the threads, or memory. And filling is two thirds of
+  reading: one pixel at a time, a branch and a conversion each, some 6.6 ns a
+  voxel over 35 billion -- a loop that could vectorise.
+
 
 
 ## Infrastructure
