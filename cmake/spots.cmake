@@ -501,6 +501,16 @@ if(SPOTFINDER_TESTS)
                                   spotfinder_warnings)
     target_include_directories(mxi_integrate PRIVATE src src/spots apps)
 
+    # How fast the images can be read and decompressed, apart from the
+    # programs: H5Dread_chunk against pread. Not used by the pipeline.
+    add_executable(mxi_readtest ${CMAKE_CURRENT_SOURCE_DIR}/apps/mxi_readtest.cc)
+    target_link_libraries(mxi_readtest
+                          PRIVATE mxi spotfinder_series spotfinder_decompress
+                                  spotfinder_warnings)
+    target_include_directories(mxi_readtest PRIVATE src src/spots apps)
+    target_include_directories(mxi_readtest SYSTEM PRIVATE ${HDF5_C_INCLUDE_DIRS})
+    target_link_libraries(mxi_readtest PRIVATE ${HDF5_C_LIBRARIES})
+
     add_executable(test_refl tests/spots/test_refl.cc)
     target_link_libraries(test_refl PRIVATE spotfinder_refl spotfinder_warnings)
     add_test(NAME refl COMMAND test_refl)

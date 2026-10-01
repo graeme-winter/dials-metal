@@ -295,6 +295,7 @@ private:
 
 class Nxmx : public Series {
 public:
+  const std::vector<Block> &blocks() const { return blocks_; }
   explicit Nxmx(std::string master) : master_(std::move(master)) {}
 
   bool try_open(Info *info) override {
@@ -472,6 +473,16 @@ private:
 
 std::unique_ptr<Series> nxmx(std::string master) {
   return std::unique_ptr<Series>(new Nxmx(std::move(master)));
+}
+
+std::vector<SourceBlock> nxmx_blocks(const std::string &master, Info *info) {
+  Nxmx series(master);
+  if (!series.try_open(info))
+    throw std::runtime_error(master + " could not be opened as an NXmx series");
+  std::vector<SourceBlock> out;
+  for (const Block &b : series.blocks())
+    out.push_back({b.filename, b.dataset, b.first, b.last, b.offset});
+  return out;
 }
 
 } // namespace series

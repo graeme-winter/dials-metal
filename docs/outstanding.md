@@ -140,15 +140,17 @@ where something is missing.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
-* **37.** **measure -- `mxi_symmetry` on dense data.** On ferritin, 32 threads,
-  it was 17 s on one core, 9 per cent of a 183 s chain. Everything that grows
-  with the data or the lattice now runs on every thread, and a symmetry
-  element's mates are found by hash rather than by ordered map (item 40, folded
-  in here): the elements scored in parallel, the subgroups named in parallel,
-  the merge in P1 by hash, sorted as before. Every table and the report
-  byte-identical on one thread and eight. On the 300 image insulin sweep the
-  effect is small -- 0.34 s, naming two thirds of it -- so the ferritin run's
-  `--timing` is the measure.
+* **48.** **measure -- Reading frames on Linux.** Integrating ferritin on 32
+  threads, fetching was 35.7 thread-seconds, 1.00 times the wall -- one frame off
+  the file at a time, 10 ms each -- while `cat` read the same files from the page
+  cache in 0.68 s: not the disk. The spot finder's 37 s on the same data is the
+  same limit. Reading around HDF5's lock was tried in the programs and removed
+  (item 46), slower on a MacBook reading from an external drive. Before the
+  programs change again, `mxi_readtest` measures reading alone: every frame,
+  N threads, `--direct-chunk` as the programs read or `--pread` outside the
+  lock, decompressed as they would, with a checksum both ways must give -- the
+  same on the 300 image sweep here, by H5Dread_chunk and by pread. To run on
+  both machines, warm and cold.
 
 ## Infrastructure
 
@@ -204,6 +206,9 @@ where something is missing.
   acentric reflection's Friedel mates as separate groups. Merged, a +-10 per
   cent anomalous difference inflated the error model's a from 1.36 to 3.24 and
   had a fifth of the observations rejected as outliers. `docs/scaling.md`.
+* **37.** `mxi_symmetry` on dense data: on ferritin with 32 threads, 17 s on one
+  core to 7.0 s, its elements scored and its subgroups named in parallel, mates
+  found by hash (and item 40 with it). Byte-identical. `docs/symmetry.md`.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

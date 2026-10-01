@@ -251,8 +251,6 @@ those are not installed.
 
 ## The tools
 
-| | |
-| --- | --- |
 The pipeline:
 
 | | |
@@ -274,6 +272,7 @@ For looking inside it:
 | `mxi_grid` | spot density in Kabsch space, and spot widths across the face |
 | `mxi_forward` | the model rendered onto the pixels, against the data |
 | `mxi_background` | the robust background fitted to pixel values from a file |
+| `mxi_readtest` | how fast the images read and decompress, apart from the programs: `--direct-chunk` through HDF5 as they read, or `--pread` outside its lock, a checksum to show both read the same |
 
 And `mxeq`, which judges the output: `check` compares two pipelines at a
 boundary; `trend`, `html`, `explain` and `disagree` find and explain where two

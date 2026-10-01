@@ -96,6 +96,16 @@ public:
 
 std::unique_ptr<Series> nxmx(std::string master);
 
+//: Where an NXmx series' frames are stored: each block of frames, the file and
+//: dataset holding it, the series' frame numbers it covers, and the index of
+//: its first frame within that dataset -- as the reader resolves them, virtual
+//: datasets unpacked, for a tool that reads the files itself (mxi_readtest).
+struct SourceBlock {
+  std::string filename, dataset;
+  std::uint64_t first = 0, last = 0, offset = 0;
+};
+std::vector<SourceBlock> nxmx_blocks(const std::string &master, Info *info);
+
 } // namespace series
 
 #endif // SPOTFINDER_SERIES_HH
