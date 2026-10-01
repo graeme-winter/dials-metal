@@ -154,6 +154,17 @@ where something is missing.
   default cap should follow the threads, or memory. And filling is two thirds of
   reading: one pixel at a time, a branch and a conversion each, some 6.6 ns a
   voxel over 35 billion -- a loop that could vectorise.
+  Tested with `--max-boxes 200000`: the threads went from a third busy to 90
+  per cent -- the cap was idling them -- but every piece of work got about twice
+  as slow, fetching 35.7 to 162.5 thread-seconds (32 threads at the lock now),
+  decompressing 113 to 189, filling 230 to 504; reading's wall 35.1 s to 29.6,
+  the integration 112.0 to 102.2. So with all 32 threads at work something they
+  share runs out -- as in `mxi_readtest`, where decompressing went from 153 to
+  321 thread-seconds -- probably 16 cores of two threads each, and memory: filling
+  writes 35 billion scattered voxels. What would make reading faster now is less
+  per voxel: counts filled as 16 bits, not floats, and a fill loop the compiler
+  can vectorise. A larger default cap still pays, 10 s for 2.2 GB more held.
+
 
 
 
