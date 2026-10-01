@@ -22,9 +22,7 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "refl.hh"
@@ -40,33 +38,12 @@ constexpr std::uint8_t kForeground = 1 << 2;
 constexpr std::uint8_t kOverlapped = 1 << 3;
 } // namespace shoebox_mask
 
-//: An allocator that leaves a value made with no arguments as it found it, so
-//: that a vector's resize() does not zero what is about to be overwritten.
-//: Opening a shoebox zeroed every voxel and then filling overwrote every one:
-//: on dense data some 140 GB of zeros a run, on a machine whose reading is
-//: bound by memory. assign(), copies and values given still set what they are
-//: given.
-template <typename T> struct NoZeroAllocator : std::allocator<T> {
-  template <typename U> struct rebind {
-    using other = NoZeroAllocator<U>;
-  };
-  NoZeroAllocator() noexcept = default;
-  template <typename U> NoZeroAllocator(const NoZeroAllocator<U> &) noexcept {}
-  template <typename U> void construct(U *p) noexcept {
-    ::new (static_cast<void *>(p)) U;
-  }
-  template <typename U, typename... Args> void construct(U *p, Args &&...args) {
-    ::new (static_cast<void *>(p)) U(std::forward<Args>(args)...);
-  }
-};
-
 struct Shoebox {
   std::int32_t panel = 0;
   //: x0, x1, y0, y1, z0, z1, half open.
   std::int32_t bbox[6] = {0, 0, 0, 0, 0, 0};
   std::uint8_t flag = 0;
-  std::vector<float, NoZeroAllocator<float>>
-      data; //: resize() leaves new voxels unset
+  std::vector<float> data;
   std::vector<std::uint8_t> mask;
   std::vector<float> background;
 

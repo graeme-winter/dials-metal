@@ -178,10 +178,13 @@ where something is missing.
   What would lessen it: a box's data not zeroed when it opens -- 140 GB of zeros
   the fill overwrites, needed only where a frame is missing -- and counts kept
   as 16 bits, half of the rest.
-  Done: boxes not zeroed on opening, each unfilled slice zeroed when its frame
-  comes up; byte-identical, poisoned with NaN, and with a frame forced missing.
-  On one thread here opening went from some 1.4 s to 1.05. To measure on the 32
-  thread machine, where it is memory the threads share.
+  Tried and reverted: boxes not zeroed when they open, each unfilled slice
+  zeroed when its frame came up (4ac5285) -- byte-identical, and checked with
+  every new box poisoned with NaN and with a frame forced missing. On the 32
+  thread machine it changed nothing: opening 15.05 s against 15.09, the
+  integration 94.79 against 94.75; on the MacBook it was slower. So writing the
+  zeros was not what opening costs -- that is building each voxel's mask -- and a
+  second allocator was not worth keeping.
 
 
 
