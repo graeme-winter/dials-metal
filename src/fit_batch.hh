@@ -24,26 +24,44 @@ struct FitBatch {
   std::vector<std::uint8_t> mask; //: the same
   std::vector<float> reference;   //: every box's local reference, side^3 each
   std::size_t voxels = 0, corner_floats = 0; //: the scratch a batch needs
+  std::size_t reference_floats = 0;
+  // Where the pixels, masks and references are: in the vectors above, or --
+  // in_place -- in the device's own memory, packed straight into it, so that
+  // handing the batch over copies nothing.
+  const float *data_at = nullptr;
+  const std::uint8_t *mask_at = nullptr;
+  const float *reference_at = nullptr;
+  bool in_place = false;
 };
+
+//: Memory of the device's own a batch can be packed straight into: Metal's
+//: shared buffers, CUDA's pinned staging.
+struct FitDestination {
+  float *data = nullptr;
+  std::uint8_t *mask = nullptr;
+  float *reference = nullptr;
+};
+
+//: The next submission's slot's memory, grown to take a batch this size; false
+//: if the device has none to offer, or the slot is not yet collected.
+bool fit_batch_destination(std::size_t voxels, std::size_t reference_floats,
+                           FitDestination *out);
 
 //: The setup and panels for an experiment and grid, which every batch shares.
 FitBatch make_fit_batch(const Experiment &e, const GridSpec &spec, double gain);
 
-//: Adds a box: its pixels and mask, its reflection's s1 and phi, its constant
-//: background, and its local reference from profile_at.
-void add_to_batch(FitBatch *batch, const Shoebox &box, const Vec3 &s1,
-                  double phi, double background,
-                  const std::vector<double> &local_reference);
-
-//: Many boxes at once, packed in parallel: their offsets counted first, then
-//: every box's pixels, mask and reference copied into place on every thread.
+//: A batch's boxes, packed in parallel into an empty batch: their offsets
+//: counted first, then every box's pixels, mask and reference copied into place
+//: on every thread -- straight into the device's memory with to_device, when it
+//: offers some.
 struct BatchEntry {
   const Shoebox *box;
   Vec3 s1;
   double phi, background;
   const std::vector<double> *reference;
 };
-void add_to_batch(FitBatch *batch, const std::vector<BatchEntry> &entries);
+void add_to_batch(FitBatch *batch, const std::vector<BatchEntry> &entries,
+                  bool to_device = false);
 
 //: Seconds on the device so far -- uploading, the kernel, downloading -- from
 //: its own clock; zeroes without one.

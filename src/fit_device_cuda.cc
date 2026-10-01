@@ -4,11 +4,15 @@
 #include "fit_batch.hh"
 
 namespace fitdev {
+bool fit_cuda_destination(int slot, std::size_t voxels,
+                          std::size_t reference_floats, float **data,
+                          std::uint8_t **mask, float **reference);
 bool fit_cuda_submit(int slot, const Setup &setup, const PanelF *panels,
                      int n_panels, const BoxF *boxes, int n_boxes,
                      const float *data, const std::uint8_t *mask,
                      std::size_t voxels, const float *reference,
-                     std::size_t reference_floats, std::size_t corner_floats);
+                     std::size_t reference_floats, std::size_t corner_floats,
+                     bool in_place);
 bool fit_cuda_collect(int slot, FitF *out);
 const char *fit_cuda_name();
 void fit_cuda_times(double out[3]);
@@ -21,6 +25,15 @@ int g_next_ticket = 0;
 std::size_t g_boxes[kFitSlots] = {0, 0};
 } // namespace
 
+bool fit_batch_destination(std::size_t voxels, std::size_t reference_floats,
+                           FitDestination *out) {
+  if (fit_device_name() == nullptr)
+    return false;
+  return fitdev::fit_cuda_destination(g_next_ticket % kFitSlots, voxels,
+                                      reference_floats, &out->data, &out->mask,
+                                      &out->reference);
+}
+
 int fit_batch_submit(const FitBatch &batch) {
   if (batch.boxes.empty() || fit_device_name() == nullptr)
     return -1;
@@ -28,9 +41,9 @@ int fit_batch_submit(const FitBatch &batch) {
   if (!fitdev::fit_cuda_submit(
           ticket % kFitSlots, batch.setup, batch.panels.data(),
           static_cast<int>(batch.panels.size()), batch.boxes.data(),
-          static_cast<int>(batch.boxes.size()), batch.data.data(),
-          batch.mask.data(), batch.voxels, batch.reference.data(),
-          batch.reference.size(), batch.corner_floats))
+          static_cast<int>(batch.boxes.size()), batch.data_at, batch.mask_at,
+          batch.voxels, batch.reference_at, batch.reference_floats,
+          batch.corner_floats, batch.in_place))
     return -1;
   g_boxes[ticket % kFitSlots] = batch.boxes.size();
   ++g_next_ticket;

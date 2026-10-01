@@ -66,37 +66,9 @@ FitBatch make_fit_batch(const Experiment &e, const GridSpec &spec,
   return b;
 }
 
-void add_to_batch(FitBatch *batch, const Shoebox &box, const Vec3 &s1,
-                  double phi, double background,
-                  const std::vector<double> &local_reference) {
-  fitdev::BoxF f;
-  f.x0 = box.bbox[0];
-  f.y0 = box.bbox[2];
-  f.z0 = box.bbox[4];
-  f.nx = box.nx();
-  f.ny = box.ny();
-  f.nz = box.nz();
-  f.panel = box.panel;
-  f.s1 = f3(s1);
-  f.phi = static_cast<float>(phi);
-  f.background = static_cast<float>(background);
-  f.voxels_at = static_cast<std::uint32_t>(batch->voxels);
-  f.reference_at = static_cast<std::uint32_t>(batch->reference.size());
-  f.corners_at = static_cast<std::uint32_t>(batch->corner_floats);
-  batch->data.insert(batch->data.end(), box.data.begin(), box.data.end());
-  batch->mask.insert(batch->mask.end(), box.mask.begin(), box.mask.end());
-  for (double v : local_reference)
-    batch->reference.push_back(static_cast<float>(v));
-  batch->voxels += box.size();
-  batch->corner_floats += 2 * static_cast<std::size_t>(f.nx + 1) *
-                          static_cast<std::size_t>(f.ny + 1);
-  batch->boxes.push_back(f);
-}
-
-void add_to_batch(FitBatch *batch, const std::vector<BatchEntry> &entries) {
-  const std::size_t first = batch->boxes.size();
-  std::size_t voxels = batch->voxels, corners = batch->corner_floats,
-              reference = batch->reference.size();
+void add_to_batch(FitBatch *batch, const std::vector<BatchEntry> &entries,
+                  bool to_device) {
+  std::size_t voxels = 0, corners = 0, reference = 0;
   for (const BatchEntry &x : entries) {
     const Shoebox &box = *x.box;
     fitdev::BoxF f;
@@ -119,20 +91,28 @@ void add_to_batch(FitBatch *batch, const std::vector<BatchEntry> &entries) {
                static_cast<std::size_t>(f.ny + 1);
     batch->boxes.push_back(f);
   }
-  batch->data.resize(voxels);
-  batch->mask.resize(voxels);
-  batch->reference.resize(reference);
   batch->voxels = voxels;
   batch->corner_floats = corners;
+  batch->reference_floats = reference;
+  FitDestination into;
+  batch->in_place =
+      to_device && fit_batch_destination(voxels, reference, &into);
+  if (!batch->in_place) {
+    batch->data.resize(voxels);
+    batch->mask.resize(voxels);
+    batch->reference.resize(reference);
+    into = {batch->data.data(), batch->mask.data(), batch->reference.data()};
+  }
+  batch->data_at = into.data;
+  batch->mask_at = into.mask;
+  batch->reference_at = into.reference;
   for_each_index(entries.size(), [&](std::size_t k) {
     const BatchEntry &x = entries[k];
-    const fitdev::BoxF &f = batch->boxes[first + k];
-    std::copy(x.box->data.begin(), x.box->data.end(),
-              batch->data.begin() + f.voxels_at);
-    std::copy(x.box->mask.begin(), x.box->mask.end(),
-              batch->mask.begin() + f.voxels_at);
+    const fitdev::BoxF &f = batch->boxes[k];
+    std::copy(x.box->data.begin(), x.box->data.end(), into.data + f.voxels_at);
+    std::copy(x.box->mask.begin(), x.box->mask.end(), into.mask + f.voxels_at);
     for (std::size_t i = 0; i < x.reference->size(); ++i)
-      batch->reference[f.reference_at + i] =
+      into.reference[f.reference_at + i] =
           static_cast<float>((*x.reference)[i]);
   });
 }
@@ -142,7 +122,11 @@ void clear_batch(FitBatch *batch) {
   batch->data.clear();
   batch->mask.clear();
   batch->reference.clear();
-  batch->voxels = batch->corner_floats = 0;
+  batch->voxels = batch->corner_floats = batch->reference_floats = 0;
+  batch->data_at = nullptr;
+  batch->mask_at = nullptr;
+  batch->reference_at = nullptr;
+  batch->in_place = false;
 }
 
 std::vector<fitdev::FitF> fit_batch_emulated(const FitBatch &batch) {
@@ -157,10 +141,9 @@ std::vector<fitdev::FitF> fit_batch_emulated(const FitBatch &batch) {
         static_cast<std::size_t>(box.nz) *
         static_cast<std::size_t>(batch.setup.side * batch.setup.side));
     out[k] = fitdev::fit_box_emulated(
-        batch.setup, batch.panels.data(), box,
-        batch.data.data() + box.voxels_at, batch.mask.data() + box.voxels_at,
-        batch.reference.data() + box.reference_at, corners.data(),
-        profile.data(), blend.data());
+        batch.setup, batch.panels.data(), box, batch.data_at + box.voxels_at,
+        batch.mask_at + box.voxels_at, batch.reference_at + box.reference_at,
+        corners.data(), profile.data(), blend.data());
   });
   return out;
 }

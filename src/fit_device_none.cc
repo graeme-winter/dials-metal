@@ -24,11 +24,28 @@ bool fake() {
 struct FakeSlot {
   bool busy = false;
   std::vector<fitdev::FitF> fits;
+  // Its own memory, offered to pack into, as a real device's is.
+  std::vector<float> data, reference;
+  std::vector<std::uint8_t> mask;
 };
 FakeSlot g_fake[kFitSlots];
 int g_next_ticket = 0;
 
 } // namespace
+
+bool fit_batch_destination(std::size_t voxels, std::size_t reference_floats,
+                           FitDestination *out) {
+  if (!fake())
+    return false;
+  FakeSlot &s = g_fake[g_next_ticket % kFitSlots];
+  if (s.busy)
+    return false;
+  s.data.resize(voxels);
+  s.mask.resize(voxels);
+  s.reference.resize(reference_floats);
+  *out = {s.data.data(), s.mask.data(), s.reference.data()};
+  return true;
+}
 
 int fit_batch_submit(const FitBatch &batch) {
   if (!fake() || batch.boxes.empty())

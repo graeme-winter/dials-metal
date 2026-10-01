@@ -1235,11 +1235,15 @@ int run_program(int argc, char **argv) {
           entries.push_back({&box, q.s1, q.phi, bmean.reals[row], &locals[n]});
           in_batch.push_back(row);
         }
-        add_to_batch(&fit_batch, entries);
+        // A slot must be free before the batch can be packed into it.
+        if (on_device)
+          while (static_cast<int>(pending_fits.size()) >= kFitSlots)
+            collect_oldest_fit();
+        add_to_batch(&fit_batch, entries, on_device);
         gpu_boxes += fit_batch.boxes.size();
         gpu_bytes +=
             static_cast<double>(fit_batch.voxels) * (sizeof(float) + 1) +
-            static_cast<double>(fit_batch.reference.size()) * sizeof(float);
+            static_cast<double>(fit_batch.reference_floats) * sizeof(float);
         const double t_device = Timing::now();
         t_gpu_pack.add(t_device - t_packing);
         // On a device the batch is started and not waited for: the threads go

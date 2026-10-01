@@ -229,6 +229,15 @@ Past fitting, the wall's largest parts are reading frames (4.7 s, decompressing
 40.7 thread-seconds of it), background and summation (3.0), opening shoeboxes
 (1.75) and the profile model (1.2).
 
+**Packed straight into the device's memory.** Packing now lays a batch out
+first, then asks the device for its next slot's memory -- Metal's shared
+buffers, CUDA's pinned staging -- and copies every box into it on every thread,
+so that handing the batch over copies nothing more; the 0.64 s one thread spent
+copying 39 GB on the M4 Max is gone, or should be. A batch the device cannot
+take is packed into its own arrays as before. The pretended device offers memory
+of its own per slot, so this path runs here too, byte-identical to the
+emulation.
+
 **Still to know:** whether the kernel agrees -- it should with the
 emulation, up to the order of the block reductions' sums -- and whether it is
 faster than every CPU thread on the machine, which is the test it must pass

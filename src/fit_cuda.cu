@@ -292,11 +292,26 @@ double g_seconds[3] = {0.0, 0.0, 0.0};
 
 } // namespace
 
+bool fit_cuda_destination(int slot_index, std::size_t voxels,
+                          std::size_t reference_floats, float **data,
+                          std::uint8_t **mask, float **reference) {
+  Slot &s = g_slots[slot_index % kSlots];
+  if (s.busy || !s.make() || !s.h_data.reserve(sizeof(float) * voxels) ||
+      !s.h_mask.reserve(voxels) ||
+      !s.h_reference.reserve(sizeof(float) * reference_floats))
+    return false;
+  *data = static_cast<float *>(s.h_data.p);
+  *mask = static_cast<std::uint8_t *>(s.h_mask.p);
+  *reference = static_cast<float *>(s.h_reference.p);
+  return true;
+}
+
 bool fit_cuda_submit(int slot_index, const Setup &setup, const PanelF *panels,
                      int n_panels, const BoxF *boxes, int n_boxes,
                      const float *data, const std::uint8_t *mask,
                      std::size_t voxels, const float *reference,
-                     std::size_t reference_floats, std::size_t corner_floats) {
+                     std::size_t reference_floats, std::size_t corner_floats,
+                     bool in_place) {
   Slot &s = g_slots[slot_index % kSlots];
   if (s.busy || !s.make())
     return false;
@@ -314,9 +329,11 @@ bool fit_cuda_submit(int slot_index, const Setup &setup, const PanelF *panels,
     return ok(cudaErrorMemoryAllocation, "allocating memory");
   // The batch into this slot's pinned memory, so that the caller may refill it
   // at once; then everything else queued on the slot's stream.
-  std::memcpy(s.h_data.p, data, sizeof(float) * voxels);
-  std::memcpy(s.h_mask.p, mask, voxels);
-  std::memcpy(s.h_reference.p, reference, sizeof(float) * reference_floats);
+  if (!in_place) { // packed straight into the pinned staging otherwise
+    std::memcpy(s.h_data.p, data, sizeof(float) * voxels);
+    std::memcpy(s.h_mask.p, mask, voxels);
+    std::memcpy(s.h_reference.p, reference, sizeof(float) * reference_floats);
+  }
   if (!ok(cudaMemcpy(s.d_panels.p, panels, sizeof(PanelF) * n_panels,
                      cudaMemcpyHostToDevice),
           "copying panels") ||

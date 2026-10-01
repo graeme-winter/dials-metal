@@ -141,6 +141,24 @@ double now() {
 
 } // namespace
 
+bool fit_batch_destination(std::size_t voxels, std::size_t reference_floats,
+                           FitDestination *out) {
+  FitMetal &m = FitMetal::instance();
+  if (!m.ready())
+    return false;
+  FitMetal::Slot &s = m.slots[m.next_ticket % kFitSlots];
+  if (s.command != nullptr)
+    return false;
+  if (!s.data.reserve(m.device, sizeof(float) * voxels) ||
+      !s.mask.reserve(m.device, voxels) ||
+      !s.reference.reserve(m.device, sizeof(float) * reference_floats))
+    return false;
+  *out = {static_cast<float *>(s.data.contents()),
+          static_cast<std::uint8_t *>(s.mask.contents()),
+          static_cast<float *>(s.reference.contents())};
+  return true;
+}
+
 int fit_batch_submit(const FitBatch &batch) {
   FitMetal &m = FitMetal::instance();
   if (!m.ready() || batch.boxes.empty())
@@ -157,7 +175,7 @@ int fit_batch_submit(const FitBatch &batch) {
       !s.boxes.reserve(m.device, sizeof(fitdev::BoxF) * batch.boxes.size()) ||
       !s.data.reserve(m.device, sizeof(float) * batch.voxels) ||
       !s.mask.reserve(m.device, batch.voxels) ||
-      !s.reference.reserve(m.device, sizeof(float) * batch.reference.size()) ||
+      !s.reference.reserve(m.device, sizeof(float) * batch.reference_floats) ||
       !s.corners.reserve(m.device, sizeof(float) * batch.corner_floats) ||
       !s.profile.reserve(m.device, sizeof(float) * batch.voxels) ||
       !s.out.reserve(m.device, sizeof(fitdev::FitF) * batch.boxes.size()))
@@ -166,11 +184,14 @@ int fit_batch_submit(const FitBatch &batch) {
               sizeof(fitdev::PanelF) * batch.panels.size());
   std::memcpy(s.boxes.contents(), batch.boxes.data(),
               sizeof(fitdev::BoxF) * batch.boxes.size());
-  std::memcpy(s.data.contents(), batch.data.data(),
-              sizeof(float) * batch.voxels);
-  std::memcpy(s.mask.contents(), batch.mask.data(), batch.voxels);
-  std::memcpy(s.reference.contents(), batch.reference.data(),
-              sizeof(float) * batch.reference.size());
+  // Packed straight into these buffers, when the batch is in place: nothing
+  // to copy.
+  if (!batch.in_place) {
+    std::memcpy(s.data.contents(), batch.data_at, sizeof(float) * batch.voxels);
+    std::memcpy(s.mask.contents(), batch.mask_at, batch.voxels);
+    std::memcpy(s.reference.contents(), batch.reference_at,
+                sizeof(float) * batch.reference_floats);
+  }
   m.seconds[0] += now() - t0;
 
   MTL::CommandBuffer *command = m.queue->commandBuffer();
