@@ -11,10 +11,12 @@
 #include <hdf5.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <limits>
 #include <map>
@@ -293,6 +295,37 @@ private:
   std::map<std::string, SourceDataset> open_;
 };
 
+//: Whether a file carries HDF5's signature where a superblock may be: at the
+//: start, or after a user block at 512 bytes or any power of two beyond.
+bool looks_like_hdf5(const std::string &path) {
+  static const unsigned char signature[8] = {0x89, 'H',  'D',  'F',
+                                             '\r', '\n', 0x1a, '\n'};
+  std::FILE *file = std::fopen(path.c_str(), "rb");
+  if (file == nullptr)
+    return false;
+  bool found = false;
+  for (long at = 0; !found && at <= (1L << 30); at = at == 0 ? 512 : at * 2) {
+    unsigned char got[8];
+    if (std::fseek(file, at, SEEK_SET) != 0 || std::fread(got, 1, 8, file) != 8)
+      break;
+    found = std::memcmp(got, signature, 8) == 0;
+  }
+  std::fclose(file);
+  return found;
+}
+
+//: Whether a file's first character that is not white space is a brace.
+bool starts_with_brace(const std::string &path) {
+  std::FILE *file = std::fopen(path.c_str(), "rb");
+  if (file == nullptr)
+    return false;
+  int c = 0;
+  while ((c = std::fgetc(file)) != EOF && std::isspace(c))
+    ;
+  std::fclose(file);
+  return c == '{';
+}
+
 class Nxmx : public Series {
 public:
   const std::vector<Block> &blocks() const { return blocks_; }
@@ -302,6 +335,17 @@ public:
     std::error_code ignored;
     if (!std::filesystem::is_regular_file(master_, ignored))
       return false;
+
+    // Not HDF5 at all -- an experiment list given in the images' place, say --
+    // said plainly, rather than in HDF5's diagnostic stack, which a file that
+    // is HDF5 and fails for another reason still gets.
+    if (!looks_like_hdf5(master_))
+      throw std::runtime_error(
+          master_ + " is not an HDF5 file" +
+          (starts_with_brace(master_)
+               ? std::string(": it looks like JSON, an experiment list "
+                             "perhaps, which is not the images")
+               : std::string()));
 
     const Guard guard(hdf5_mutex());
 

@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -110,8 +111,11 @@ void usage(const char *program, std::FILE *to = stderr) {
   std::fprintf(
       to,
       "usage: %s [-j threads] [-g|--gpu] [-e imported.expt] [-o strong.refl]\n"
-      "       [options] [master.nxs]\n"
+      "       [options] [master.nxs | imported.expt]\n"
       "\n"
+      "  imported.expt      an experiment list, as -e: the images are the "
+      "ones\n"
+      "                     its imageset names\n"
       "  master.nxs         an NXmx HDF5 master file, or -x master.nxs.\n"
       "                     Optional when -e names an .expt: dials.import\n"
       "                     already recorded the file in its imageset block,\n"
@@ -142,6 +146,19 @@ void usage(const char *program, std::FILE *to = stderr) {
       program);
 }
 
+//: Whether a file is JSON, as an experiment list is: its first character that
+//: is not white space an opening brace. A file that cannot be read is not.
+bool looks_like_json(const std::string &path) {
+  std::FILE *file = std::fopen(path.c_str(), "rb");
+  if (file == nullptr)
+    return false;
+  int c = 0;
+  while ((c = std::fgetc(file)) != EOF && std::isspace(c))
+    ;
+  std::fclose(file);
+  return c == '{';
+}
+
 bool parse_options(int argc, char **argv, Options *options) {
   for (int i = 1; i < argc; i++) {
     const std::string flag = argv[i];
@@ -155,6 +172,11 @@ bool parse_options(int argc, char **argv, Options *options) {
     } else if (flag == "-x" && has_value) {
       options->master = argv[++i];
     } else if (flag == "-e" && has_value) {
+      if (!options->experiments.empty()) {
+        std::fprintf(stderr, "%s: two experiment lists, %s and %s\n", argv[0],
+                     options->experiments.c_str(), argv[i + 1]);
+        return false;
+      }
       options->experiments = argv[++i];
     } else if (flag == "-o" && has_value) {
       options->output = argv[++i];
@@ -194,9 +216,18 @@ bool parse_options(int argc, char **argv, Options *options) {
       // made a script checking whether this is installed think it was broken.
       usage(argv[0], stdout);
       std::exit(0);
+    } else if (!flag.empty() && flag[0] != '-' && looks_like_json(flag)) {
+      // An experiment list given as the argument, as dials.find_spots takes
+      // it: the images are then the ones its imageset names, as with -e.
+      if (!options->experiments.empty()) {
+        std::fprintf(stderr, "%s: two experiment lists, %s and %s\n", argv[0],
+                     options->experiments.c_str(), flag.c_str());
+        return false;
+      }
+      options->experiments = flag;
     } else if (!flag.empty() && flag[0] != '-' && options->master.empty()) {
-      // The master file may be named without -x, since it is the only thing
-      // this reads and having to flag it would be ceremony.
+      // The master file may be named without -x, since flagging the one file
+      // this reads would be ceremony.
       options->master = flag;
     } else {
       usage(argv[0]);
