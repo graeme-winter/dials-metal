@@ -127,7 +127,7 @@ wall time and 3m42 of CPU (30 September 2026).
 | `mxi_index` | indexes by 3D FFT, reduces the cell, refines | `--d-min D`, `--max-cell A`, `--verbose` the search |
 | `mxi_refine` | refines beam, detector and crystal; scan-varying by default, one control point per 10 degrees | `--analytic` analytical derivatives (recommended), `--beam` the beam direction too, `--static` one crystal setting for the scan, `--scan-varying N` N control points |
 | `mxi_integrate` | predicts, integrates by summation and profile fitting, in one pass over the images | `-g`/`--gpu` profile fitting on the GPU, `--threads N` (default every core), `--d-min D`, `--postrefine` refine against integration's own centres and integrate again, `--summation-only`, `--save-shoeboxes` |
-| `mxi_symmetry` | determines the Laue group and reindexes | `--max-delta D` the lattice's obliquity tolerance |
+| `mxi_symmetry` | determines the Laue group and reindexes | `--max-delta D` the lattice's obliquity tolerance, `--threads N` |
 | `mxi_scale` | scales, with an error model, and reports merging statistics | `--d-min-auto` cut where CC half falls to 0.3, `--d-min D`, `--space-group NAME`, `--l-max L` absorption surface degree, `--anomalous` Friedel mates apart for a strong anomalous signal, `--threads N` |
 
 Every program takes `--help` for the rest, and `--version`.

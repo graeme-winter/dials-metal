@@ -3,6 +3,7 @@
 #include <random>
 
 #include "../src/laue.hh"
+#include "../src/parallel.hh"
 #include "check.hh"
 
 namespace mxi {
@@ -154,6 +155,40 @@ TEST(noise_beyond_the_diffraction_does_not_hide_the_symmetry) {
   check::is_true(s.cc_identity < 0.999,
                  "and the identity, Friedel mates apart, is measured: " +
                      std::to_string(s.cc_identity));
+}
+
+TEST(the_laue_scores_are_the_same_on_any_number_of_threads) {
+  // The symmetry elements are scored on threads of their own, each writing
+  // only its own score: every element's sums and every group's likelihood the
+  // same bits on one thread as on eight, in the same order.
+  const UnitCell cell{67.42, 67.46, 67.46, 109.44, 109.47, 109.46};
+  const P1Intensities data = planted("I 2 3", 3);
+  const std::vector<Rotation> lattice = lattice_symmetry(cell);
+  set_parallel_threads(1);
+  const LaueScores one = score_laue_groups(data, lattice);
+  set_parallel_threads(8);
+  const LaueScores eight = score_laue_groups(data, lattice);
+  set_parallel_threads(0);
+  check::equal(static_cast<long long>(one.elements.size()),
+               static_cast<long long>(eight.elements.size()),
+               "the same elements");
+  check::is_true(one.elements.size() > 4, "a cubic lattice's many elements");
+  for (std::size_t k = 0; k < one.elements.size(); ++k) {
+    const ElementScore &a = one.elements[k], &b = eight.elements[k];
+    check::is_true(a.rotation == b.rotation && a.pairs == b.pairs &&
+                       a.sx == b.sx && a.sy == b.sy && a.sxx == b.sxx &&
+                       a.syy == b.syy && a.sxy == b.sxy && a.cc == b.cc &&
+                       a.likelihood == b.likelihood,
+                   "element " + std::to_string(k) + " the same");
+  }
+  check::equal(static_cast<long long>(one.groups.size()),
+               static_cast<long long>(eight.groups.size()),
+               "the same subgroups");
+  for (std::size_t k = 0; k < one.groups.size(); ++k)
+    check::is_true(one.groups[k].likelihood == eight.groups[k].likelihood &&
+                       one.groups[k].rotations == eight.groups[k].rotations,
+                   "subgroup " + std::to_string(k) +
+                       " the same, in the same place");
 }
 
 } // namespace mxi

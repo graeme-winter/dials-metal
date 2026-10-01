@@ -97,3 +97,16 @@ The CC half limit is the scaling's own (`docs/scaling.md`): the tanh fit of
 dials.estimate_resolution, at 0.6 as dials.symmetry sets it -- 2.14 A on the
 300 image sweep. The <I>/<sigma> limit, above 4, is still the last of 20 shells
 above it, where dials.symmetry fits a curve: 1.85 A there, against 2.46.
+
+
+## Threads
+
+Scoring the symmetry elements and naming the subgroups run on every thread,
+`--threads N` to limit them: each element is scored into its own slot and each
+subgroup named into its own, the table printed after in order, so the answer
+is the same bits on any number of threads (`tests/test_laue.cc`). A reflection's
+mates under an element are found by hash on the packed Miller index, and the
+merge in P1 sums by hash and then sorts as the ordered map it was gave its
+order -- each index's sums gathered in observation order either way. Before,
+all of it ran on one thread with ordered-map lookups: on a dense ferritin data
+set with 32 threads, 17 s on one core.

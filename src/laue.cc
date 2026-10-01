@@ -1,5 +1,7 @@
 #include "laue.hh"
 
+#include "parallel.hh"
+
 #include "resolution.hh"
 #include "scale.hh"
 #include "timing.hh"
@@ -9,6 +11,7 @@
 #include <map>
 #include <numeric>
 #include <random>
+#include <unordered_map>
 
 namespace mxi {
 
@@ -162,14 +165,24 @@ double p_cc_given_absent(double cc, double sigma_cc) {
 
 namespace {
 
+//: A Miller index as one integer, 21 bits an index: a hash table's key, where
+//: an ordered map compared indices down a tree for every lookup.
+std::uint64_t pack(const Miller &m) {
+  const auto bits = [](int v) {
+    return static_cast<std::uint64_t>(static_cast<std::uint32_t>(v) & 0x1FFFFF);
+  };
+  return (bits(m[0]) << 42) | (bits(m[1]) << 21) | bits(m[2]);
+}
+
+using Where = std::unordered_map<std::uint64_t, std::size_t>;
+
 //: CC of I(h) against I(-h) over the Friedel pairs present: what equivalent
 //: reflections achieve, as dials.symmetry estimates E(CC; S) from the identity.
-double identity_cc(const P1Intensities &data,
-                   const std::map<Miller, std::size_t> &where) {
+double identity_cc(const P1Intensities &data, const Where &where) {
   Accumulator acc;
   for (std::size_t k = 0; k < data.size(); ++k) {
     const Miller &h = data.hkl[k];
-    const auto it = where.find(Miller{-h[0], -h[1], -h[2]});
+    const auto it = where.find(pack(Miller{-h[0], -h[1], -h[2]}));
     if (it != where.end())
       acc.add(data.i[k], data.i[it->second]);
   }
@@ -183,9 +196,10 @@ LaueScores score_laue_groups(const P1Intensities &data,
                              unsigned seed) {
   LaueScores out;
   double mark = Timing::now();
-  std::map<Miller, std::size_t> where;
+  Where where;
+  where.reserve(data.size());
   for (std::size_t k = 0; k < data.size(); ++k)
-    where[data.hkl[k]] = k; // exact: Friedel mates are apart
+    where[pack(data.hkl[k])] = k; // exact: Friedel mates are apart
 
   // sigma(CC) as a function of sample size, from pairs of unrelated
   // reflections at similar resolution: rms CC against 1/sqrt(n), fitted.
@@ -262,7 +276,13 @@ LaueScores score_laue_groups(const P1Intensities &data,
   mark = Timing::now();
   // Each element: CC over the reflections it relates, excluding those it
   // leaves in place (on the axis), with dials.symmetry's generous outlier cut.
-  for (const Rotation &r : symmetry_elements(lattice)) {
+  // Each element on its own thread: each reads only what is above and writes
+  // only its own score, so the scores are the same, element by element, on
+  // any number of threads. One after another they were most of the scoring.
+  const std::vector<Rotation> element_rotations = symmetry_elements(lattice);
+  out.elements.assign(element_rotations.size(), ElementScore{});
+  for_each_index(element_rotations.size(), [&](std::size_t element) {
+    const Rotation &r = element_rotations[element];
     ElementScore e;
     e.rotation = r;
     e.order = rotation_order(r);
@@ -283,7 +303,7 @@ LaueScores score_laue_groups(const P1Intensities &data,
             e.order == 1 ? Miller{-h[0], -h[1], -h[2]} : apply(op, h);
         if (e.order > 1 && image == h)
           continue; // on the axis: epsilon > 1
-        const auto it = where.find(image);
+        const auto it = where.find(pack(image));
         if (it == where.end())
           continue;
         xs.push_back(data.i[k]);
@@ -319,8 +339,8 @@ LaueScores score_laue_groups(const P1Intensities &data,
       e.p_given_absent = p_cc_given_absent(e.cc, e.sigma_cc);
       e.likelihood = e.p_given_present / (e.p_given_present + e.p_given_absent);
     }
-    out.elements.push_back(e);
-  }
+    out.elements[element] = e;
+  });
   out.t_elements = Timing::now() - mark;
   mark = Timing::now();
   // Each subgroup: Evans (2011) A2.
@@ -474,8 +494,17 @@ P1Intensities merge_in_p1(const ExperimentList &experiments,
   }
   // Merged by inverse variance, Friedel mates apart: I+ at the unique index,
   // I- at its negative.
-  std::map<Miller, std::pair<double, double>> sums; // index -> (sum w, sum w I)
-  std::map<Miller, double> d_of;
+  // Summed by a hash table, then put in the order the ordered map these were
+  // in gave -- Miller order -- so that everything after is the same; each
+  // index's sums gather in the order of its observations either way, and its
+  // d is its last observation's.
+  struct Sums {
+    Miller h;
+    double w = 0.0, wi = 0.0, d = 0.0;
+  };
+  std::vector<Sums> sums;
+  std::unordered_map<std::uint64_t, std::size_t> slot;
+  slot.reserve(data.size() / 2 + 16);
   for (std::size_t i = 0; i < data.size(); ++i) {
     if (data.outlier[i])
       continue;
@@ -484,19 +513,24 @@ P1Intensities merge_in_p1(const ExperimentList &experiments,
                          ? Miller{-u[0], -u[1], -u[2]}
                          : u;
     const double w = 1.0 / data.variance[i];
-    auto &sw = sums[h];
-    sw.first += w;
-    sw.second += w * data.intensity[i];
-    d_of[h] = data.d[i];
+    const auto [it, fresh] = slot.emplace(pack(h), sums.size());
+    if (fresh)
+      sums.push_back(Sums{h});
+    Sums &s = sums[it->second];
+    s.w += w;
+    s.wi += w * data.intensity[i];
+    s.d = data.d[i];
   }
+  std::sort(sums.begin(), sums.end(),
+            [](const Sums &a, const Sums &b) { return a.h < b.h; });
   P1Intensities all;
-  for (const auto &[h, sw] : sums) {
-    if (!(sw.first > 0.0))
+  for (const Sums &s : sums) {
+    if (!(s.w > 0.0))
       continue;
-    all.hkl.push_back(h);
-    all.i.push_back(sw.second / sw.first);
-    all.sigma.push_back(1.0 / std::sqrt(sw.first));
-    all.d.push_back(d_of[h]);
+    all.hkl.push_back(s.h);
+    all.i.push_back(s.wi / s.w);
+    all.sigma.push_back(1.0 / std::sqrt(s.w));
+    all.d.push_back(s.d);
   }
   sel.d_min_i_over_sigma = laue_resolution_limit(all);
   // The finer of the two, as dials.symmetry takes it.

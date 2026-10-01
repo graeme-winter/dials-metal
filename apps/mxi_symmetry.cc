@@ -12,6 +12,7 @@
 #include "expt.hh"
 #include "laue.hh"
 #include "log_mirror.hh"
+#include "parallel.hh"
 #include "refl.hh"
 #include "symmetry.hh"
 #include "timing.hh"
@@ -23,6 +24,9 @@ namespace {
 void usage() {
   std::printf(
       "usage: mxi_symmetry [options] INTEGRATED_EXPT INTEGRATED_REFL\n"
+      "  --threads N       N threads for scoring and naming the subgroups; "
+      "every\n"
+      "                    core by default, the answer the same on any number\n"
       "  --max-delta D     the lattice's symmetry to D degrees of obliquity "
       "(2)\n"
       "  --output-expt PATH   the models, reindexed (symmetrized.expt)\n"
@@ -33,8 +37,8 @@ void usage() {
 } // namespace
 
 int run_program(int argc, char **argv) {
-  const std::set<std::string> known = {"--max-delta", "--output-expt",
-                                       "--output-refl", "--timing"};
+  const std::set<std::string> known = {
+      "--max-delta", "--threads", "--output-expt", "--output-refl", "--timing"};
   std::set<std::string> takes_value = known;
   takes_value.erase("--timing");
   const Arguments args = parse_arguments(argc, argv, known, takes_value);
@@ -46,6 +50,7 @@ int run_program(int argc, char **argv) {
     std::fprintf(stderr, "mxi_symmetry: %s\n", args.error.c_str());
     return 2;
   }
+  set_parallel_threads(static_cast<std::size_t>(args.number("--threads", 0.0)));
   if (args.positional.size() != 2) {
     std::fprintf(stderr,
                  "mxi_symmetry: expected an .expt and a .refl, got %zu files\n",
@@ -119,10 +124,17 @@ int run_program(int argc, char **argv) {
     std::printf("  %-14s %3s %10s %7s %6s %6s %5s %5s  %-20s %s\n",
                 "Patterson group", "", "likelihood", "NetZcc", "Zcc+", "Zcc-",
                 "CC", "CC-", "reindex", "elements");
+    // Every subgroup's reference setting and name, each on its own thread --
+    // naming them one after another was most of a small run -- then the table
+    // printed in order.
+    std::vector<std::optional<Setting>> settings(scores.groups.size());
+    for_each_index(scores.groups.size(), [&](std::size_t k) {
+      settings[k] = reference_setting(scores.groups[k].rotations, cell);
+    });
     std::optional<Setting> best;
     for (std::size_t k = 0; k < scores.groups.size(); ++k) {
       const GroupScore &g = scores.groups[k];
-      const std::optional<Setting> s = reference_setting(g.rotations, cell);
+      const std::optional<Setting> &s = settings[k];
       if (k == 0)
         best = s;
       std::string letters;

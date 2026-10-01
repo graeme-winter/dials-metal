@@ -91,7 +91,6 @@ where something is missing.
 * **26.** **capability -- The scaling model is not written** to `scaled.expt`, as
     dials.scale writes its `scaling_model`.
 
-
 ## New programs
 
 * **27.** **mxi_report**: HTML reports of merging statistics, as dials.scale's.
@@ -128,13 +127,6 @@ where something is missing.
     4060, not yet run: `ctest -R dext_gpu`, then `cmp` and `--timing` against the
     three kernels on real data. HDF5's lock shows too: reading takes 4.6 thread-seconds on 8
     threads and 22.5 on 16, for the same data. `docs/spots.md`.
-* **37.** **speed -- `mxi_symmetry` names every subgroup**, 36 per cent of its
-  run, for the table; the choice needs only the one chosen.
-  On a dense ferritin data set, 32 threads: 17 s, all on one core -- 9 per cent
-  of a 183 s chain.
-
-* **40.** **speed -- `mxi_symmetry` scores its elements by ordered-map lookup**,
-  1.3 of its 4.2 s on the 16M sweep; a hash table, or sorted indices, would do.
 
 * **43.** **try -- A device for each stage**, `docs/gpu.md`. Profile fitting,
   `mxi_integrate --gpu`, single precision, is done for Metal: on an M4 Max, the
@@ -148,6 +140,15 @@ where something is missing.
 * **44.** **speed -- Indexing's peak search walks the whole grid**: 1.52 s against
   the transform's 0.94 on one thread.
 
+* **37.** **measure -- `mxi_symmetry` on dense data.** On ferritin, 32 threads,
+  it was 17 s on one core, 9 per cent of a 183 s chain. Everything that grows
+  with the data or the lattice now runs on every thread, and a symmetry
+  element's mates are found by hash rather than by ordered map (item 40, folded
+  in here): the elements scored in parallel, the subgroups named in parallel,
+  the merge in P1 by hash, sorted as before. Every table and the report
+  byte-identical on one thread and eight. On the 300 image insulin sweep the
+  effect is small -- 0.34 s, naming two thirds of it -- so the ferritin run's
+  `--timing` is the measure.
 
 ## Infrastructure
 
