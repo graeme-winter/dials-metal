@@ -70,7 +70,7 @@ void on_signal(int /*signal*/) { interrupted = 1; }
 using Clock = std::chrono::steady_clock;
 
 struct Options {
-  int threads = 4;
+  int threads = 0; // every core, as the other programs; -j for fewer
   int timeout_seconds = 60;
   int poll_milliseconds = 200;
   std::string master;                 // the NXmx HDF5 master file
@@ -123,7 +123,7 @@ void usage(const char *program, std::FILE *to = stderr) {
       "  -e imported.expt   what dials.import wrote, for the scan range, the\n"
       "                     panel size and the experiment identifier\n"
       "  -o file            where to write the reflection table (strong.refl)\n"
-      "  -j threads         frames read and thresholded at once (default 4)\n"
+      "  -j threads         frames read and thresholded at once (every core)\n"
       "  --timing           where the time goes: each stage's time summed "
       "across\n"
       "                     the threads, against the time they had\n"
@@ -234,10 +234,13 @@ bool parse_options(int argc, char **argv, Options *options) {
       return false;
     }
   }
-  if (options->threads < 1) {
+  if (options->threads < 0) {
     usage(argv[0]);
     return false;
   }
+  if (options->threads == 0)
+    options->threads =
+        static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
   // The master file may come from the .expt instead of the command line.
   // dials.import already recorded where the images are, in the imageset block,
   // so making the operator repeat it only creates an opportunity for the two to

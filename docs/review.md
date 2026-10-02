@@ -59,7 +59,7 @@ program answers `--help`, takes `--timing`, and mirrors its output to
 `mxi_<program>.log`:
 
 ```sh
-mxi_find      imported.expt -j 16 -o strong.refl         # --gpu for the GPU
+mxi_find      imported.expt -o strong.refl               # --gpu for the GPU
 mxi_index     imported.expt strong.refl                  # indexed.expt, .refl
 mxi_refine    indexed.expt indexed.refl --analytic   # scan-varying, one point per 10 degrees
 mxi_integrate refined.expt refined.refl                  # --gpu: fitting on the GPU, in float

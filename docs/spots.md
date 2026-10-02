@@ -67,7 +67,7 @@ mxi_find [-j threads] [-g|--gpu] [-e imported.expt] [-o strong.refl]
   -e imported.expt   what dials.import wrote, for the scan range, the panel
                      size and the experiment identifier
   -o file            where to write the reflection table (strong.refl)
-  -j threads         frames read and thresholded at once (default 4)
+  -j threads         frames read and thresholded at once (every core)
   -g, --gpu          run the threshold on the GPU
   --no-shoeboxes     leave out the pixel data, which is most of the file
   --min-spot-size N  contiguous pixels a spot needs (3)
