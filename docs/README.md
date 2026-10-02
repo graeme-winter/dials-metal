@@ -10,6 +10,7 @@ its conclusions sometimes overturned later, with an index of those.
 | `README.md` | reference | building, the chain, the programs, where it stands |
 | `docs/review.md` | guide | for reviewers: what this is, how it differs from DIALS, where things are |
 | `docs/outstanding.md` | list | every open task, with its evidence |
+| `docs/import.md` | reference | `mxi_import`, and checking it against dials.import |
 | `docs/integration.md` | reference | `mxi_integrate` |
 | `docs/symmetry.md` | reference | `mxi_symmetry` |
 | `docs/scaling.md` | reference | `mxi_scale` |

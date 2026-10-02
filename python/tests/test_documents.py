@@ -85,5 +85,5 @@ def test_every_mxeq_subcommand_named_exists():
     assert commands, "mxeq has no subcommands?"
     for document in DOCUMENTS:
         text = (ROOT / document).read_text()
-        for m in re.finditer(r"`mxeq ([a-z]+)", text):
+        for m in re.finditer(r"`mxeq ([a-z][a-z-]*)", text):
             assert m.group(1) in commands, (document, m.group(1), sorted(commands))

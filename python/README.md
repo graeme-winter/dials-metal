@@ -63,6 +63,16 @@ shows it against image, resolution and detector position, with a summary that
 separates the systematic offset, the counting noise and the prediction error.
 See `docs/integration.md` for what it cannot tell you in z.
 
+## Two experiment lists
+
+`mxeq compare-expt a.expt b.expt` puts two experiment lists' models side by
+side -- the beam's wavelength and direction; each panel's origin, axes, pixel and
+image size, trusted range and sensor; the goniometer's axes and angles; the
+scan's images and angles -- and says of each "same", within tolerances small
+enough that a difference means something, or by how much it differs. It exits 1
+if anything differs. For `mxi_import` against `dials.import` on each new data
+set (`docs/import.md`).
+
 ## Bias against the data itself
 
 `mxeq equivalents scaled.expt scaled.refl` compares every observation with the

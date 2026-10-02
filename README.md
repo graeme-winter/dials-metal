@@ -93,15 +93,14 @@ that is not this machine.
 
 ## Usage
 
-**What you need:** the images as an NXmx HDF5 master file and its data files,
-as an EIGER writes them, and DIALS' `dials.import` to describe them. Its
-`imported.expt` is the one thing taken from DIALS; every step after it is a
-program here.
+**What you need:** the images, as an NXmx HDF5 master file and its data files.
+`mxi_import` reads the master and writes `imported.expt`, as `dials.import`
+does -- `docs/import.md`, and `dials.import`'s own output serves as well.
 
 ### From images to scaled data
 
 ```sh
-dials.import  master.nxs                                    # -> imported.expt
+mxi_import    master.nxs                                    # -> imported.expt
 mxi_find      imported.expt -j 16 -o strong.refl            # spots
 mxi_index     imported.expt strong.refl                     # -> indexed.expt, .refl
 mxi_refine    indexed.expt indexed.refl --analytic          # -> refined.expt, .refl
@@ -255,6 +254,7 @@ The pipeline:
 
 | | |
 | --- | --- |
+| `mxi_import` | an experiment list from an NXmx master, as dials.import writes it; see `docs/import.md` |
 | `mxi_find` | spot finding on the CPU, CUDA or Metal, from NXmx HDF5 |
 | `mxi_index` | FFT indexing with assign, refine and reassign macrocycles |
 | `mxi_refine` | scan-static and scan-varying refinement, analytical derivatives |

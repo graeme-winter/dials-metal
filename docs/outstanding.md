@@ -207,6 +207,14 @@ where something is missing.
 
 
 
+* **49.** **population -- `mxi_import` across data sets.** Right on two masters
+  from two writers, and against dials.import on insulin the same in all but the
+  file's own size and the exposure time (count_time here, 0 there; to settle on
+  a matched pair). For each new data set: dials.import and mxi_import on the same
+  master, `mxeq compare-expt`, and what differs made right or recorded in
+  `docs/import.md`. Untested: several modules, a moving detector, beam direction
+  or polarisation from the file, materials but silicon.
+
 ## Infrastructure
 
 * **31.** **The C++ suite takes about two minutes**, most of it a handful of older

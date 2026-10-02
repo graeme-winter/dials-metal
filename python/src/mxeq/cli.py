@@ -258,6 +258,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=0, help="keep only the N worst; 0 for all"
     )
 
+    ce = sub.add_parser(
+        "compare-expt",
+        help="two experiment lists' models side by side: mxi_import's against "
+        "dials.import's, say -- each line the same or by how much it differs",
+    )
+    ce.add_argument("first", help="an experiment list")
+    ce.add_argument("second", help="another, to compare it with")
+
     eq = sub.add_parser(
         "equivalents",
         help="where integration is biased: each observation against its clean "
@@ -326,6 +334,13 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "compare-expt":
+        from . import compare_expt
+
+        result = compare_expt.compare_files(args.first, args.second)
+        print("\n".join(result.lines))
+        return 0 if result.differences == 0 else 1
 
     if args.command == "equivalents":
         from . import equivalents

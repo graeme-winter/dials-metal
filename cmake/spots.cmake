@@ -501,6 +501,13 @@ if(SPOTFINDER_TESTS)
                                   spotfinder_warnings)
     target_include_directories(mxi_integrate PRIVATE src src/spots apps)
 
+    # An experiment list from an NXmx master, as dials.import writes it.
+    add_executable(mxi_import ${CMAKE_CURRENT_SOURCE_DIR}/apps/mxi_import.cc
+                              ${CMAKE_CURRENT_SOURCE_DIR}/src/nxmx_import.cc)
+    target_link_libraries(mxi_import PRIVATE mxi spotfinder_warnings ${HDF5_C_LIBRARIES})
+    target_include_directories(mxi_import PRIVATE src apps)
+    target_include_directories(mxi_import SYSTEM PRIVATE ${HDF5_C_INCLUDE_DIRS})
+
     # How fast the images can be read and decompressed, apart from the
     # programs: H5Dread_chunk against pread. Not used by the pipeline.
     add_executable(mxi_readtest ${CMAKE_CURRENT_SOURCE_DIR}/apps/mxi_readtest.cc)
