@@ -133,7 +133,7 @@ void usage(const char *program, std::FILE *to = stderr) {
       "                     Metal, which has no double precision\n"
       "  --gpu-force        32-bit frames narrowed to 16 bits, so that a GPU "
       "of\n"
-      "                     16 bits only takes them: the bad-pixel marker to\n"
+      "                     16 bits only takes them: the bad-pixel and\n"
       "                     the 16-bit one, every other count as it is, "
       "stopping "
       "at\n"
@@ -159,10 +159,13 @@ void usage(const char *program, std::FILE *to = stderr) {
 
 //: Whether a file is JSON, as an experiment list is: its first character that
 //: is not white space an opening brace. A file that cannot be read is not.
-//: A 32-bit frame as 16 bits, for --gpu-force: the bad-pixel marker, all ones,
-//: to the 16-bit marker, every other count as it is. One pass with no branch,
-//: which the compiler makes SIMD; false, with the count, if a valid pixel holds
-//: 0xFFFD or more, which 16 bits cannot carry apart from the markers.
+//: A 32-bit frame as 16 bits, for --gpu-force. The detector's markers -- the
+//: bad pixel 0xfffffffe and the tile join 0xffffffff -- keep their low half,
+//: which is the 16-bit markers 0xfffe and 0xffff, and every count is copied as
+//: it is: so the low 16 bits are the answer for every pixel. One pass with no
+//: branch, which the compiler makes SIMD; false, with the count, if a valid
+//: pixel holds 0xFFFD or more, which 16 bits cannot carry apart from the
+//: markers.
 bool narrow_to_16(const std::uint8_t *in, std::size_t n,
                   std::uint8_t *out_bytes, std::uint32_t *offending) {
   const std::uint32_t *pixels = reinterpret_cast<const std::uint32_t *>(in);
@@ -170,9 +173,9 @@ bool narrow_to_16(const std::uint8_t *in, std::size_t n,
   std::uint32_t worst = 0;
   for (std::size_t i = 0; i < n; ++i) {
     const std::uint32_t v = pixels[i];
-    const bool bad = v == 0xFFFFFFFFu;
-    worst = std::max(worst, bad ? 0u : v);
-    out[i] = bad ? std::uint16_t{0xFFFF} : static_cast<std::uint16_t>(v);
+    const bool marker = v >= 0xFFFFFFFEu;
+    worst = std::max(worst, marker ? 0u : v);
+    out[i] = static_cast<std::uint16_t>(v);
   }
   *offending = worst;
   return worst < 0xFFFDu;

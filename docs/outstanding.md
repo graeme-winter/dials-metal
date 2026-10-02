@@ -272,6 +272,14 @@ where something is missing.
 * **37.** `mxi_symmetry` on dense data: on ferritin with 32 threads, 17 s on one
   core to 7.0 s, its elements scored and its subgroups named in parallel, mates
   found by hash (and item 40 with it). Byte-identical. `docs/symmetry.md`.
+* **50.** The integrator filled a bad pixel (0xfffe in 16 bits, 0xfffffffe in
+  32) as a count of 65534: only the tile join's marker, max(), was taken for one,
+  where the spot finder masks both. Fixed 2 October 2026 (`src/fill_row.hh`);
+  insulin, with no bad pixels, byte-identical. Data with them -- ferritin's, it
+  may be -- integrate differently: its few far-high summed observations (a mean
+  of +9.6 per cent against a median of +0.5) are worth rerunning
+  `mxeq equivalents` on. Overloads are still not masked: the trusted range is
+  not applied in integration.
 * **23.** A resolution estimate: dials.estimate_resolution's tanh fit through
   CC half, at 0.3, and its significance limit, with the "Suggested" column.
   `docs/scaling.md`.

@@ -34,6 +34,7 @@
 #include "../src/refl.hh"
 #include "args.hh"
 #include "background.hh"
+#include "fill_row.hh"
 #include "fit_batch.hh"
 #include "integrate.hh"
 #include "log_mirror.hh"
@@ -1406,105 +1407,85 @@ int run_program(int argc, char **argv) {
       std::vector<double> decompress_by_thread(fetch_by_thread.size(), 0.0);
       std::vector<double> fill_by_thread(fetch_by_thread.size(), 0.0);
       const double t_region_start = now_wall();
-      in_parallel_by_worker(frame_numbers.size(), [&](std::size_t which,
-                                                      std::size_t worker) {
-        // A reader per thread, kept for the thread's life: it belongs to
-        // one thread only, so outliving a call is harmless. Its TIMING lane
-        // is the worker number, which is unique within the call; a
-        // thread_local lane was shared between the calling thread and a new
-        // one.
-        thread_local std::unique_ptr<series::Reader> mine;
-        if (!mine)
-          mine = images->reader();
-        const std::size_t slot = worker % fetch_by_thread.size();
-        const std::int32_t z = frame_numbers[which];
-        if (z < 0 || static_cast<std::size_t>(z) >= keys.size())
-          return;
-        series::Frame raw;
-        const double t0 = now_wall();
-        if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) {
-          // A frame the writer never received: an unallocated chunk.
-          // Counted, because a shoebox that spans it is missing a slice and
-          // will integrate low, and silently dropping it leaves "frames
-          // read" less than the number of images with no explanation.
-          unread.fetch_add(1);
-          return;
-        }
-        const double t1 = now_wall();
-        const std::size_t height = static_cast<std::size_t>(raw.height);
-        const std::size_t width = static_cast<std::size_t>(raw.width);
-        const std::size_t bytes =
-            decompress::frame_bytes(height, width, raw.bit_depth);
-        std::vector<std::uint8_t> pixels(bytes);
-        decompress::image(raw.data, raw.algorithm, raw.bit_depth, height, width,
-                          {pixels.data(), bytes});
-        const double t2 = now_wall();
-        frames_done.fetch_add(1);
-
-        const auto fill = [&](auto typed, std::uint32_t bad) {
-          using Pixel = decltype(typed);
-          const Pixel *const raw_pixels =
-              reinterpret_cast<const Pixel *>(pixels.data());
-          std::size_t bad_count = 0;
-          for (std::size_t i : touching[z]) {
-            Shoebox &box = active[i];
-            if (box.data.empty())
-              continue;
-            const std::int32_t zi = z - box.bbox[4];
-            const std::size_t nx = static_cast<std::size_t>(box.nx());
-            for (std::int32_t y = 0; y < box.ny(); ++y) {
-              // A row of the box is a run of the frame's row: converted
-              // in one loop with no branch, which the compiler makes SIMD,
-              // then checked for bad pixels by an OR across it, also SIMD,
-              // and only a row that has one -- rare -- gone over again. A
-              // pixel at a time, with a branch each, filling was two
-              // thirds of reading dense data.
-              const Pixel *const from =
-                  raw_pixels +
-                  static_cast<std::size_t>(box.bbox[2] + y) * width +
-                  static_cast<std::size_t>(box.bbox[0]);
-              float *const to = box.data.data() + box.at(0, y, zi);
-              bool any_bad = false;
-              for (std::size_t x = 0; x < nx; ++x) {
-                to[x] = static_cast<float>(from[x]);
-                any_bad |= static_cast<std::uint32_t>(from[x]) == bad;
-              }
-              if (!any_bad)
-                continue;
-              // The largest representable value is the bad-pixel marker,
-              // not a count: excluded from both sums rather than counted as
-              // zero, which would drag the background down wherever a module
-              // gap crosses a shoebox -- so its voxel goes back to the 0 the
-              // box was opened with. And VALIDITY is cleared, the region
-              // kept: a voxel in a module gap is still a foreground voxel
-              // with no measurement in it, and the profile fit needs to know
-              // that part of the reflection is missing. Zeroing the whole
-              // mask made a reflection with a third of its foreground in a
-              // gap report two thirds of its intensity.
-              std::uint8_t *const mask = box.mask.data() + box.at(0, y, zi);
-              for (std::size_t x = 0; x < nx; ++x)
-                if (static_cast<std::uint32_t>(from[x]) == bad) {
-                  to[x] = 0.0f;
-                  mask[x] &= static_cast<std::uint8_t>(~shoebox_mask::kValid);
-                  ++bad_count;
-                }
+      in_parallel_by_worker(
+          frame_numbers.size(), [&](std::size_t which, std::size_t worker) {
+            // A reader per thread, kept for the thread's life: it belongs to
+            // one thread only, so outliving a call is harmless. Its TIMING lane
+            // is the worker number, which is unique within the call; a
+            // thread_local lane was shared between the calling thread and a new
+            // one.
+            thread_local std::unique_ptr<series::Reader> mine;
+            if (!mine)
+              mine = images->reader();
+            const std::size_t slot = worker % fetch_by_thread.size();
+            const std::int32_t z = frame_numbers[which];
+            if (z < 0 || static_cast<std::size_t>(z) >= keys.size())
+              return;
+            series::Frame raw;
+            const double t0 = now_wall();
+            if (!mine->read(keys[static_cast<std::size_t>(z)], &raw)) {
+              // A frame the writer never received: an unallocated chunk.
+              // Counted, because a shoebox that spans it is missing a slice and
+              // will integrate low, and silently dropping it leaves "frames
+              // read" less than the number of images with no explanation.
+              unread.fetch_add(1);
+              return;
             }
-          }
-          bad_here.fetch_add(bad_count);
-        };
-        if (raw.bit_depth == 16) {
-          fill(std::uint16_t{}, 0xFFFFu);
-        } else if (raw.bit_depth == 32) {
-          fill(std::uint32_t{}, 0xFFFFFFFFu);
-        } else {
-          throw std::runtime_error("unsupported bit depth " +
-                                   std::to_string(raw.bit_depth));
-        }
-        const double t3 = now_wall();
-        fetch_by_thread[slot] += t1 - t0;
-        decompress_by_thread[slot] += t2 - t1;
-        fill_by_thread[slot] += t3 - t2;
-      });
+            const double t1 = now_wall();
+            const std::size_t height = static_cast<std::size_t>(raw.height);
+            const std::size_t width = static_cast<std::size_t>(raw.width);
+            const std::size_t bytes =
+                decompress::frame_bytes(height, width, raw.bit_depth);
+            std::vector<std::uint8_t> pixels(bytes);
+            decompress::image(raw.data, raw.algorithm, raw.bit_depth, height,
+                              width, {pixels.data(), bytes});
+            const double t2 = now_wall();
+            frames_done.fetch_add(1);
+
+            const auto fill = [&](auto typed) {
+              using Pixel = decltype(typed);
+              const Pixel *const raw_pixels =
+                  reinterpret_cast<const Pixel *>(pixels.data());
+              std::size_t bad_count = 0;
+              for (std::size_t i : touching[z]) {
+                Shoebox &box = active[i];
+                if (box.data.empty())
+                  continue;
+                const std::int32_t zi = z - box.bbox[4];
+                const std::size_t nx = static_cast<std::size_t>(box.nx());
+                for (std::int32_t y = 0; y < box.ny(); ++y) {
+                  // A row of the box is a run of the frame's row: converted
+                  // in one loop with no branch, which the compiler makes SIMD,
+                  // then checked for bad pixels by an OR across it, also SIMD,
+                  // and only a row that has one -- rare -- gone over again. A
+                  // pixel at a time, with a branch each, filling was two
+                  // thirds of reading dense data.
+                  const Pixel *const from =
+                      raw_pixels +
+                      static_cast<std::size_t>(box.bbox[2] + y) * width +
+                      static_cast<std::size_t>(box.bbox[0]);
+                  float *const to = box.data.data() + box.at(0, y, zi);
+                  std::uint8_t *const mask = box.mask.data() + box.at(0, y, zi);
+                  // Both markers, the bad pixel's and the tile join's:
+                  // fill_row.hh.
+                  bad_count += fill_row(from, nx, to, mask);
+                }
+              }
+              bad_here.fetch_add(bad_count);
+            };
+            if (raw.bit_depth == 16) {
+              fill(std::uint16_t{});
+            } else if (raw.bit_depth == 32) {
+              fill(std::uint32_t{});
+            } else {
+              throw std::runtime_error("unsupported bit depth " +
+                                       std::to_string(raw.bit_depth));
+            }
+            const double t3 = now_wall();
+            fetch_by_thread[slot] += t1 - t0;
+            decompress_by_thread[slot] += t2 - t1;
+            fill_by_thread[slot] += t3 - t2;
+          });
       t_region += now_wall() - t_region_start;
       frames_read += frames_done.load();
       bad_pixels += bad_here.load();

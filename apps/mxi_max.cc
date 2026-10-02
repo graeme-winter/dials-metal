@@ -8,8 +8,8 @@
 // frames can be narrowed to 16 bits and thresholded on the GPU,
 // mxi_find --gpu --gpu-force, losing nothing. This says whether that is so: it
 // reads and decompresses every frame on every core, as mxi_readtest does, and
-// takes the largest value that is not the bad-pixel marker (all ones in the
-// pixel's width).
+// takes the largest value that is not a marker: max() - 1 a bad pixel, max() a
+// tile join, in the pixel's width.
 
 #include <algorithm>
 #include <atomic>
@@ -42,25 +42,28 @@ double now() {
 //: The first value 16-bit data reserves: 0xFFFD and above are markers.
 constexpr std::uint64_t kSixteenBitLimit = 0xFFFD;
 
-//: The largest value in a frame that is not the marker, and how many are the
-//: marker: one pass, a loop with no branch the compiler can make SIMD.
+//: The largest value in a frame that is not a marker, and how many pixels are
+//: each marker: max() - 1 a bad pixel, max() a tile join -- 0xfffe and 0xffff
+//: in 16 bits, 0xfffffffe and 0xffffffff in 32 -- neither a count. One pass, a
+//: loop with no branch the compiler can make SIMD.
 template <typename T>
 void scan(const std::uint8_t *bytes, std::size_t n, std::uint64_t *largest,
-          std::uint64_t *bad, std::uint64_t *over) {
+          std::uint64_t *bad, std::uint64_t *joins, std::uint64_t *over) {
   const T *pixels = reinterpret_cast<const T *>(bytes);
-  const T marker = static_cast<T>(~T{0});
+  const T join = static_cast<T>(~T{0}), dead = static_cast<T>(join - 1);
   T best = 0;
-  std::uint64_t marked = 0, above = 0;
+  std::uint64_t dead_n = 0, join_n = 0, above = 0;
   for (std::size_t i = 0; i < n; ++i) {
     const T v = pixels[i];
-    const bool is_bad = v == marker;
-    marked += is_bad;
-    const T real = is_bad ? T{0} : v;
+    dead_n += v == dead;
+    join_n += v == join;
+    const T real = v >= dead ? T{0} : v;
     above += static_cast<std::uint64_t>(real) >= kSixteenBitLimit;
     best = std::max(best, real);
   }
   *largest = best;
-  *bad = marked;
+  *bad = dead_n;
+  *joins = join_n;
   *over = above;
 }
 
@@ -124,7 +127,7 @@ int main(int argc, char **argv) {
     const std::uint64_t frames = info.images;
 
     std::atomic<std::uint64_t> next{0}, read_frames{0}, bad_total{0},
-        over_total{0};
+        join_total{0}, over_total{0};
     std::mutex best_mutex;
     std::uint64_t best = 0, best_frame = 0;
     unsigned bit_depth = 0;
@@ -147,15 +150,18 @@ int main(int argc, char **argv) {
             out.resize(bytes);
             decompress::image(frame.data, frame.algorithm, frame.bit_depth, h,
                               wd, {out.data(), out.size()});
-            std::uint64_t largest = 0, bad = 0, over = 0;
+            std::uint64_t largest = 0, bad = 0, joins = 0, over = 0;
             if (frame.bit_depth == 16)
-              scan<std::uint16_t>(out.data(), h * wd, &largest, &bad, &over);
+              scan<std::uint16_t>(out.data(), h * wd, &largest, &bad, &joins,
+                                  &over);
             else if (frame.bit_depth == 32)
-              scan<std::uint32_t>(out.data(), h * wd, &largest, &bad, &over);
+              scan<std::uint32_t>(out.data(), h * wd, &largest, &bad, &joins,
+                                  &over);
             else
               throw std::runtime_error(std::to_string(frame.bit_depth) +
                                        "-bit pixels");
             bad_total.fetch_add(bad);
+            join_total.fetch_add(joins);
             over_total.fetch_add(over);
             read_frames.fetch_add(1);
             const std::lock_guard<std::mutex> lock(best_mutex);
@@ -189,10 +195,12 @@ int main(int argc, char **argv) {
         static_cast<unsigned long long>(best),
         static_cast<unsigned long long>(best),
         static_cast<unsigned long long>(best_frame + 1));
-    std::printf(
-        "  pixels marked bad: %llu; valid pixels at 0xFFFD or above: %llu\n",
-        static_cast<unsigned long long>(bad_total.load()),
-        static_cast<unsigned long long>(over_total.load()));
+    std::printf("  pixels marked bad: %llu; tile joins: %llu; valid pixels at "
+                "0xFFFD or "
+                "above: %llu\n",
+                static_cast<unsigned long long>(bad_total.load()),
+                static_cast<unsigned long long>(join_total.load()),
+                static_cast<unsigned long long>(over_total.load()));
     if (bit_depth == 16)
       std::printf("  16-bit already: mxi_find --gpu takes it as it is\n");
     else if (fits)

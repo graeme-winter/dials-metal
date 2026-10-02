@@ -182,8 +182,8 @@ def main(argv: list[str]) -> int:
         if not argument.startswith("--") and argument != "32"
     ]
     holey = "--holey" in argv
-    # --bits 32: 32-bit pixels, as many detectors write, with a module gap's
-    # column of the bad-pixel marker between the spots; --hot one real count
+    # --bits 32: 32-bit pixels, as many detectors write, with a tile join's
+    # column (0xffffffff) between the spots and a dead pixel (0xfffffffe); --hot one real count
     # too large for 16 bits. For mxi_max and mxi_find --gpu-force.
     bits = 32 if "--bits=32" in argv or ("--bits" in argv and "32" in argv) else 16
     hot = "--hot" in argv
@@ -205,6 +205,7 @@ def main(argv: list[str]) -> int:
     if bits == 32:
         stack = stack.astype(np.uint32)
         stack[:, :, 44] = np.uint32(0xFFFFFFFF)  # a gap between the spots
+        stack[:, 100, 100] = np.uint32(0xFFFFFFFE)  # a dead pixel, away from the spots
         if hot:
             stack[frames // 2, 10, 10] = np.uint32(70000)
 

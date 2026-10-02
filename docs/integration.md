@@ -148,6 +148,19 @@ A reflection crossing a module gap is fitted to the pixels it has, and its
 intensity is the fitted scale times the WHOLE profile, not the visible part --
 which is what lets a fitted intensity recover what the gap took.
 
+## The detector's markers
+
+A detector marks two kinds of pixel with the largest values of its width, and
+neither is a count: max() - 1 a bad pixel, max() a tile join, the gap between
+modules -- 0xfffe and 0xffff in 16 bits, 0xfffffffe and 0xffffffff in 32. The
+spot finder has always masked both, on the CPU and the GPU. The integrator took
+only max() for a marker until 2 October 2026, so a bad pixel was filled into a
+shoebox as a count of 65534: in a reflection's foreground, that much added to
+its intensity; in its background, left to the robust fit. Now both are markers
+(`src/fill_row.hh`): the voxel left at 0 and its validity cleared, as a tile
+join's always was. Data with no bad pixels -- the insulin sweeps here -- integrate
+byte for byte as before; data with them integrate differently, and rightly.
+
 ## Chunks on dense data, and filling shoeboxes
 
 A chunk's frames are read in parallel, a frame a thread, and a chunk ends where
@@ -161,7 +174,7 @@ reading was a third busy. The default is now 6000 a thread, at least 20000:
 With every thread busy each did its work at half the speed -- 16 cores of two
 threads each -- and filling the shoeboxes, two thirds of reading's work, was a
 pixel at a time with a branch each. A row of a box is now converted in one loop
-with no branch, which the compiler makes SIMD, checked for the bad-pixel marker
+with no branch, which the compiler makes SIMD, checked for the detector's markers
 by an OR across it, and gone over again only where it has one: on one thread
 here 1.41 s to 0.355, the same bytes.
 

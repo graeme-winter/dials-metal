@@ -4,8 +4,8 @@
 Metal's threshold takes 16 bits only. A 32-bit series whose counts never reach
 0xFFFD -- the 16-bit markers above -- can be narrowed: the bad-pixel marker to
 the 16-bit one, every other count as it is. Planted series: 16 bits; 32 bits
-with a module gap's column of the marker; and 32 bits with one real count of
-70000. mxi_max must find the largest count apart from the marker and say
+with a tile join's column (0xffffffff) and a dead pixel (0xfffffffe); and 32
+bits with one real count of 70000. mxi_max must find the largest count apart from the marker and say
 whether it fits; --gpu-force must give the 32-bit threshold's spots byte for
 byte, and stop at the count that does not fit. Needs MXI_FIND and MXI_MAX.
 """
@@ -52,7 +52,9 @@ def test_the_largest_valid_count_and_whether_it_fits(tmp_path):
     assert (
         f"largest count on a valid pixel: {largest} " in r32.stdout
     )  # the marker is not a count
-    assert "pixels marked bad: 3072" in r32.stdout  # 12 frames of a 256 pixel column
+    # A dead pixel on 12 frames, and 12 frames of a 256 pixel tile join: each
+    # marker counted apart, neither a count.
+    assert "pixels marked bad: 12; tile joins: 3072" in r32.stdout
     assert hot.returncode == 1 and "70000" in hot.stdout and "on image 7" in hot.stdout
 
 
