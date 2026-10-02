@@ -77,6 +77,10 @@ bool fit_batch_device(const FitBatch &batch, std::vector<fitdev::FitF> *out) {
 const char *fit_device_name() {
   return fake() ? "a pretended device (testing)" : nullptr;
 }
+
+std::string fit_device_unavailable_reason() {
+  return fake() ? std::string() : std::string("this build has no GPU backend");
+}
 void fit_device_times(double out[3]) { out[0] = out[1] = out[2] = 0.0; }
 
 } // namespace mxi

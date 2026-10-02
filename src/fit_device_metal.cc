@@ -261,6 +261,14 @@ const char *fit_device_name() {
   return m.ready() ? m.name.c_str() : nullptr;
 }
 
+std::string fit_device_unavailable_reason() {
+  return FitMetal::instance().ready()
+             ? std::string()
+             : std::string(
+                   "no Metal device, or its shader library would not load (any "
+                   "message above says which)");
+}
+
 void fit_device_times(double out[3]) {
   FitMetal &m = FitMetal::instance();
   for (int s = 0; s < 3; ++s)

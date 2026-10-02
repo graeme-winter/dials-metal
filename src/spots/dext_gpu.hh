@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "signal_pixel.hh"
@@ -134,6 +135,10 @@ void report_windows(bool on);
 
 // False if the binary has GPU support but the machine has no usable device.
 bool available();
+
+// Why not, when available() is false, in the backend's own words; empty when
+// it is true.
+std::string unavailable_reason();
 
 // Free device memory in bytes, for reporting before a run commits to it. On a
 // unified-memory device this is what the process may still allocate before the

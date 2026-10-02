@@ -357,6 +357,14 @@ Window default_stage2_window() { return Window::Tile; }
 
 bool available() { return Device::instance().usable(); }
 
+std::string unavailable_reason() {
+  return available()
+             ? std::string()
+             : std::string(
+                   "no Metal device, or its shader library would not load "
+                   "(any message above says which)");
+}
+
 std::size_t memory_free() {
   MTL::Device *const device = Device::instance().device();
   if (device == nullptr)

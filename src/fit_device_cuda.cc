@@ -15,6 +15,7 @@ bool fit_cuda_submit(int slot, const Setup &setup, const PanelF *panels,
                      bool in_place);
 bool fit_cuda_collect(int slot, FitF *out);
 const char *fit_cuda_name();
+std::string fit_cuda_unavailable_reason();
 void fit_cuda_times(double out[3]);
 } // namespace fitdev
 
@@ -65,6 +66,9 @@ bool fit_batch_device(const FitBatch &batch, std::vector<fitdev::FitF> *out) {
 }
 
 const char *fit_device_name() { return fitdev::fit_cuda_name(); }
+std::string fit_device_unavailable_reason() {
+  return fitdev::fit_cuda_unavailable_reason();
+}
 void fit_device_times(double out[3]) { fitdev::fit_cuda_times(out); }
 
 } // namespace mxi

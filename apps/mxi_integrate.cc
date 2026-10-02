@@ -1179,9 +1179,9 @@ int run_program(int argc, char **argv) {
       // The emulation runs the kernel's algorithm, which recomputes each
       // pixel's cells for every slice -- cheap on a device, several times the
       // work on a CPU -- so without a device the fit is the CPU's own.
-      std::printf("--gpu: no device in this build or on this machine; fitting "
-                  "on the CPU, in "
-                  "double precision\n");
+      std::printf("--gpu: no usable device (%s); fitting on the CPU, in double "
+                  "precision\n",
+                  fit_device_unavailable_reason().c_str());
       use_gpu = false;
     } else if (on_device)
       std::printf("Profile fitting on %s, in single precision\n",

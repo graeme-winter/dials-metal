@@ -623,8 +623,9 @@ int main(int argc, char **argv) {
     if (options.gpu) {
 #ifdef SPOTFINDER_GPU
       if (!gpu::available()) {
-        throw std::runtime_error(std::string("--gpu was given but no usable ") +
-                                 gpu::backend() + " device was found");
+        throw std::runtime_error(
+            std::string("--gpu was given but no usable ") + gpu::backend() +
+            " device was found: " + gpu::unavailable_reason());
       }
       on_device = true;
 #else

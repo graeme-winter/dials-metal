@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "fit_device.hh"
@@ -92,6 +93,9 @@ bool fit_batch_collect(int ticket, std::vector<fitdev::FitF> *out);
 
 //: The name of the device the fits would run on, or nullptr if none.
 const char *fit_device_name();
+
+//: Why there is none, in the backend's own words; empty when there is.
+std::string fit_device_unavailable_reason();
 
 //: A fit as ProfileFit, to record as the CPU's is recorded.
 ProfileFit to_profile_fit(const fitdev::FitF &f);
