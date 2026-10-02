@@ -496,6 +496,25 @@ order by construction and each holds about four pixels. O(n) rather than
 O(n log n), and it uses nothing about the emit order, which is a property of the
 threadgroup shape and the scheduler and would break quietly if relied on.
 
+## 32-bit frames on a GPU of 16 bits
+
+Metal's threshold takes 16-bit frames only, Apple's GPUs having no double
+precision. Many detectors write 32-bit frames whose counts, the dose kept down
+for radiation damage, never come near 65535. `mxi_max EXPT` reads and
+decompresses every frame on every core and reports the largest count on a
+valid pixel -- the bad-pixel marker, all ones, not a count -- and whether it is
+below 0xFFFD, the values above being the 16-bit markers; it exits 0 if so.
+
+`mxi_find --gpu --gpu-force` then narrows each 32-bit frame to 16 bits before
+the threshold: the marker to the 16-bit marker, every other count as it is, in
+one branch-free pass the compiler makes SIMD. A valid count of 0xFFFD or more
+stops it, the image and the count named -- it does not trust that `mxi_max` was
+run. Values and badness carry over exactly, so the spots are the 32-bit
+threshold's, byte for byte; `python/tests/test_max.py` holds it to that on a
+planted 32-bit series with a module gap's column of the marker, and holds the
+refusal to a planted count of 70000. `--gpu-force` narrows on the CPU's
+threshold too, which is how that is tested where there is no GPU.
+
 ## The fused kernel
 
 `SPOTFINDER_GPU_FUSED=1` runs the three stages as one CUDA kernel

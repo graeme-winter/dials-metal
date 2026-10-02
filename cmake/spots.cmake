@@ -508,6 +508,13 @@ if(SPOTFINDER_TESTS)
     target_include_directories(mxi_import PRIVATE src apps)
     target_include_directories(mxi_import SYSTEM PRIVATE ${HDF5_C_INCLUDE_DIRS})
 
+    # The largest count on a valid pixel, and whether it fits in 16 bits.
+    add_executable(mxi_max ${CMAKE_CURRENT_SOURCE_DIR}/apps/mxi_max.cc)
+    target_link_libraries(mxi_max
+                          PRIVATE mxi spotfinder_series spotfinder_decompress
+                                  spotfinder_warnings)
+    target_include_directories(mxi_max PRIVATE src src/spots apps)
+
     # How fast the images can be read and decompressed, apart from the
     # programs: H5Dread_chunk against pread. Not used by the pipeline.
     add_executable(mxi_readtest ${CMAKE_CURRENT_SOURCE_DIR}/apps/mxi_readtest.cc)

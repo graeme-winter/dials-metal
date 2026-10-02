@@ -77,6 +77,8 @@ struct Options {
   std::string experiments;            // -e: what dials.import wrote
   std::string output = "strong.refl"; // -o
   bool gpu = false;
+  bool gpu_force =
+      false; // 32-bit frames narrowed to 16 bits, for a GPU of 16 only
   bool timing = false;
   bool shoeboxes = true;
   bool two_d = false;
@@ -129,6 +131,15 @@ void usage(const char *program, std::FILE *to = stderr) {
       "                     the threads, against the time they had\n"
       "  -g, --gpu          run the threshold on the GPU; 16-bit only under\n"
       "                     Metal, which has no double precision\n"
+      "  --gpu-force        32-bit frames narrowed to 16 bits, so that a GPU "
+      "of\n"
+      "                     16 bits only takes them: the bad-pixel marker to\n"
+      "                     the 16-bit one, every other count as it is, "
+      "stopping "
+      "at\n"
+      "                     one of 0xFFFD or more. mxi_max says whether a "
+      "series\n"
+      "                     fits. The same spots as the 32-bit threshold\n"
       "  --no-shoeboxes     leave out the pixel data, which is most of the\n"
       "                     file and is not needed for indexing\n"
       "  --min-spot-size N  contiguous pixels a spot needs (3)\n"
@@ -148,6 +159,25 @@ void usage(const char *program, std::FILE *to = stderr) {
 
 //: Whether a file is JSON, as an experiment list is: its first character that
 //: is not white space an opening brace. A file that cannot be read is not.
+//: A 32-bit frame as 16 bits, for --gpu-force: the bad-pixel marker, all ones,
+//: to the 16-bit marker, every other count as it is. One pass with no branch,
+//: which the compiler makes SIMD; false, with the count, if a valid pixel holds
+//: 0xFFFD or more, which 16 bits cannot carry apart from the markers.
+bool narrow_to_16(const std::uint8_t *in, std::size_t n,
+                  std::uint8_t *out_bytes, std::uint32_t *offending) {
+  const std::uint32_t *pixels = reinterpret_cast<const std::uint32_t *>(in);
+  std::uint16_t *out = reinterpret_cast<std::uint16_t *>(out_bytes);
+  std::uint32_t worst = 0;
+  for (std::size_t i = 0; i < n; ++i) {
+    const std::uint32_t v = pixels[i];
+    const bool bad = v == 0xFFFFFFFFu;
+    worst = std::max(worst, bad ? 0u : v);
+    out[i] = bad ? std::uint16_t{0xFFFF} : static_cast<std::uint16_t>(v);
+  }
+  *offending = worst;
+  return worst < 0xFFFDu;
+}
+
 bool looks_like_json(const std::string &path) {
   std::FILE *file = std::fopen(path.c_str(), "rb");
   if (file == nullptr)
@@ -187,6 +217,8 @@ bool parse_options(int argc, char **argv, Options *options) {
           stderr,
           "warning: -gpu is now --gpu, or -g; the old spelling will go\n");
       options->gpu = true;
+    } else if (flag == "--gpu-force") {
+      options->gpu_force = true;
     } else if (flag == "--gpu" || flag == "-g") {
       options->gpu = true;
     } else if (flag == "--timing") {
@@ -718,6 +750,7 @@ int main(int argc, char **argv) {
       }
 
       FrameBuffer buffer;
+      FrameBuffer narrowed; // --gpu-force: a 32-bit frame as 16 bits
       series::Frame frame;
       std::string key;
       while (queue.pop(&key)) {
@@ -741,12 +774,29 @@ int main(int argc, char **argv) {
             const double d1 = mxi::Timing::now();
             t_decompress.add(d1 - d0);
             found.number = frame.number;
-            switch (frame.bit_depth) {
+            unsigned depth = frame.bit_depth;
+            const std::uint8_t *thresholded = pixels;
+            if (options.gpu_force && depth == 32) {
+              std::uint8_t *const into = narrowed.get(height * width * 2);
+              std::uint32_t offending = 0;
+              if (!narrow_to_16(pixels, height * width, into, &offending))
+                throw std::runtime_error(
+                    "image " + std::to_string(frame.number + 1) +
+                    " has a count of " + std::to_string(offending) +
+                    ", too large for 16 bits: --gpu-force cannot take this "
+                    "data "
+                    "(mxi_max says which series fit)");
+              thresholded = into;
+              depth = 16;
+            }
+            switch (depth) {
             case 16:
-              threshold<std::uint16_t>(pixels, &found.pixels, height, width);
+              threshold<std::uint16_t>(thresholded, &found.pixels, height,
+                                       width);
               break;
             case 32:
-              threshold<std::uint32_t>(pixels, &found.pixels, height, width);
+              threshold<std::uint32_t>(thresholded, &found.pixels, height,
+                                       width);
               break;
             default:
               throw std::runtime_error("the threshold does not support " +

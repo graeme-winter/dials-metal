@@ -138,7 +138,8 @@ Where a program works in parallel it uses every core by default; `-j` or
 `-DSPOTFINDER_METAL=ON` (Apple silicon) or `-DSPOTFINDER_CUDA=ON` (NVIDIA), two
 steps can use the GPU. `mxi_find --gpu` runs the threshold there, with the same
 spots as the CPU (16-bit images only under Metal, which has no double
-precision). `mxi_integrate --gpu` fits profiles there, in single precision
+precision; for 32-bit images whose counts never reach 0xFFFD -- `mxi_max` says
+-- `--gpu-force` narrows them to 16 bits, the same spots). `mxi_integrate --gpu` fits profiles there, in single precision
 where the CPU's fit is double -- the same arithmetic run on the CPU puts its
 intensities a median of 9e-6 sigma from the double fit's, none above 0.1 sigma,
 on a 300 image sweep -- and on the 16M sweep above took integration from 20.0 s
@@ -272,6 +273,7 @@ For looking inside it:
 | `mxi_grid` | spot density in Kabsch space, and spot widths across the face |
 | `mxi_forward` | the model rendered onto the pixels, against the data |
 | `mxi_background` | the robust background fitted to pixel values from a file |
+| `mxi_max` | the largest count on a valid pixel of a series, and whether it fits in 16 bits -- for `mxi_find --gpu-force` |
 | `mxi_readtest` | how fast the images read and decompress, apart from the programs: `--direct-chunk` through HDF5 as they read, or `--pread` outside its lock, a checksum to show both read the same |
 
 And `mxeq`, which judges the output: `check` compares two pipelines at a

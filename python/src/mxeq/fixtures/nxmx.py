@@ -98,7 +98,9 @@ def make_frames(frames: int, spots: list[dict]) -> np.ndarray:
     return np.clip(np.rint(stack), 0, 65533).astype(np.uint16)
 
 
-def write_data_file(path: str, stack: np.ndarray, skip: int | None) -> None:
+def write_data_file(
+    path: str, stack: np.ndarray, skip: int | None
+) -> None:  # noqa: D401
     """One chunk per frame, bitshuffle compressed, written frame by frame.
 
     Frame by frame rather than in one write so that a skipped frame leaves its
@@ -109,7 +111,7 @@ def write_data_file(path: str, stack: np.ndarray, skip: int | None) -> None:
         dataset = handle.create_dataset(
             "data",
             shape=stack.shape,
-            dtype=np.uint16,
+            dtype=stack.dtype,
             chunks=(1, stack.shape[1], stack.shape[2]),
             **hdf5plugin.Bitshuffle(nelems=0, cname="lz4"),
         )
@@ -119,7 +121,9 @@ def write_data_file(path: str, stack: np.ndarray, skip: int | None) -> None:
             dataset[index] = stack[index]
 
 
-def write_master(path: str, files: list[str], frames_each: list[int]) -> None:
+def write_master(
+    path: str, files: list[str], frames_each: list[int], dtype=np.uint16
+) -> None:
     with h5py.File(path, "w") as handle:
         entry = handle.create_group("entry")
         entry.attrs["NX_class"] = np.bytes_("NXentry")
@@ -127,11 +131,11 @@ def write_master(path: str, files: list[str], frames_each: list[int]) -> None:
         data.attrs["NX_class"] = np.bytes_("NXdata")
 
         total = sum(frames_each)
-        layout = h5py.VirtualLayout(shape=(total, HEIGHT, WIDTH), dtype=np.uint16)
+        layout = h5py.VirtualLayout(shape=(total, HEIGHT, WIDTH), dtype=dtype)
         at = 0
         for name, count in zip(files, frames_each):
             source = h5py.VirtualSource(
-                name, "data", shape=(count, HEIGHT, WIDTH), dtype=np.uint16
+                name, "data", shape=(count, HEIGHT, WIDTH), dtype=dtype
             )
             layout[at : at + count] = source
             at += count
@@ -172,8 +176,20 @@ def write_expt(path: str, frames: int) -> str:
 
 
 def main(argv: list[str]) -> int:
-    args = [argument for argument in argv[1:] if not argument.startswith("--")]
+    args = [
+        argument
+        for argument in argv[1:]
+        if not argument.startswith("--") and argument != "32"
+    ]
     holey = "--holey" in argv
+    # --bits 32: 32-bit pixels, as many detectors write, with a module gap's
+    # column of the bad-pixel marker between the spots; --hot one real count
+    # too large for 16 bits. For mxi_max and mxi_find --gpu-force.
+    bits = 32 if "--bits=32" in argv or ("--bits" in argv and "32" in argv) else 16
+    hot = "--hot" in argv
+    if bits != 32 and hot:
+        print("--hot is for 32-bit series")
+        return 2
     if not args:
         print(__doc__)
         return 2
@@ -186,6 +202,11 @@ def main(argv: list[str]) -> int:
     os.makedirs(directory, exist_ok=True)
     spots = planted_spots(frames)
     stack = make_frames(frames, spots)
+    if bits == 32:
+        stack = stack.astype(np.uint32)
+        stack[:, :, 44] = np.uint32(0xFFFFFFFF)  # a gap between the spots
+        if hot:
+            stack[frames // 2, 10, 10] = np.uint32(70000)
 
     # Two data files, so that the virtual dataset has more than one mapping and
     # the unpacking is exercised rather than assumed.
@@ -205,7 +226,7 @@ def main(argv: list[str]) -> int:
         write_data_file(os.path.join(directory, name), stack[at : at + count], skip)
         at += count
 
-    write_master(os.path.join(directory, "series.nxs"), names, counts)
+    write_master(os.path.join(directory, "series.nxs"), names, counts, stack.dtype)
     identifier = write_expt(os.path.join(directory, "series.expt"), frames)
 
     # What the finder should report. A reflection that spans the missing frame
@@ -250,7 +271,7 @@ def main(argv: list[str]) -> int:
     print(
         f"{directory}: {frames} frames of {HEIGHT} x {WIDTH}, "
         f"{len(spots)} reflections over {SPAN} frames each, "
-        f"{len(expected)} spots expected"
+        f"{len(expected)} spots expected, {bits} bit"
         + (f", frame {missing} never written" if missing is not None else "")
     )
     return 0
