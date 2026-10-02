@@ -85,6 +85,14 @@ run where there is none, byte-identical to the emulation.
 
 ### How work is done here
 
+* **What a program prints describes the data it was given.** Results from the
+  data this was developed on -- insulin's sigma_m, a MacBook's timings --
+  belong in the documents and the commit messages, never in output, where they
+  read as though they were about whatever is being processed: `mxi_profile`
+  printed insulin's DIALS values on every run. Comments and docstrings may cite
+  what was measured. `python/tests/test_output_names_no_data.py` holds the
+  programs to it.
+
 * **Commits** are authored and committed as Graeme Winter
   <graeme.winter@gmail.com>, with `Co-Authored-By: Claude <noreply@anthropic.com>`,
   and a message that says what was found and how it was checked.

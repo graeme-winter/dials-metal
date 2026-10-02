@@ -208,14 +208,13 @@ int run_program(int argc, char **argv) {
                   "  ended, not that the model held.\n");
     }
     // Said here rather than only in the documentation, because a number that
-    // disagrees with DIALS and does not say so is worse than no number.
-    std::printf(
-        "\nNOTE: neither number agrees with dials.integrate exactly. On 1800\n"
-        "images of insulin it records sigma_b = 0.031698 and sigma_m =\n"
-        "0.097667, against 0.027393 here and 0.118552. See\n"
-        "docs/integration.md: every pixel here is mapped through the same\n"
-        "px-to-mm correction that s1 was built with, which is demonstrably\n"
-        "right and takes sigma_b further from DIALS, not closer.\n");
+    // disagrees with DIALS and does not say so is worse than no number -- but
+    // in terms true of any data. It quoted one data set's numbers, insulin's,
+    // whatever it was given.
+    std::printf("\nNOTE: these are not computed as dials.integrate computes "
+                "its own, and\n"
+                "will not agree with it exactly; docs/integration.md says how "
+                "and why.\n");
     timing.add("computing, printing and writing", Timing::now() - mark);
     timing.report(stdout);
     return 0;
