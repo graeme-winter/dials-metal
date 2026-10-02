@@ -194,8 +194,9 @@ reporting a near-total disagreement in intensity.
 
 The `.refl` format is validated against real `dials.find_spots` and
 `mxi_find` output, and `tests/data` holds a 48-row cut of it so
-that is checked on every run. `.expt` is exercised only against synthetic
-files so far.
+that is checked on every run. `.expt` is read from real `dials.import`,
+`mxi_import` and `mxi_scale` output by `compare-expt` and `equivalents`, and
+`tests/test_import.py` holds `mxi_import`'s against `dials.import`'s.
 
 The first version of the reader was wrong about the format in two ways and its
 entire test suite passed, because the only format check was a round-trip

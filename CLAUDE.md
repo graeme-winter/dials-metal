@@ -48,40 +48,58 @@ was found.
 
 ## Handover: where the work stands
 
-STATUS: written 30 September 2026, 288 commits, for a new session to pick up
-from -- paused here at Graeme's word. `docs/outstanding.md` is the list of open
-work; this section is what is in flight and how the work is done here.
+STATUS: written 2 October 2026, 308 commits, for a new session to pick up
+from. `docs/outstanding.md` is the list of open work; this section is what is in
+flight and how the work is done here.
 
-**The chain is complete for one sweep**: `mxi_find`, `mxi_index`, `mxi_refine`,
+**The chain is complete for one sweep and needs nothing of DIALS**:
+`mxi_import` (`docs/import.md`), `mxi_find`, `mxi_index`, `mxi_refine`,
 `mxi_integrate`, `mxi_symmetry`, `mxi_scale`, each interchangeable with DIALS at
-its boundary, each with `--timing` (`src/timing.hh`). `mxi_refine` is
-scan-varying by default, one control point per 10 degrees. On the 3600 images of an EIGER2 XE 16M sweep -- `ins10_1.nxs` of https://zenodo.org/records/8376818 -- on an M4 Max MacBook, the chain from the images to scaled data, `mxi_find -j 16 --gpu`, `mxi_index`, `mxi_refine --beam --analytic`, `mxi_integrate --gpu`, `mxi_symmetry` and `mxi_scale --d-min-auto`, takes 36.6 s of wall time and 3m42 of CPU (30 September 2026).
+its boundary, each with `--timing` and every core by default. `mxi_refine` is
+scan-varying by default, one control point per 10 degrees. On the 3600 images
+of an EIGER2 XE 16M sweep (zenodo 8376818) on an M4 Max MacBook, with `--gpu`
+for finding and integrating, the chain takes 36.6 s of wall time.
 
-**Recent, measured on Graeme's MacBook:** one pass over the images (integration
-19.4 s against two passes' 28.4, 2.66 GB held); `mxi_scale` 5.3 s to 2.9 (the
-thread pool, the error model's search, gathering); prediction 8.1 s to 0.09 on
-a partial sweep (pruned, byte-identical); `mxi_integrate --gpu` on Metal, 14.6 s
-against the CPU's 20.0 (`docs/gpu.md`).
+**Done since the last handover:** `mxi_import`, right on DECTRIS's and
+redhorn-archive's masters, and on insulin the same as dials.import but for the
+exposure time; `mxeq compare-expt`, its check against dials.import;
+`mxi_find EXPT` as dials.find_spots takes it; `mxi_scale --anomalous`, Friedel
+mates apart -- merged, a planted anomalous signal inflated the error model's a
+and had a fifth of the observations rejected; `mxi_symmetry` on every thread
+(ferritin 17 s to 7.0); `--max-boxes` growing with the threads (ferritin's
+integration 8 s faster); a SIMD fill, which helped nothing where memory binds
+but is kept; `mxeq equivalents`, integration's bias measured against the data's
+own equivalents, and from the partials a suggested sigma_m.
+
+**What equivalents found:** partials high and our sigma_m too wide are likely
+one problem (items 1, 3) -- on insulin the partials suggest 0.082 to 0.086
+degrees, DIALS has 0.089, we have 0.129; and gap-crossers are 3 to 5 per cent
+low, in profile fitting only (item 2). Graeme is gathering data sets to test the
+sigma_m suggestion across them.
 
 **In flight, waiting on Graeme's hardware** -- none can run here:
 
-* **CUDA profile fitting** (`src/fit_cuda.cu`): ran on the RTX 4060 before the
-  pinned upload, the new kernel, the overlap and the packing in place, and was
-  slower than 32 CPU threads then. Rerun `--gpu --timing` against the default.
 * **The fused CUDA threshold** (`SPOTFINDER_GPU_FUSED=1`, `src/spots/dext_fused.hh`,
   `docs/spots.md`): verified tile by tile on the CPU, compiled for compute
   capability 8.9, never run. `SPOTFINDER_GPU_FUSED=1 ctest -R dext_gpu`, then
   `cmp` its `mxi_find` output against the three kernels' and compare `--timing`.
+* **`mxi_import` across data sets** (item 49): dials.import and mxi_import on
+  each master, `mxeq compare-expt`, and what differs made right.
+
+**Measured and settled:** CUDA profile fitting on the RTX 4060, 94.7 s against
+103.8 on dense ferritin -- the device nearly idle, the cost moving 177 GB to it.
+HDF5's lock is not what limits reading (`mxi_readtest`: 11 s either way, item
+48); with every thread busy, reading on the 16 core Ryzen is bound by memory.
 
 **Paused, and the decision it waits on:** background and summation on a device
 (item 47) -- a CPU pass over `integrate_shoebox` first, or the device with the
 one-pass loop pipelined and summation in single precision.
 
-**Removed, and why:** reading frames with pread around HDF5's lock made the
-MacBook's integration 10 s slower (item 46). The GPU path's emulation,
-`--gpu-emulate`, is for testing, not speed -- it runs the kernels' algorithm on
-the CPU -- and `MXI_FIT_FAKE_DEVICE=1` makes the integrator's path for a device
-run where there is none, byte-identical to the emulation.
+**Removed, and why:** reading frames with pread around HDF5's lock (item 46)
+and not zeroing shoeboxes on opening (item 48): each byte-identical, neither
+faster where it mattered. The GPU path's emulation, `--gpu-emulate`, is for
+testing, not speed, and `MXI_FIT_FAKE_DEVICE=1` makes the integrator's path for
+a device run where there is none.
 
 ### How work is done here
 

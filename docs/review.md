@@ -1,6 +1,7 @@
 # Reviewing this code: a guide for DIALS developers
 
-STATUS: written 30 September 2026 for external review. It says what this is,
+STATUS: written 30 September 2026 for external review, brought up to date 2
+October 2026. It says what this is,
 how to build and run it on your own data, where the code for each step lives,
 what follows DIALS and where it departs from it, and how correctness has been
 established. Every claim points at the document with the evidence;
@@ -39,7 +40,7 @@ Its size, excluding third-party code: the library 15350 lines in `src/` and the
 spot finder 6339 in `src/spots/`; eleven programs in 4273 lines in `apps/`, and
 `mxi_find` in `src/spots/find_spots.cc`; C++ tests 14465 lines; a Python package
 of comparison tools, `mxeq`, 5950 lines, with 2852 of tests; 5400 lines of
-documents. Some 288 commits over three weeks.
+documents. Some 308 commits over three weeks.
 
 ## Building it and running it on your data
 
@@ -47,18 +48,20 @@ documents. Some 288 commits over three weeks.
 git clone --recursive <this repository> && cd dials-metal
 cmake -S . -B build && cmake --build build -j
 (cd build && ctest)              # the ctest suites, the spot finder's among them
-build/mxi_tests                  # 279 unit tests
+build/mxi_tests                  # 282 unit tests
 ```
 
 Add `-DSPOTFINDER_METAL=ON` or `-DSPOTFINDER_CUDA=ON` for the GPU threshold and profile fitting,
 `-DMXI_FFTW=ON` for FFTW. The `README.md` has the details and the dependencies
 by platform.
 
-The chain on your own data needs only `dials.import`'s `imported.expt`; every
+The chain on your own data needs nothing of DIALS -- `mxi_import` reads the
+NXmx master, and `dials.import`'s `imported.expt` serves as well; every
 program answers `--help`, takes `--timing`, and mirrors its output to
 `mxi_<program>.log`:
 
 ```sh
+mxi_import    master.nxs                                 # imported.expt
 mxi_find      imported.expt -o strong.refl               # --gpu for the GPU
 mxi_index     imported.expt strong.refl                  # indexed.expt, .refl
 mxi_refine    indexed.expt indexed.refl --analytic   # scan-varying, one point per 10 degrees
@@ -81,6 +84,7 @@ takes 36.6 s of wall time and 3m42 of CPU (30 September 2026).
 
 | step | library | program | reference document |
 |---|---|---|---|
+| import | `nxmx_import` (the NXmx geometry, its transformation chains) | `mxi_import` | `docs/import.md` |
 | spot finding | `src/spots/` -- `dext.cc` the threshold on the CPU, `dext_metal.cc` and `dext_cuda.cu` on the GPU, `dext_fused.hh` a fused CUDA kernel, `decompress.cc`, `nxmx.cc`, `find_spots.cc` the program | `mxi_find` | `docs/spots.md` |
 | geometry | `geometry` (models, conventions), `predict`, `derivatives`, `derivatives_t` | | `docs/conventions.md` |
 | indexing | `index` (3D FFT), `fft`, `fft_fftw` | `mxi_index` | `CLAUDE.md`, indexing sections; `docs/gpu.md`, Indexing |
@@ -202,6 +206,10 @@ numbered list):
   constrained to the lattice's symmetry, in refinement.
 * Reports and export: an HTML report and MTZ / mmCIF output are not written;
   `dials.merge` takes the scaled table.
+* **Known biases in integration**, measured by `mxeq equivalents` against the
+  data's own symmetry equivalents (`python/README.md`): partials high, likely
+  because the profile model's sigma_m is too wide, and reflections crossing a
+  module gap low in profile fitting (`docs/outstanding.md`, items 1 to 3).
 
 ## What this work found in DIALS
 

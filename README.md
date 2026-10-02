@@ -282,6 +282,11 @@ integrations differ; `residuals` shows how well positions were predicted; and
 
 ## Where it stands
 
+**The chain needs nothing of DIALS.** `mxi_import` (`docs/import.md`) writes the
+experiment list from an NXmx master as `dials.import` does -- on insulin the same
+in every model but the exposure time -- and `mxeq compare-expt` checks it against
+`dials.import` on each new data set.
+
 **Indexing and refinement are done and agree with DIALS.** On 1800 images of
 insulin, given the same reflections, refinement reproduces `dials.refine`'s
 detector distance to two microns and its cell to six thousandths of an
@@ -291,10 +296,13 @@ against finite differences and are six times faster.
 **Integration works and agrees with DIALS through scaling.** On 1800 images
 of insulin `dials.scale` gives Rmerge 0.038 and Rpim 0.009 on this output and on
 DIALS' alike; on a 3600 image Eiger 16M sweep the merging statistics are close
-to DIALS'. Judged by their own symmetry equivalents, reflections crossing a
-module gap come out better here than in DIALS. The 16M sweep -- 1.08 million
-reflections -- integrates in 37 seconds on 16 threads. `docs/integration.md` is
-the reference, and lists what is still open.
+to DIALS'. The 16M sweep -- 1.08 million
+reflections -- integrates in 19.4 s on a MacBook's 16 threads, 14.6 with
+profile fitting on its GPU. `docs/integration.md` is the reference, and lists
+what is still open -- among it two biases `mxeq equivalents` measures against the
+data's own equivalents: partials high, likely because our sigma_m is too wide
+(the partials suggest DIALS's value), and reflections crossing a module gap 3 to
+5 per cent low in profile fitting.
 
 **Symmetry and scaling are written for one sweep.** `mxi_symmetry`
 (`docs/symmetry.md`) chooses the Laue group as dials.symmetry does and the space
@@ -315,11 +323,11 @@ RTX 4060, whose kernels are its limit; a fused CUDA kernel for that is written
 and verified on the CPU, not yet run (`docs/spots.md`, and item 35 of
 `docs/outstanding.md`).
 
-**A device port is designed but not written.** `docs/gpu.md`. The target
-evaluation is 88 to 106 per cent of refinement time, the work is one
-independent thread per reflection and parameter, and float32 holds seven digits
-in an analytical derivative and none at all in a finite difference -- which is
-why the analytical ones exist.
+**Profile fitting runs on the GPU too**, `mxi_integrate --gpu`, in single
+precision, overlapped with reading frames: on the MacBook's Metal the 16M sweep's
+integration takes 14.6 s against the CPU's 20.0; on CUDA it is a smaller gain,
+the cost moving the boxes to the device. A device port of the refinement target
+is designed and not written. `docs/gpu.md` has the measurements and the plan.
 
 **What is open is one list**, `docs/outstanding.md`, grouped by where the work
 is and marked where a number is known to be wrong; `docs/README.md` says what
